@@ -8,13 +8,11 @@
 
 ### Backend
 - **Framework**: Django 4.2+ with Django REST Framework
-- **Database**: PostgreSQL 14+
+- **Database**: PostgreSQL 14+ in cloud AZURE
 - **Authentication**: JWT (djangorestframework-simplejwt)
 - **Payment Integration**: M-Pesa Daraja API
-- **File Storage**: Django storages with cloud storage (AWS S3/DigitalOcean Spaces)
 - **Email**: Django Email with SMTP backend
 - **Documentation**: Django REST Swagger
-
 ### Frontend
 - **Framework**: React 18+ with javascript
 - **Styling**: Tailwind CSS 3+
@@ -31,10 +29,11 @@
 - **Caching**: Redis
 - **File Storage**: Cloud storage solution
 - **CI/CD**: Jenkins
+- **API Testing**: Postman (Frontend to use some mock servers)
 
 ## File architecture
 
-# Backend side
+### Backend side
 
 ```
 makao_rentals_backend/
@@ -50,34 +49,31 @@ makao_rentals_backend/
 │   │   ├── models.py
 │   │   ├── views.py
 │   │   ├── serializers.py
-│   │   ├── urls.py
-│   │   └── tests.py
+│   │   └── urls.py
 │   ├── landlords/
 │   │   ├── models.py
 │   │   ├── views.py
 │   │   ├── serializers.py
-│   │   ├── urls.py
-│   │   └── tests.py
+│   │   └── urls.py
 │   ├── payments/
 │   │   ├── models.py
 │   │   ├── views.py
 │   │   ├── serializers.py
-│   │   ├── urls.py
-│   │   └── tests.py
+│   │   └── urls.py
 │   ├── maintenance/
 │   │   ├── models.py
 │   │   ├── views.py
 │   │   ├── serializers.py
-│   │   ├── urls.py
-│   │   └── tests.py
+│   │   └── urls.py
 │   └── communication/
 │       ├── models.py
 │       ├── views.py
 │       ├── serializers.py
-│       ├── urls.py
-│       └── tests.py
+│       └── urls.py
 ├── requirements.txt
 ├── Dockerfile
 ├── docker-compose.yml
 └── README.md
 ```
+### Project Plan
+For a detailed project plan, refer to [makau_rentals_plan.md](makau_rentals_plan.md).
