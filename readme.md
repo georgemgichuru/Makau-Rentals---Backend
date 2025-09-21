@@ -1,4 +1,4 @@
-# Makao Rentals
+# Makau Rentals
 
 ## Project Overview
 
@@ -76,4 +76,4 @@ makao_rentals_backend/
 └── README.md
 ```
 ### Project Plan
-For a detailed project plan, refer to [makau_rentals_plan.md](makau_rentals_plan.md).
+For a detailed project plan, refer to [makau_rentals_plan.md](makao_rentals_plan.md).
