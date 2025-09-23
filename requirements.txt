@@ -1,8 +1,8 @@
 djangorestframework==3.14.0
 djangorestframework-simplejwt==5.2.2
 django-redis==5.4.0
-mpesa-daraja==1.0.5
 redis==5.0.4
+python-decouple
 django==4.2.7
 requests==2.31.0
 gunicorn
