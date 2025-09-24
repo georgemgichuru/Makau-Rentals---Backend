@@ -43,6 +43,9 @@ We will make payments easily here and store the info to our database.
 
 Redis for cache for faster dashboard data unless the database was updated recently.
 
+#### Contracts
+
+
 ### COMMUNICATION
 **How it will work**
 The tenant can want to send a message to the landlord and due to project constraints we will not implement TCP for secure end to end messages. We will use only mails for messages which is unrelliable but will work for the mean time.
