@@ -1,8 +1,8 @@
-from django.shortcuts import render
-from serializers import UserSerializer
+from serializers import UserSerializer,PasswordResetSerializer
 from models import CustomUser
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework import status
 from serializers import PropertySerializer, UnitSerializer
 from rest_framework.permissions import IsAuthenticated, login_required
 from models import Property, Unit
@@ -90,4 +90,14 @@ class AssignTenantToUnitView(APIView):
             return Response({"error": "Unit not found"}, status=404)
         except CustomUser.DoesNotExist:
             return Response({"error": "Tenant not found or invalid user type"}, status=404)
+
+# View to handle password reset requests
+class PasswordResetView(APIView):
+    def post(self, request):
+        serializer = PasswordResetSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response({"message": "Password reset email sent."}, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
 

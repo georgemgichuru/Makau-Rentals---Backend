@@ -1,6 +1,12 @@
 from accounts.models import CustomUser,Property, Unit   
 from rest_framework import serializers
 
+from django.contrib.auth.tokens import default_token_generator
+from django.utils.http import urlsafe_base64_encode
+from django.utils.encoding import force_bytes
+from django.core.mail import send_mail
+
+
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = CustomUser
@@ -48,5 +54,30 @@ class UnitSerializer(serializers.ModelSerializer):
 
 # TODO: Ensure landlords create properties and units upon sign up this will be done in the frontend
 # TODO: Ensure Tenants pay the deposit to book a unit and choose their property upon sign up
-# TODO: Ensure Landlords approve their tenants before they can pay rent upon tenant sign up
 # TODO: Ensure Tenants and Landlords can reset their passwords and get email notifications for important actions 
+
+
+# For reset password functionality
+class PasswordResetSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+
+    def validate_email(self, value):
+        if not CustomUser.objects.filter(email=value).exists():
+            raise serializers.ValidationError("User with this email does not exist.")
+        return value
+
+    def save(self):
+        email = self.validated_data['email']
+        user = CustomUser.objects.get(email=email)
+        uid = urlsafe_base64_encode(force_bytes(user.pk))
+        token = default_token_generator.make_token(user)
+        # Assuming you have a frontend URL to handle password resets
+        # TODO: Update the frontend URL
+        reset_link = f"http://yourfrontend.com/reset-password/{uid}/{token}/" 
+
+        send_mail(
+            subject="Password Reset Request",
+            message=f"Click the link to reset your password: {reset_link}",
+            from_email=None,
+            recipient_list=[email],
+        )

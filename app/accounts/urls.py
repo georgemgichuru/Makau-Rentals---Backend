@@ -3,7 +3,7 @@ from rest_framework_simplejwt.views import (
     TokenRefreshView,
 )
 from django.urls import path
-from .views import UserDetailView, UserListView, UserCreateView 
+from .views import UserDetailView, UserListView, UserCreateView, PasswordResetView, CreatePropertyView, LandlordPropertiesView, CreateUnitView
 
 urlpatterns = [
     # Signup endpoint for new users
@@ -15,4 +15,12 @@ urlpatterns = [
     # JWT authentication endpoints for login and token refresh
     path('token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    # Endpoint for password reset requests
+    path('password-reset/', PasswordResetView.as_view(), name='password-reset'),
+    # Endpoint to create a new property (landlord only)
+    path('properties/create/', CreatePropertyView.as_view(), name='create-property'),
+    # Endpoint to list all properties of the logged-in landlord
+    path('properties/', LandlordPropertiesView.as_view(), name='landlord-properties'),
+    # Endpoint to create a new unit under a property (landlord only)
+    path('units/create/', CreateUnitView.as_view(), name='create-unit'),
 ]
