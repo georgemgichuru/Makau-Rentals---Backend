@@ -1,5 +1,45 @@
 from django.db import models
-from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
+from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin,BaseUserManager
+
+class CustomUserManager(BaseUserManager):
+    def create_user(self, email, first_name, last_name, user_type, password=None, **extra_fields):
+        if not email:
+            raise ValueError("The Email field must be set")
+        if not user_type:
+            raise ValueError("User type must be set (landlord or tenant)")
+
+        email = self.normalize_email(email)
+        user = self.model(
+            email=email,
+            first_name=first_name,
+            last_name=last_name,
+            user_type=user_type,
+            **extra_fields
+        )
+        user.set_password(password)
+        user.save(using=self._db)
+        return user
+
+    def create_superuser(self, email, first_name, last_name, password=None, **extra_fields):
+        extra_fields.setdefault("is_staff", True)
+        extra_fields.setdefault("is_superuser", True)
+        # set default user_type if not provided
+        user_type = extra_fields.pop("user_type", "landlord")
+
+        if extra_fields.get("is_staff") is not True:
+            raise ValueError("Superuser must have is_staff=True.")
+        if extra_fields.get("is_superuser") is not True:
+            raise ValueError("Superuser must have is_superuser=True.")
+
+        return self.create_user(
+            email=email,
+            first_name=first_name,
+            last_name=last_name,
+            user_type=user_type,
+            password=password,
+            **extra_fields
+        )
+
 # Create your models here.
 class CustomUser(AbstractBaseUser, PermissionsMixin):
     email = models.EmailField(unique=True)
@@ -14,6 +54,7 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
 
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS = ['first_name', 'last_name']
+    objects = CustomUserManager() 
 
     def __str__(self):
         return self.email and self.user_type and self.first_name and self.last_name
@@ -29,7 +70,7 @@ class Property(models.Model):
         return f" {self.name}, {self.landlord}, {self.city}"
     
 class Unit(models.Model):
-    property = models.ForeignKey(property, on_delete=models.CASCADE)
+    property = models.ForeignKey(Property, on_delete=models.CASCADE)
     unit_number = models.CharField(max_length=10)
     floor = models.IntegerField()
     bedrooms = models.IntegerField()

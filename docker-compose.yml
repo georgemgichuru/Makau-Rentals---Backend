@@ -4,9 +4,10 @@ services:
   web:
     build: .
     container_name: makau_rentals
+    working_dir: /app
     command: gunicorn app.wsgi:application --bind 0.0.0.0:8000 --reload
     volumes:
-      - ./:/app
+      - ./app:/app
       - static_volume:/app/static
       - media_volume:/app/media
     expose:

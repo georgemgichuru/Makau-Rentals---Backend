@@ -1,11 +1,10 @@
-from serializers import UserSerializer,PasswordResetSerializer
-from models import CustomUser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework import status
-from serializers import PropertySerializer, UnitSerializer
-from rest_framework.permissions import IsAuthenticated, login_required
-from models import Property, Unit
+from accounts.serializers import PropertySerializer, UnitSerializer,UserSerializer,PasswordResetSerializer
+from rest_framework.permissions import IsAuthenticated
+from django.contrib.auth.decorators import login_required
+from .models import Property, Unit,CustomUser
 from .permissions import IsLandlord, IsTenant
 
 
