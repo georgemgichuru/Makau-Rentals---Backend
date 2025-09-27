@@ -18,7 +18,7 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     def __str__(self):
         return self.email and self.user_type and self.first_name and self.last_name
     
-class property(models.Model):
+class Property(models.Model):
     landlord = models.ForeignKey(CustomUser, on_delete=models.CASCADE)
     name = models.CharField(max_length=255)
     city = models.CharField(max_length=100)
@@ -28,7 +28,7 @@ class property(models.Model):
     def __str__(self):
         return f" {self.name}, {self.landlord}, {self.city}"
     
-class unit(models.Model):
+class Unit(models.Model):
     property = models.ForeignKey(property, on_delete=models.CASCADE)
     unit_number = models.CharField(max_length=10)
     floor = models.IntegerField()
