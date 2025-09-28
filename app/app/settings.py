@@ -18,11 +18,18 @@ import os
 from celery.schedules import crontab
 
 CELERY_BEAT_SCHEDULE = {
-    "monthly-rent-reminder": {
-        "task": "app.tasks.notify_tenants_task",
-        "schedule": crontab(day_of_month=1, hour=9, minute=0),  # 1st of every month at 9 AM
+    # Tenants get notified daily at 9 AM
+    "daily-rent-due-check": {
+        "task": "app.tasks.notify_due_rent_task",
+        "schedule": crontab(hour=9, minute=0),
+    },
+    # Landlords get a daily summary at 9:30 AM
+    "daily-landlord-summary": {
+        "task": "app.tasks.landlord_summary_task",
+        "schedule": crontab(hour=9, minute=30),
     },
 }
+
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent

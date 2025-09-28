@@ -8,4 +8,5 @@ requests==2.31.0
 gunicorn
 psycopg2-binary
 africastalking
+django-crontab
 celery[redis]

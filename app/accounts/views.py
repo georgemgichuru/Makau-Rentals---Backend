@@ -204,3 +204,89 @@ class PasswordResetView(APIView):
                 {"message": "Password reset email sent."}, status=status.HTTP_200_OK
             )
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+# View to update the Property details (landlord only) and Unit details (landlord only) and delete
+class UpdatePropertyView(APIView):
+    permission_classes = [IsAuthenticated, IsLandlord]
+
+    def put(self, request, property_id):
+        try:
+            property = Property.objects.get(id=property_id, landlord=request.user)
+            serializer = PropertySerializer(property, data=request.data, partial=True)
+            if serializer.is_valid():
+                serializer.save()
+                cache.delete(f"landlord:{request.user.id}:properties")
+                return Response(serializer.data)
+            return Response(serializer.errors, status=400)
+        except Property.DoesNotExist:
+            return Response({"error": "Property not found or you do not have permission"}, status=404)
+
+    def delete(self, request, property_id):
+        try:
+            property = Property.objects.get(id=property_id, landlord=request.user)
+            property.delete()
+            cache.delete(f"landlord:{request.user.id}:properties")
+            return Response({"message": "Property deleted successfully."}, status=200)
+        except Property.DoesNotExist:
+            return Response({"error": "Property not found or you do not have permission"}, status=404)
+class UpdateUnitView(APIView):
+    permission_classes = [IsAuthenticated, IsLandlord]
+
+    def put(self, request, unit_id):
+        try:
+            unit = Unit.objects.get(id=unit_id, property__landlord=request.user)
+            serializer = UnitSerializer(unit, data=request.data, partial=True)
+            if serializer.is_valid():
+                serializer.save()
+                cache.delete(f"landlord:{request.user.id}:properties")
+                cache.delete(f"property:{unit.property.id}:units")
+                return Response(serializer.data)
+            return Response(serializer.errors, status=400)
+        except Unit.DoesNotExist:
+            return Response({"error": "Unit not found or you do not have permission"}, status=404)
+
+    def delete(self, request, unit_id):
+        try:
+            unit = Unit.objects.get(id=unit_id, property__landlord=request.user)
+            property_id = unit.property.id
+            unit.delete()
+            cache.delete(f"landlord:{request.user.id}:properties")
+            cache.delete(f"property:{property_id}:units")
+            return Response({"message": "Unit deleted successfully."}, status=200)
+        except Unit.DoesNotExist:
+            return Response({"error": "Unit not found or you do not have permission"}, status=404)
+
+# view to update user details (landlord and tenant) and to delete the user account (landlord and tenant)
+class UpdateUserView(APIView):  
+    permission_classes = [IsAuthenticated]
+
+    def put(self, request, user_id):
+        if request.user.id != user_id:
+            return Response({"error": "You do not have permission to update this user."}, status=403)
+        try:
+            user = CustomUser.objects.get(id=user_id)
+            serializer = UserSerializer(user, data=request.data, partial=True)
+            if serializer.is_valid():
+                serializer.save()
+                cache.delete(f"user:{user_id}")
+                if user.user_type == "tenant":
+                    cache.delete("tenants:list")
+                return Response(serializer.data)
+            return Response(serializer.errors, status=400)
+        except CustomUser.DoesNotExist:
+            return Response({"error": "User not found"}, status=404)
+
+    def delete(self, request, user_id):
+        if request.user.id != user_id:
+            return Response({"error": "You do not have permission to delete this user."}, status=403)
+        try:
+            user = CustomUser.objects.get(id=user_id)
+            user.delete()
+            cache.delete(f"user:{user_id}")
+            if user.user_type == "tenant":
+                cache.delete("tenants:list")
+            return Response({"message": "User deleted successfully."}, status=200)
+        except CustomUser.DoesNotExist:
+            return Response({"error": "User not found"}, status=404)
+        
+# TODO: Add url routes for the new views in urls.py, Update user view, Update property view, Update unit view, Assign tenant to unit view, Property units view

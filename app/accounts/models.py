@@ -1,5 +1,5 @@
 from django.db import models
-from django.contrib.auth.models import AbstractBaseUser, BaseUserManager
+from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.utils import timezone
 from datetime import timedelta
 
@@ -54,7 +54,7 @@ class CustomUserManager(BaseUserManager):
         )
 
 
-class CustomUser(AbstractBaseUser):
+class CustomUser(AbstractBaseUser,PermissionsMixin):
     email = models.EmailField(unique=True)
     first_name = models.CharField(max_length=30)
     last_name = models.CharField(max_length=30)
@@ -111,36 +111,32 @@ class Property(models.Model):
     name = models.CharField(max_length=255)
     city = models.CharField(max_length=100)
     state = models.CharField(max_length=100)
-    units = models.IntegerField()
+    unit_count = models.IntegerField()   # keep this as the integer count
 
     def __str__(self):
         return f"{self.name}, {self.city}"
 
-
+# TODO: Ensure that the landlord can only have a certain amount of units linked to property unit count
 class Unit(models.Model):
-    property = models.ForeignKey(Property, on_delete=models.CASCADE)
+    property_obj = models.ForeignKey(
+        Property,
+        on_delete=models.CASCADE,
+        related_name="unit_list",   # changed from "units" to avoid clash
+        db_column="property_id"
+    )
     unit_number = models.CharField(max_length=10)
     floor = models.IntegerField()
     bedrooms = models.IntegerField()
     bathrooms = models.IntegerField()
 
-    # Define the rent amount for the unit 
-    # This field represents the total rent amount for the unit and is not nullable.
-    # Only Landlords can set this field.
     rent = models.DecimalField(max_digits=10, decimal_places=2)
-
     tenant = models.OneToOneField(CustomUser, on_delete=models.SET_NULL, null=True, blank=True)
 
-    # Track rent paid and remaining amounts
-    # These fields help in managing the rent payments for the unit.
-    # Rent paid is the amount already paid by the tenant, while rent remaining is the outstanding amount.
     rent_paid = models.DecimalField(max_digits=10, decimal_places=2)
     rent_remaining = models.DecimalField(max_digits=10, decimal_places=2)
+    rent_due_date = models.DateField()
 
-    # Deposit is the amount for booking the unit and is required at the time of booking.
     deposit = models.DecimalField(max_digits=10, decimal_places=2)
-
-    # Availability status of the unit
     is_available = models.BooleanField(default=True)
 
     @property
@@ -148,7 +144,8 @@ class Unit(models.Model):
         return self.rent_remaining - self.rent_paid
 
     def __str__(self):
-        return f"{self.property.name} - Unit {self.unit_number}"
+        return f"{self.property_obj.name} - Unit {self.unit_number}"
+
 
 
 # REMINDER: payments is shown in the Unit model as rent_paid and rent_remaining
