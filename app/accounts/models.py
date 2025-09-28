@@ -40,6 +40,12 @@ class CustomUserManager(BaseUserManager):
             **extra_fields
         )
 
+SUBSCRIPTION_CHOICES = [
+    ('free', 'Free'),
+    ('premium', 'Premium'),
+    ('enterprise', 'Enterprise'),
+]
+
 # Create your models here.
 class CustomUser(AbstractBaseUser):
     email = models.EmailField(unique=True)
@@ -52,12 +58,21 @@ class CustomUser(AbstractBaseUser):
     is_staff = models.BooleanField(default=False)
     is_superuser = models.BooleanField(default=False)
 
+    # Subscription fields
+    subscription_type = models.CharField(max_length=20, choices=SUBSCRIPTION_CHOICES, null=True, blank=True)
+    subscription_expiry = models.DateTimeField(null=True, blank=True)
+
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS = ['first_name', 'last_name']
     objects = CustomUserManager() 
 
+    def has_active_subscription(self):
+        return self.subscription_expiry and self.subscription_expiry > timezone.now()
+
     def __str__(self):
         return self.email and self.user_type and self.first_name and self.last_name
+    
+
     
 class Property(models.Model):
     landlord = models.ForeignKey(CustomUser, on_delete=models.CASCADE)
@@ -90,5 +105,13 @@ class Unit(models.Model):
     # Availability status of the unit
     is_available = models.BooleanField(default=True)
 
+    @property
+    def balance(self):
+        return self.rent_remaining - self.rent_paid
+
     def __str__(self):
         return f"{self.property.name} - Unit {self.unit_number}"
+    
+# REMINDER: payments is shown in the Unit model as rent_paid and rent_remaining
+# TODO: Protect the subscription features using a decorator or middleware to ensure only subscribed users can access them
+# TODO: Ensure payments for subscription and rent are two different things

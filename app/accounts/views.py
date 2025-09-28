@@ -66,18 +66,48 @@ class UserCreateView(APIView):
         return Response(serializer.errors, status=400)
 
 
-# Create a new property (invalidate landlord cache)
-# View to create a new property (landlord only)
 class CreatePropertyView(APIView):
     permission_classes = [IsAuthenticated, IsLandlord]
 
     def post(self, request):
+        user = request.user
+
+        # Fetch current subscription
+        try:
+            subscription = Subscription.objects.get(user=user)
+        except Subscription.DoesNotExist:
+            return Response({"error": "No active subscription found."}, status=403)
+
+        # Define plan limits
+        PLAN_LIMITS = {
+            "basic": 2,
+            "medium": 5,
+            "premium": 10,
+        }
+
+        plan = subscription.plan.lower()
+        max_properties = PLAN_LIMITS.get(plan)
+
+        if max_properties is None:
+            return Response({"error": f"Unknown plan type: {plan}"}, status=400)
+
+        # Count current properties
+        current_count = Property.objects.filter(landlord=user).count()
+
+        if current_count >= max_properties:
+            return Response({
+                "error": f"Your current plan ({plan}) allows a maximum of {max_properties} properties. Upgrade to add more."
+            }, status=403)
+
+        # Proceed with creation
         serializer = PropertySerializer(data=request.data)
         if serializer.is_valid():
-            property = serializer.save(landlord=request.user)
-            cache.delete(f"landlord:{request.user.id}:properties")
+            property = serializer.save(landlord=user)
+            cache.delete(f"landlord:{user.id}:properties")
             return Response(serializer.data, status=201)
+
         return Response(serializer.errors, status=400)
+
 
 
 # List landlord properties (cached)

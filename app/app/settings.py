@@ -14,6 +14,15 @@ from pathlib import Path
 from datetime import timedelta
 from decouple import config
 import os
+# For scheduling automatic sending messages to tenants every month
+from celery.schedules import crontab
+
+CELERY_BEAT_SCHEDULE = {
+    "monthly-rent-reminder": {
+        "task": "app.tasks.notify_tenants_task",
+        "schedule": crontab(day_of_month=1, hour=9, minute=0),  # 1st of every month at 9 AM
+    },
+}
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -43,6 +52,7 @@ INSTALLED_APPS = [
     #dependencies
     'rest_framework',
     'rest_framework_simplejwt',
+    "django_crontab",
     #local apps
     'accounts',
     'communication',
@@ -177,4 +187,11 @@ MPESA_CONSUMER_SECRET = config('MPESA_CONSUMER_SECRET')
 MPESA_SHORTCODE = config('MPESA_SHORTCODE') 
 MPESA_PASSKEY = config('MPESA_PASSKEY')
 MPESA_CALLBACK_URL = config('MPESA_CALLBACK_URL')
+# Celery configuration
+CELERY_BROKER_URL = "redis://redis:6379/0"   # adjust if your docker-compose uses another host
+CELERY_RESULT_BACKEND = "redis://redis:6379/0"
+
+
+# TODO: Run celery using the following commands -> celery -A your_project worker -l info
+# celery -A your_project beat -l info
 

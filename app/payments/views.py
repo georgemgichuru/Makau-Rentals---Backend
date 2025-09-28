@@ -110,3 +110,46 @@ def mpesa_callback(request):
     return JsonResponse({"ResultCode": 0, "ResultDesc": "Accepted"})
 
 
+from django.utils import timezone
+from datetime import timedelta
+from django.http import JsonResponse
+from accounts.models import CustomUser
+from .models import SubscriptionPayment
+
+def mpesa_callback(request):
+    data = request.POST  # or request.body if JSON
+    phone = data.get('PhoneNumber')
+    amount = float(data.get('Amount'))
+    receipt = data.get('MpesaReceiptNumber')
+
+    user = CustomUser.objects.filter(user_type='landlord', phone_number=phone).first()
+    if not user:
+        return JsonResponse({'error': 'Landlord not found'}, status=404)
+
+    # Determine subscription type
+    if amount == 500:
+        sub_type = 'basic'
+        duration = timedelta(days=30)
+    elif amount == 1000:
+        sub_type = 'premium'
+        duration = timedelta(days=60)
+    elif amount == 2000:
+        sub_type = 'enterprise'
+        duration = timedelta(days=90)
+    else:
+        return JsonResponse({'error': 'Invalid amount'}, status=400)
+
+    # Save payment
+    SubscriptionPayment.objects.create(
+        user=user,
+        amount=amount,
+        mpesa_receipt_number=receipt,
+        subscription_type=sub_type
+    )
+
+    # Update user subscription
+    user.subscription_type = sub_type
+    user.subscription_expiry = timezone.now() + duration
+    user.save()
+
+    return JsonResponse({'message': 'Subscription updated successfully'})

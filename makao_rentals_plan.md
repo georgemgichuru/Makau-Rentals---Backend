@@ -65,3 +65,9 @@ Day 4 - Finish Up Payment System
 Day 5 - Setup Communication System
 
 Day 6 - Finish Up Payment System
+
+## CURRENT STATE
+
+so currently we cannot make payments using card because of the following reasons:
+ 1. We need a way to send the money directly to the landlords which is hard to implement.
+ 2. We have not found a reliable service for conducting this.
