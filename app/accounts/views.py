@@ -9,7 +9,7 @@ from accounts.serializers import (
 )
 from rest_framework.permissions import IsAuthenticated
 from django.core.cache import cache
-from .models import Property, Unit, CustomUser
+from .models import Property, Unit, CustomUser, Subscription
 from .permissions import IsLandlord, IsTenant
 
 
@@ -66,34 +66,39 @@ class UserCreateView(APIView):
         return Response(serializer.errors, status=400)
 
 
+# Create a new property (invalidate landlord cache)
+# View to create a new property (landlord only) 
+PLAN_LIMITS = {
+    "free": 2,      # trial landlords can only create 2 properties
+    "basic": 2,
+    "medium": 5,
+    "premium": 10,
+}
 class CreatePropertyView(APIView):
     permission_classes = [IsAuthenticated, IsLandlord]
 
     def post(self, request):
         user = request.user
 
-        # Fetch current subscription
+        # Fetch subscription
         try:
             subscription = Subscription.objects.get(user=user)
         except Subscription.DoesNotExist:
             return Response({"error": "No active subscription found."}, status=403)
 
-        # Define plan limits
-        PLAN_LIMITS = {
-            "basic": 2,
-            "medium": 5,
-            "premium": 10,
-        }
-
         plan = subscription.plan.lower()
-        max_properties = PLAN_LIMITS.get(plan)
 
+        # Check if subscription is active
+        if not subscription.is_active():
+            return Response({"error": "Your subscription has expired. Please renew or upgrade."}, status=403)
+
+        # Get plan limit
+        max_properties = PLAN_LIMITS.get(plan)
         if max_properties is None:
             return Response({"error": f"Unknown plan type: {plan}"}, status=400)
 
         # Count current properties
         current_count = Property.objects.filter(landlord=user).count()
-
         if current_count >= max_properties:
             return Response({
                 "error": f"Your current plan ({plan}) allows a maximum of {max_properties} properties. Upgrade to add more."
@@ -103,12 +108,10 @@ class CreatePropertyView(APIView):
         serializer = PropertySerializer(data=request.data)
         if serializer.is_valid():
             property = serializer.save(landlord=user)
-            cache.delete(f"landlord:{user.id}:properties")
+            cache.delete(f"landlord:{user.id}:properties")  # clear cache if you’re caching landlord properties
             return Response(serializer.data, status=201)
 
         return Response(serializer.errors, status=400)
-
-
 
 # List landlord properties (cached)
 # View to list all properties of a landlord (landlord only)
