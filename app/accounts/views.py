@@ -1,102 +1,173 @@
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework import status
-from accounts.serializers import PropertySerializer, UnitSerializer,UserSerializer,PasswordResetSerializer
+from accounts.serializers import (
+    PropertySerializer,
+    UnitSerializer,
+    UserSerializer,
+    PasswordResetSerializer,
+)
 from rest_framework.permissions import IsAuthenticated
-from django.contrib.auth.decorators import login_required
-from .models import Property, Unit,CustomUser
+from django.core.cache import cache
+from .models import Property, Unit, CustomUser
 from .permissions import IsLandlord, IsTenant
 
 
-#Lists all users both tenants and landlords
+# Lists a single user (cached)
+# View to get user details
 class UserDetailView(APIView):
-    permission_classes = [IsAuthenticated, login_required]
-    def get(self, request, user_id):
-        try:
-            user = CustomUser.objects.get(id=user_id)
-            serializer = UserSerializer(user)
-            return Response(serializer.data)
-        except CustomUser.DoesNotExist:
-            return Response({"error": "User not found"}, status=404)
+    permission_classes = [IsAuthenticated]
 
-# To list the list of all users
-# TODO: List only for admin users and list only tenants for landlords
+    def get(self, request, user_id):
+        cache_key = f"user:{user_id}"
+        user_data = cache.get(cache_key)
+
+        if not user_data:
+            try:
+                user = CustomUser.objects.get(id=user_id)
+                serializer = UserSerializer(user)
+                user_data = serializer.data
+                cache.set(cache_key, user_data, timeout=300)  # cache for 5 minutes
+            except CustomUser.DoesNotExist:
+                return Response({"error": "User not found"}, status=404)
+
+        return Response(user_data)
+
+
+# Lists all tenants (cached)
+# View to list all tenants (landlord only)
 class UserListView(APIView):
-    permission_classes = [IsAuthenticated, login_required, IsLandlord]
+    permission_classes = [IsAuthenticated, IsLandlord]
+
     def get(self, request):
-        tenants = CustomUser.objects.filter(user_type='tenant')
-        serializer = UserSerializer(tenants, many=True)
-        return Response(serializer.data)
-    
-# To create a new user basically for registration
+        cache_key = "tenants:list"
+        tenants_data = cache.get(cache_key)
+
+        if not tenants_data:
+            tenants = CustomUser.objects.filter(user_type="tenant")
+            serializer = UserSerializer(tenants, many=True)
+            tenants_data = serializer.data
+            cache.set(cache_key, tenants_data, timeout=300)
+
+        return Response(tenants_data)
+
+
+# Create a new user (invalidate cache)
+# Viwew to create a new user Landlord or Tenant
 class UserCreateView(APIView):
     def post(self, request):
         serializer = UserSerializer(data=request.data)
         if serializer.is_valid():
-            serializer.save()
+            user = serializer.save()
+            # Invalidate tenant list cache if a tenant was created
+            if user.user_type == "tenant":
+                cache.delete("tenants:list")
             return Response(serializer.data, status=201)
         return Response(serializer.errors, status=400)
 
-# View to create a new property
+
+# Create a new property (invalidate landlord cache)
+# View to create a new property (landlord only)
 class CreatePropertyView(APIView):
-    permission_classes = [IsAuthenticated, login_required, IsLandlord]
+    permission_classes = [IsAuthenticated, IsLandlord]
+
     def post(self, request):
         serializer = PropertySerializer(data=request.data)
         if serializer.is_valid():
-            serializer.save(landlord=request.user)  # Assuming the user is authenticated
-            return Response(serializer.data, status=201)
-        return Response(serializer.errors, status=400)
-# View to list all properties of a landlord
-class LandlordPropertiesView(APIView):
-    permission_classes = [IsAuthenticated, login_required, IsLandlord]
-    def get(self, request):
-        properties = Property.objects.filter(landlord=request.user)
-        serializer = PropertySerializer(properties, many=True)
-        return Response(serializer.data)
-#Class to create a new unit under a property
-class CreateUnitView(APIView):
-    permission_classes = [IsAuthenticated, login_required, IsLandlord]
-    def post(self, request):
-        serializer = UnitSerializer(data=request.data)
-        if serializer.is_valid():
-            serializer.save()  # Assuming the user is authenticated
+            property = serializer.save(landlord=request.user)
+            cache.delete(f"landlord:{request.user.id}:properties")
             return Response(serializer.data, status=201)
         return Response(serializer.errors, status=400)
 
-# Class to list all units of a property
+
+# List landlord properties (cached)
+# View to list all properties of a landlord (landlord only)
+class LandlordPropertiesView(APIView):
+    permission_classes = [IsAuthenticated, IsLandlord]
+
+    def get(self, request):
+        cache_key = f"landlord:{request.user.id}:properties"
+        properties_data = cache.get(cache_key)
+
+        if not properties_data:
+            properties = Property.objects.filter(landlord=request.user)
+            serializer = PropertySerializer(properties, many=True)
+            properties_data = serializer.data
+            cache.set(cache_key, properties_data, timeout=300)
+
+        return Response(properties_data)
+
+
+# Create a new unit (invalidate landlord cache)
+# View to create a new unit in a property (landlord only)
+class CreateUnitView(APIView):
+    permission_classes = [IsAuthenticated, IsLandlord]
+
+    def post(self, request):
+        serializer = UnitSerializer(data=request.data)
+        if serializer.is_valid():
+            unit = serializer.save()
+            cache.delete(f"landlord:{request.user.id}:properties")
+            return Response(serializer.data, status=201)
+        return Response(serializer.errors, status=400)
+
+
+# List units of a property (cached)
+# View to list all units of a property (landlord only)
 class PropertyUnitsView(APIView):
-    permission_classes = [IsAuthenticated, login_required, IsLandlord]
+    permission_classes = [IsAuthenticated, IsLandlord]
+
     def get(self, request, property_id):
-        try:
-            property = Property.objects.get(id=property_id, landlord=request.user)
-            units = Unit.objects.filter(property=property)
-            serializer = UnitSerializer(units, many=True)
-            return Response(serializer.data)
-        except Property.DoesNotExist:
-            return Response({"error": "Property not found or you do not have permission"}, status=404)
-# Class to associate tenants to landlords via units so we enter them to the unit model
+        cache_key = f"property:{property_id}:units"
+        units_data = cache.get(cache_key)
+
+        if not units_data:
+            try:
+                property = Property.objects.get(id=property_id, landlord=request.user)
+                units = Unit.objects.filter(property=property)
+                serializer = UnitSerializer(units, many=True)
+                units_data = serializer.data
+                cache.set(cache_key, units_data, timeout=300)
+            except Property.DoesNotExist:
+                return Response(
+                    {"error": "Property not found or you do not have permission"},
+                    status=404,
+                )
+
+        return Response(units_data)
+
+
+# Assign tenant to unit (invalidate cache)
+# View to assign a tenant to a unit (tenant only)
 class AssignTenantToUnitView(APIView):
-    permission_classes = [IsAuthenticated, login_required, IsTenant]
+    permission_classes = [IsAuthenticated, IsTenant]
+
     def post(self, request, unit_id, tenant_id):
         try:
             unit = Unit.objects.get(id=unit_id)
-            tenant = CustomUser.objects.get(id=tenant_id, user_type='tenant')
+            tenant = CustomUser.objects.get(id=tenant_id, user_type="tenant")
             unit.tenant = tenant
-            unit.is_available = False  # Mark the unit as not available
+            unit.is_available = False
             unit.save()
+            # Invalidate property units cache
+            cache.delete(f"property:{unit.property.id}:units")
             return Response({"message": "Tenant assigned to unit successfully"})
         except Unit.DoesNotExist:
             return Response({"error": "Unit not found"}, status=404)
         except CustomUser.DoesNotExist:
-            return Response({"error": "Tenant not found or invalid user type"}, status=404)
+            return Response(
+                {"error": "Tenant not found or invalid user type"}, status=404
+            )
 
-# View to handle password reset requests
+
+# Password reset (no caching needed)
+# view for password reset
 class PasswordResetView(APIView):
     def post(self, request):
         serializer = PasswordResetSerializer(data=request.data)
         if serializer.is_valid():
             serializer.save()
-            return Response({"message": "Password reset email sent."}, status=status.HTTP_200_OK)
+            return Response(
+                {"message": "Password reset email sent."}, status=status.HTTP_200_OK
+            )
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-

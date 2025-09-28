@@ -166,15 +166,15 @@ EMAIL_PORT = 587
 EMAIL_USE_TLS = True
 # TODO: Use environment variables or Django decouple to manage sensitive info
 # TODO: Creaete a dedicated email for the application
-EMAIL_HOST_USER = 'your_email@gmail.com'
-EMAIL_HOST_PASSWORD = 'your_app_password'
+EMAIL_HOST_USER = config('EMAIL_HOST_USER')
+EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD')
 
 # Mpesa Configuration
 # TODO: Update these settings with your actual Mpesa credentials
 MPESA_ENV = "sandbox"  # or "production"
-MPESA_CONSUMER_KEY = "your_consumer_key"
-MPESA_CONSUMER_SECRET = "your_consumer_secret"
-MPESA_SHORTCODE = "your_shortcode"
-MPESA_PASSKEY = "your_passkey"
-MPESA_CALLBACK_URL = "https://yourdomain.com/api/mpesa/callback/"
+MPESA_CONSUMER_KEY = config('MPESA_CONSUMER_KEY')
+MPESA_CONSUMER_SECRET = config('MPESA_CONSUMER_SECRET')
+MPESA_SHORTCODE = config('MPESA_SHORTCODE') 
+MPESA_PASSKEY = config('MPESA_PASSKEY')
+MPESA_CALLBACK_URL = config('MPESA_CALLBACK_URL')
 

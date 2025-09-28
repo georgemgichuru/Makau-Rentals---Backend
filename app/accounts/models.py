@@ -41,7 +41,7 @@ class CustomUserManager(BaseUserManager):
         )
 
 # Create your models here.
-class CustomUser(AbstractBaseUser, PermissionsMixin):
+class CustomUser(AbstractBaseUser):
     email = models.EmailField(unique=True)
     first_name = models.CharField(max_length=30)
     last_name = models.CharField(max_length=30)
