@@ -309,7 +309,6 @@ class UpdateUserView(APIView):
 
 # View to check subscription status (landlord only)
 @login_required
-@IsLandlord
 def subscription_status(request):
     landlord = request.user
     subscription = Subscription.objects.filter(user=landlord).first()

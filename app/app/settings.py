@@ -60,6 +60,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework_simplejwt',
     "django_crontab",
+    'corsheaders',
     #local apps
     'accounts',
     'communication',
@@ -74,6 +75,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
 ]
 
 ROOT_URLCONF = 'app.urls'
@@ -92,6 +94,10 @@ TEMPLATES = [
         },
     },
 ]
+
+# for CORS handling 
+# TODO: Update CORS settings for production use
+CORS_ALLOW_ALL_ORIGINS = True
 
 WSGI_APPLICATION = 'app.wsgi.application'
 

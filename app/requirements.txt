@@ -10,3 +10,4 @@ psycopg2-binary
 africastalking
 django-crontab
 celery[redis]
+django-cors-headers
