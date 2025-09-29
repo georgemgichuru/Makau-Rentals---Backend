@@ -11,6 +11,8 @@ from django.http import JsonResponse
 from django.contrib.auth.decorators import login_required
 from django.views.decorators.csrf import csrf_exempt
 from django.utils import timezone
+from django.core.cache import cache
+from django.shortcuts import get_object_or_404
 
 from accounts.models import CustomUser, Subscription, Property, Unit
 from .models import Unit, Payment, SubscriptionPayment
@@ -33,10 +35,26 @@ def stk_push(request, unit_id):
     Initiates an M-Pesa STK Push for a tenant's rent payment.
     - Creates a pending Payment record
     - Calls Safaricom STK Push API
+    - Uses Redis for rate limiting and duplicate request prevention
     """
     try:
+        # Rate limiting: Check if user has made too many requests
+        rate_limit_key = f"stk_push_rate_limit:{request.user.id}"
+        recent_requests = cache.get(rate_limit_key, 0)
+        
+        if recent_requests >= 5:  # Max 5 requests per minute
+            return JsonResponse({"error": "Too many requests. Please try again later."}, status=429)
+        
+        # Update rate limit counter
+        cache.set(rate_limit_key, recent_requests + 1, timeout=60)
+
         # Ensure the unit belongs to the logged-in tenant
         unit = Unit.objects.get(id=unit_id, tenant=request.user)
+
+        # Check for duplicate pending payment
+        duplicate_key = f"pending_payment:{request.user.id}:{unit_id}"
+        if cache.get(duplicate_key):
+            return JsonResponse({"error": "A payment request is already pending for this unit."}, status=400)
 
         # Create a pending payment record
         payment = Payment.objects.create(
@@ -46,8 +64,18 @@ def stk_push(request, unit_id):
             status="Pending"
         )
 
-        # Generate access token
-        access_token = generate_access_token()
+        # Mark payment as pending in Redis (5-minute expiry)
+        cache.set(duplicate_key, payment.id, timeout=300)
+
+        # Generate access token (with Redis caching)
+        access_token_cache_key = "mpesa_access_token"
+        access_token = cache.get(access_token_cache_key)
+        
+        if not access_token:
+            access_token = generate_access_token()
+            # Cache access token for 55 minutes (MPESA tokens expire in 1 hour)
+            cache.set(access_token_cache_key, access_token, timeout=3300)
+
         timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
         password = base64.b64encode(
             (settings.MPESA_SHORTCODE + settings.MPESA_PASSKEY + timestamp).encode("utf-8")
@@ -79,6 +107,8 @@ def stk_push(request, unit_id):
 
     except Unit.DoesNotExist:
         return JsonResponse({"error": "Unit not found or not assigned to you"}, status=404)
+    except Exception as e:
+        return JsonResponse({"error": f"Payment initiation failed: {str(e)}"}, status=500)
 
 
 # ------------------------------
@@ -90,6 +120,7 @@ def mpesa_rent_callback(request):
     Handles M-Pesa callback for rent payments.
     - Updates Payment status
     - Updates Unit rent balances
+    - Invalidates relevant caches
     """
     try:
         data = json.loads(request.body.decode("utf-8"))
@@ -117,12 +148,24 @@ def mpesa_rent_callback(request):
                     unit.rent_remaining = max(unit.rent - unit.rent_paid, 0)
                     unit.save()
 
+                    # Invalidate relevant caches
+                    cache.delete_many([
+                        f"pending_payment:{payment.tenant.id}:{unit.id}",
+                        f"payments:tenant:{payment.tenant.id}",
+                        f"payments:landlord:{unit.property.landlord.id}",
+                        f"rent_summary:{unit.property.landlord.id}",
+                        f"unit:{unit.id}:details"
+                    ])
+
+                    print(f"✅ Rent payment successful: {receipt} for payment {payment_id}")
+
                 except Payment.DoesNotExist:
                     print(f"Payment with id {payment_id} not found or already processed")
 
         else:
             # ❌ Transaction failed
-            print("Transaction failed:", body)
+            error_msg = body.get("ResultDesc", "Unknown error")
+            print(f"❌ Rent transaction failed: {error_msg}")
 
     except Exception as e:
         print("Error processing rent callback:", e)
@@ -140,6 +183,7 @@ def mpesa_subscription_callback(request):
     Handles M-Pesa callback for subscription payments.
     - Creates SubscriptionPayment record
     - Updates landlord's Subscription plan and expiry
+    - Invalidates subscription caches
     """
     try:
         data = json.loads(request.body.decode("utf-8"))
@@ -171,7 +215,7 @@ def mpesa_subscription_callback(request):
             sub_type, duration = plans[amount]
 
             # Save subscription payment
-            SubscriptionPayment.objects.create(
+            subscription_payment = SubscriptionPayment.objects.create(
                 user=user,
                 amount=amount,
                 mpesa_receipt_number=receipt,
@@ -185,8 +229,18 @@ def mpesa_subscription_callback(request):
             subscription.expiry_date = timezone.now() + duration
             subscription.save()
 
+            # Invalidate subscription-related caches
+            cache.delete_many([
+                f"subscription:{user.id}",
+                f"subscription_payments:{user.id}",
+                f"user:{user.id}:subscription_status"
+            ])
+
+            print(f"✅ Subscription payment successful: {receipt} for user {user.email}")
+
         else:
-            print("Subscription transaction failed:", body)
+            error_msg = body.get("ResultDesc", "Unknown error")
+            print(f"❌ Subscription transaction failed: {error_msg}")
 
     except Exception as e:
         print("Error processing subscription callback:", e)
@@ -195,94 +249,60 @@ def mpesa_subscription_callback(request):
 
 
 # ------------------------------
-# RENT PAYMENTS (DRF Views)
-# ------------------------------
-class PaymentListCreateView(generics.ListCreateAPIView):
-    """
-    GET: List all rent payments (can be filtered by tenant or unit).
-    POST: Create a new rent payment for a tenant.
-    """
-    queryset = Payment.objects.all().order_by('-transaction_date')
-    serializer_class = PaymentSerializer
-    permission_classes = [permissions.IsAuthenticated]
-
-    def perform_create(self, serializer):
-        """
-        Automatically associate the logged-in user if they are a tenant.
-        """
-        if self.request.user.user_type == "tenant":
-            serializer.save(tenant=self.request.user)
-        else:
-            serializer.save()
-
-
-class PaymentDetailView(generics.RetrieveAPIView):
-    """
-    GET: Retrieve details of a single rent payment by ID.
-    """
-    queryset = Payment.objects.all()
-    serializer_class = PaymentSerializer
-    permission_classes = [permissions.IsAuthenticated]
-
-
-# ------------------------------
-# SUBSCRIPTION PAYMENTS (DRF Views)
-# ------------------------------
-class SubscriptionPaymentListCreateView(generics.ListCreateAPIView):
-    """
-    GET: List all subscription payments (landlords only).
-    POST: Create a new subscription payment for a landlord.
-    """
-    queryset = SubscriptionPayment.objects.all().order_by('-transaction_date')
-    serializer_class = SubscriptionPaymentSerializer
-    permission_classes = [permissions.IsAuthenticated]
-
-    def perform_create(self, serializer):
-        """
-        Automatically associate the logged-in landlord with the subscription payment.
-        """
-        if self.request.user.user_type == "landlord":
-            serializer.save(user=self.request.user)
-        else:
-            raise PermissionError("Only landlords can make subscription payments.")
-
-
-class SubscriptionPaymentDetailView(generics.RetrieveAPIView):
-    """
-    GET: Retrieve details of a single subscription payment by ID.
-    """
-    queryset = SubscriptionPayment.objects.all()
-    serializer_class = SubscriptionPaymentSerializer
-    permission_classes = [permissions.IsAuthenticated]
-
-
-# ------------------------------
-# RENT PAYMENTS (DRF Views)
+# RENT PAYMENTS (DRF Views) - CACHED
 # ------------------------------
 class PaymentListCreateView(generics.ListCreateAPIView):
     """
     GET:
-      - Tenants: only see their own rent payments.
-      - Landlords: see all rent payments for units in their properties.
+      - Tenants: only see their own rent payments (cached)
+      - Landlords: see all rent payments for units in their properties (cached)
     POST:
-      - Only tenants can create a new rent payment.
+      - Only tenants can create a new rent payment
     """
     serializer_class = PaymentSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
         user = self.request.user
+        cache_key = f"payments:{user.user_type}:{user.id}"
+        
+        # Try to get cached data
+        cached_data = cache.get(cache_key)
+        if cached_data:
+            # Return a queryset-like object (we'll handle this in the serializer)
+            return Payment.objects.none()  # Serializer will use cached data
+        
+        # If not cached, fetch from database
         if user.user_type == "tenant":
-            # Tenant only sees their own payments
-            return Payment.objects.filter(tenant=user).order_by('-transaction_date')
+            queryset = Payment.objects.filter(tenant=user).order_by('-transaction_date')
         elif user.user_type == "landlord":
-            # Landlord sees all payments for units in properties they own
-            return Payment.objects.filter(unit__property__landlord=user).order_by('-transaction_date')
-        return Payment.objects.none()
+            queryset = Payment.objects.filter(unit__property__landlord=user).order_by('-transaction_date')
+        else:
+            queryset = Payment.objects.none()
+        
+        # Cache the results for 5 minutes
+        if queryset.exists():
+            cache.set(cache_key, PaymentSerializer(queryset, many=True).data, timeout=300)
+        
+        return queryset
+
+    def list(self, request, *args, **kwargs):
+        # Custom list method to handle cached data
+        user = self.request.user
+        cache_key = f"payments:{user.user_type}:{user.id}"
+        
+        cached_data = cache.get(cache_key)
+        if cached_data:
+            return Response(cached_data)
+        
+        return super().list(request, *args, **kwargs)
 
     def perform_create(self, serializer):
         if self.request.user.user_type == "tenant":
-            serializer.save(tenant=self.request.user)
+            payment = serializer.save(tenant=self.request.user)
+            # Invalidate cache after creation
+            cache.delete(f"payments:tenant:{self.request.user.id}")
+            cache.delete(f"payments:landlord:{payment.unit.property.landlord.id}")
         else:
             raise PermissionError("Only tenants can create rent payments.")
 
@@ -290,8 +310,8 @@ class PaymentListCreateView(generics.ListCreateAPIView):
 class PaymentDetailView(generics.RetrieveAPIView):
     """
     GET:
-      - Tenants: can only view their own payment details.
-      - Landlords: can view payment details for units in their properties.
+      - Tenants: can only view their own payment details (cached)
+      - Landlords: can view payment details for units in their properties (cached)
     """
     serializer_class = PaymentSerializer
     permission_classes = [permissions.IsAuthenticated]
@@ -304,17 +324,29 @@ class PaymentDetailView(generics.RetrieveAPIView):
             return Payment.objects.filter(unit__property__landlord=user)
         return Payment.objects.none()
 
+    def retrieve(self, request, *args, **kwargs):
+        payment_id = kwargs.get('pk')
+        cache_key = f"payment:{payment_id}:details"
+        
+        cached_data = cache.get(cache_key)
+        if cached_data:
+            return Response(cached_data)
+        
+        response = super().retrieve(request, *args, **kwargs)
+        cache.set(cache_key, response.data, timeout=300)
+        return response
+
 
 # ------------------------------
-# SUBSCRIPTION PAYMENTS (DRF Views)
+# SUBSCRIPTION PAYMENTS (DRF Views) - CACHED
 # ------------------------------
 class SubscriptionPaymentListCreateView(generics.ListCreateAPIView):
     """
     GET:
-      - Landlords: only see their own subscription payments.
-      - Tenants: no access.
+      - Landlords: only see their own subscription payments (cached)
+      - Tenants: no access
     POST:
-      - Only landlords can create subscription payments.
+      - Only landlords can create subscription payments
     """
     serializer_class = SubscriptionPaymentSerializer
     permission_classes = [permissions.IsAuthenticated]
@@ -325,9 +357,25 @@ class SubscriptionPaymentListCreateView(generics.ListCreateAPIView):
             return SubscriptionPayment.objects.filter(user=user).order_by('-transaction_date')
         return SubscriptionPayment.objects.none()
 
+    def list(self, request, *args, **kwargs):
+        user = self.request.user
+        if user.user_type != "landlord":
+            return Response({"error": "Only landlords can view subscription payments."}, status=403)
+        
+        cache_key = f"subscription_payments:{user.id}"
+        cached_data = cache.get(cache_key)
+        if cached_data:
+            return Response(cached_data)
+        
+        response = super().list(request, *args, **kwargs)
+        cache.set(cache_key, response.data, timeout=300)
+        return response
+
     def perform_create(self, serializer):
         if self.request.user.user_type == "landlord":
             serializer.save(user=self.request.user)
+            # Invalidate cache after creation
+            cache.delete(f"subscription_payments:{self.request.user.id}")
         else:
             raise PermissionError("Only landlords can make subscription payments.")
 
@@ -335,7 +383,7 @@ class SubscriptionPaymentListCreateView(generics.ListCreateAPIView):
 class SubscriptionPaymentDetailView(generics.RetrieveAPIView):
     """
     GET:
-      - Landlords: can only view their own subscription payment details.
+      - Landlords: can only view their own subscription payment details (cached)
     """
     serializer_class = SubscriptionPaymentSerializer
     permission_classes = [permissions.IsAuthenticated]
@@ -346,10 +394,22 @@ class SubscriptionPaymentDetailView(generics.RetrieveAPIView):
             return SubscriptionPayment.objects.filter(user=user)
         return SubscriptionPayment.objects.none()
 
+    def retrieve(self, request, *args, **kwargs):
+        payment_id = kwargs.get('pk')
+        cache_key = f"subscription_payment:{payment_id}:details"
+        
+        cached_data = cache.get(cache_key)
+        if cached_data:
+            return Response(cached_data)
+        
+        response = super().retrieve(request, *args, **kwargs)
+        cache.set(cache_key, response.data, timeout=300)
+        return response
+
 
 class RentSummaryView(APIView):
     """
-    Provides a financial summary for landlords:
+    Provides a financial summary for landlords (cached):
       - Total rent collected across all their properties
       - Total outstanding rent
       - Per-unit breakdown (unit number, tenant, paid, remaining)
@@ -361,6 +421,12 @@ class RentSummaryView(APIView):
 
         if user.user_type != "landlord":
             return Response({"error": "Only landlords can view rent summaries."}, status=403)
+
+        # Check cache first
+        cache_key = f"rent_summary:{user.id}"
+        cached_summary = cache.get(cache_key)
+        if cached_summary:
+            return Response(cached_summary)
 
         # Get all units owned by this landlord
         units = Unit.objects.filter(property__landlord=user)
@@ -390,7 +456,11 @@ class RentSummaryView(APIView):
             "total_collected": total_collected,
             "total_outstanding": total_outstanding,
             "units": unit_breakdown,
+            "last_updated": timezone.now().isoformat(),
         }
+
+        # Cache for 10 minutes
+        cache.set(cache_key, summary, timeout=600)
 
         return Response(summary)
 
@@ -398,30 +468,91 @@ class RentSummaryView(APIView):
 # ------------------------------
 # GENERATE RENT PAYMENTS CSV REPORT
 # ------------------------------
-# for landlord to download CSV of all units and their rent status
-from django.shortcuts import get_object_or_404
-
+@login_required
 def landlord_csv(request, property_id):
+    """
+    Generate CSV report for landlord with Redis caching for frequent requests
+    """
+    cache_key = f"landlord_csv:{property_id}:{request.user.id}"
+    cached_response = cache.get(cache_key)
+    
+    if cached_response:
+        response = HttpResponse(cached_response, content_type='text/csv')
+        response['Content-Disposition'] = 'attachment; filename="landlord_data.csv"'
+        return response
+
     property = get_object_or_404(Property, pk=property_id)
+    
+    # Verify the property belongs to the logged-in landlord
+    if property.landlord != request.user:
+        return HttpResponse("Unauthorized", status=403)
+    
     units = property.unit_list.all()
     response = HttpResponse(content_type='text/csv')
     response['Content-Disposition'] = 'attachment; filename="landlord_data.csv"'
 
     writer = csv.writer(response)
-    writer.writerow(['tenant','Unit Number', 'Floor', 'Bedrooms', 'Bathrooms', 'Rent', 'Rent Paid', 'Rent Remaining', 'Rent Due Date', 'Deposit', 'Is Available'])
+    writer.writerow(['Tenant', 'Unit Number', 'Floor', 'Bedrooms', 'Bathrooms', 'Rent', 'Rent Paid', 'Rent Remaining', 'Rent Due Date', 'Deposit', 'Is Available'])
+    
     for unit in units:
-        writer.writerow([unit.tenant,unit.unit_number, unit.floor, unit.bedrooms, unit.bathrooms, unit.rent, unit.rent_paid, unit.balance, unit.rent_due_date, unit.deposit, unit.is_available])
+        writer.writerow([
+            unit.tenant.email if unit.tenant else 'Vacant',
+            unit.unit_number, 
+            unit.floor, 
+            unit.bedrooms, 
+            unit.bathrooms, 
+            unit.rent, 
+            unit.rent_paid, 
+            unit.rent_remaining,  # Fixed: was unit.balance
+            unit.rent_due_date, 
+            unit.deposit, 
+            unit.is_available
+        ])
+
+    # Cache the CSV content for 5 minutes (for frequent downloads)
+    cache.set(cache_key, response.content, timeout=300)
 
     return response
 
-# for tenants to download CSV of their rent payment history
+
+@login_required
 def tenant_csv(request, unit_id):
+    """
+    Generate CSV report for tenant with Redis caching
+    """
+    cache_key = f"tenant_csv:{unit_id}:{request.user.id}"
+    cached_response = cache.get(cache_key)
+    
+    if cached_response:
+        response = HttpResponse(cached_response, content_type='text/csv')
+        response['Content-Disposition'] = 'attachment; filename="tenant_data.csv"'
+        return response
+
     unit = get_object_or_404(Unit, pk=unit_id)
+    
+    # Verify the unit belongs to the logged-in tenant
+    if unit.tenant != request.user:
+        return HttpResponse("Unauthorized", status=403)
+    
     response = HttpResponse(content_type='text/csv')
     response['Content-Disposition'] = 'attachment; filename="tenant_data.csv"'
 
     writer = csv.writer(response)
-    writer.writerow(['Unit Number', 'Floor', 'Bedrooms', 'Bathrooms', 'Rent', 'Rent Paid', 'Rent Remaining', 'Rent Due Date', 'Deposit'])
-    writer.writerow([unit.property_obj.name, unit.unit_number, unit.floor, unit.bedrooms, unit.bathrooms, unit.rent, unit.rent_paid, unit.balance, unit.rent_due_date, unit.deposit])
-    return response
+    writer.writerow(['Property', 'Unit Number', 'Floor', 'Bedrooms', 'Bathrooms', 'Rent', 'Rent Paid', 'Rent Remaining', 'Rent Due Date', 'Deposit'])
+    writer.writerow([
+        unit.property.name,  # Fixed: was unit.property_obj.name
+        unit.unit_number, 
+        unit.floor, 
+        unit.bedrooms, 
+        unit.bathrooms, 
+        unit.rent, 
+        unit.rent_paid, 
+        unit.rent_remaining,  # Fixed: was unit.balance
+        unit.rent_due_date, 
+        unit.deposit
+    ])
 
+    # Cache the CSV content for 5 minutes
+    cache.set(cache_key, response.content, timeout=300)
+
+    return response

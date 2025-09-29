@@ -5,7 +5,7 @@ from rest_framework_simplejwt.views import (
 from django.urls import path
 from .views import (UserDetailView, UserListView, UserCreateView, PasswordResetView, 
                     CreatePropertyView, LandlordPropertiesView, CreateUnitView,
-                    UpdatePropertyView,UpdateUnitView,UpdateUserView
+                    UpdatePropertyView,UpdateUnitView,UpdateUserView, subscription_status
 )
 urlpatterns = [
     # Signup endpoint for new users
@@ -31,4 +31,7 @@ urlpatterns = [
     path('units/<int:unit_id>/update/', UpdateUnitView.as_view(), name='update-unit'),
     # Endpoint to update user details (landlord and tenant)
     path('users/<int:user_id>/update/', UpdateUserView.as_view(), name='update-user'),
+    #Url to check subscription status
+    path('subscription_status/', subscription_status, name='subscription_status'),
+
 ]

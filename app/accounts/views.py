@@ -10,13 +10,16 @@ from accounts.serializers import (
 from rest_framework.permissions import IsAuthenticated
 from django.core.cache import cache
 from .models import Property, Unit, CustomUser, Subscription
-from .permissions import IsLandlord, IsTenant
+from .permissions import IsLandlord, IsTenant, require_subscription
+
+from django.http import HttpResponse
+from django.contrib.auth.decorators import login_required
 
 
 # Lists a single user (cached)
 # View to get user details
 class UserDetailView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, require_subscription]
 
     def get(self, request, user_id):
         cache_key = f"user:{user_id}"
@@ -37,7 +40,7 @@ class UserDetailView(APIView):
 # Lists all tenants (cached)
 # View to list all tenants (landlord only)
 class UserListView(APIView):
-    permission_classes = [IsAuthenticated, IsLandlord]
+    permission_classes = [IsAuthenticated, IsLandlord, require_subscription]
 
     def get(self, request):
         cache_key = "tenants:list"
@@ -53,7 +56,7 @@ class UserListView(APIView):
 
 
 # Create a new user (invalidate cache)
-# Viwew to create a new user Landlord or Tenant
+# View to create a new user Landlord or Tenant
 class UserCreateView(APIView):
     def post(self, request):
         serializer = UserSerializer(data=request.data)
@@ -75,7 +78,7 @@ PLAN_LIMITS = {
     "premium": 10,
 }
 class CreatePropertyView(APIView):
-    permission_classes = [IsAuthenticated, IsLandlord]
+    permission_classes = [IsAuthenticated, IsLandlord, require_subscription]
 
     def post(self, request):
         user = request.user
@@ -108,7 +111,7 @@ class CreatePropertyView(APIView):
         serializer = PropertySerializer(data=request.data)
         if serializer.is_valid():
             property = serializer.save(landlord=user)
-            cache.delete(f"landlord:{user.id}:properties")  # clear cache if you’re caching landlord properties
+            cache.delete(f"landlord:{user.id}:properties")  # clear cache if you're caching landlord properties
             return Response(serializer.data, status=201)
 
         return Response(serializer.errors, status=400)
@@ -116,7 +119,7 @@ class CreatePropertyView(APIView):
 # List landlord properties (cached)
 # View to list all properties of a landlord (landlord only)
 class LandlordPropertiesView(APIView):
-    permission_classes = [IsAuthenticated, IsLandlord]
+    permission_classes = [IsAuthenticated, IsLandlord, require_subscription]
 
     def get(self, request):
         cache_key = f"landlord:{request.user.id}:properties"
@@ -134,7 +137,7 @@ class LandlordPropertiesView(APIView):
 # Create a new unit (invalidate landlord cache)
 # View to create a new unit in a property (landlord only)
 class CreateUnitView(APIView):
-    permission_classes = [IsAuthenticated, IsLandlord]
+    permission_classes = [IsAuthenticated, IsLandlord, require_subscription]
 
     def post(self, request):
         serializer = UnitSerializer(data=request.data)
@@ -148,7 +151,7 @@ class CreateUnitView(APIView):
 # List units of a property (cached)
 # View to list all units of a property (landlord only)
 class PropertyUnitsView(APIView):
-    permission_classes = [IsAuthenticated, IsLandlord]
+    permission_classes = [IsAuthenticated, IsLandlord, require_subscription]
 
     def get(self, request, property_id):
         cache_key = f"property:{property_id}:units"
@@ -207,7 +210,7 @@ class PasswordResetView(APIView):
     
 # View to update the Property details (landlord only) and Unit details (landlord only) and delete
 class UpdatePropertyView(APIView):
-    permission_classes = [IsAuthenticated, IsLandlord]
+    permission_classes = [IsAuthenticated, IsLandlord, require_subscription]
 
     def put(self, request, property_id):
         try:
@@ -229,8 +232,9 @@ class UpdatePropertyView(APIView):
             return Response({"message": "Property deleted successfully."}, status=200)
         except Property.DoesNotExist:
             return Response({"error": "Property not found or you do not have permission"}, status=404)
+
 class UpdateUnitView(APIView):
-    permission_classes = [IsAuthenticated, IsLandlord]
+    permission_classes = [IsAuthenticated, IsLandlord, require_subscription]
 
     def put(self, request, unit_id):
         try:
@@ -258,7 +262,7 @@ class UpdateUnitView(APIView):
 
 # view to update user details (landlord and tenant) and to delete the user account (landlord and tenant)
 class UpdateUserView(APIView):  
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, require_subscription]
 
     def put(self, request, user_id):
         if request.user.id != user_id:
@@ -290,3 +294,14 @@ class UpdateUserView(APIView):
             return Response({"error": "User not found"}, status=404)
         
 # TODO: Add url routes for the new views in urls.py, Update user view, Update property view, Update unit view, Assign tenant to unit view, Property units view
+
+# View to check subscription status (landlord only)
+@login_required
+def subscription_status(request):
+    landlord = request.user
+    subscription = Subscription.objects.filter(user=landlord).first()
+    if subscription:
+        status = 'Subscribed' if subscription.is_active else 'Inactive'
+        return HttpResponse(f"Subscription Status: {status}")
+    else:
+        return HttpResponse("No subscription found")
