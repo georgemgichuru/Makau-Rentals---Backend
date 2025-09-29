@@ -2,6 +2,8 @@ import base64
 import datetime
 import json
 import requests
+import csv
+from django.http import HttpResponse
 from datetime import timedelta
 
 from django.conf import settings
@@ -10,7 +12,7 @@ from django.contrib.auth.decorators import login_required
 from django.views.decorators.csrf import csrf_exempt
 from django.utils import timezone
 
-from accounts.models import CustomUser, Subscription
+from accounts.models import CustomUser, Subscription, Property, Unit
 from .models import Unit, Payment, SubscriptionPayment
 from .generate_token import generate_access_token
 
@@ -391,3 +393,35 @@ class RentSummaryView(APIView):
         }
 
         return Response(summary)
+
+
+# ------------------------------
+# GENERATE RENT PAYMENTS CSV REPORT
+# ------------------------------
+# for landlord to download CSV of all units and their rent status
+from django.shortcuts import get_object_or_404
+
+def landlord_csv(request, property_id):
+    property = get_object_or_404(Property, pk=property_id)
+    units = property.unit_list.all()
+    response = HttpResponse(content_type='text/csv')
+    response['Content-Disposition'] = 'attachment; filename="landlord_data.csv"'
+
+    writer = csv.writer(response)
+    writer.writerow(['tenant','Unit Number', 'Floor', 'Bedrooms', 'Bathrooms', 'Rent', 'Rent Paid', 'Rent Remaining', 'Rent Due Date', 'Deposit', 'Is Available'])
+    for unit in units:
+        writer.writerow([unit.tenant,unit.unit_number, unit.floor, unit.bedrooms, unit.bathrooms, unit.rent, unit.rent_paid, unit.balance, unit.rent_due_date, unit.deposit, unit.is_available])
+
+    return response
+
+# for tenants to download CSV of their rent payment history
+def tenant_csv(request, unit_id):
+    unit = get_object_or_404(Unit, pk=unit_id)
+    response = HttpResponse(content_type='text/csv')
+    response['Content-Disposition'] = 'attachment; filename="tenant_data.csv"'
+
+    writer = csv.writer(response)
+    writer.writerow(['Unit Number', 'Floor', 'Bedrooms', 'Bathrooms', 'Rent', 'Rent Paid', 'Rent Remaining', 'Rent Due Date', 'Deposit'])
+    writer.writerow([unit.property_obj.name, unit.unit_number, unit.floor, unit.bedrooms, unit.bathrooms, unit.rent, unit.rent_paid, unit.balance, unit.rent_due_date, unit.deposit])
+    return response
+

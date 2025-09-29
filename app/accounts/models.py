@@ -2,6 +2,7 @@ from django.db import models
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.utils import timezone
 from datetime import timedelta
+from django.core.exceptions import ValidationError
 
 
 class CustomUserManager(BaseUserManager):
@@ -142,6 +143,9 @@ class Unit(models.Model):
     @property
     def balance(self):
         return self.rent_remaining - self.rent_paid
+    def clean(self):
+        if self.property_obj.unit_count < self.__class__.objects.filter(property_obj=self.property_obj).count():
+            raise ValidationError("The number of units for this property has reached the limit.")
 
     def __str__(self):
         return f"{self.property_obj.name} - Unit {self.unit_number}"

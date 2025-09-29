@@ -10,3 +10,8 @@
 
 # TODO: Impelemnt API view to show the payments, for all tenants, for a single tenant, for a single property
 
+
+
+# TODO: ADD REDIS SUPPORT FOR ALL FEATURES FOR SPEED
+# TODO: Generate CSV files for the transactions 
+# TODO: Add a feature for the landlord to update the payment in their dashboard and confirm if it was paid and to state the payment method used so that we can generate the accurate transactions in csv
