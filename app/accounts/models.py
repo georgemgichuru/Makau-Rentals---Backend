@@ -86,6 +86,7 @@ class Subscription(models.Model):
         ("basic", "Basic"),
         ("medium", "Medium"),
         ("premium", "Premium"),
+        ("onetime", "One-time Payment"),
     ]
 
     user = models.OneToOneField(CustomUser, on_delete=models.CASCADE, related_name="subscription")
@@ -94,9 +95,18 @@ class Subscription(models.Model):
     expiry_date = models.DateTimeField(null=True, blank=True)
 
     def save(self, *args, **kwargs):
-        # Auto-assign expiry for free plan
-        if self.plan == "free" and not self.expiry_date:
-            self.expiry_date = timezone.now() + timedelta(days=60)
+        # Set expiry dates based on plan
+        if not self.expiry_date:
+            if self.plan == "free":
+                self.expiry_date = timezone.now() + timedelta(days=60)
+            elif self.plan == "basic":
+                self.expiry_date = timezone.now() + timedelta(days=30)  # Monthly
+            elif self.plan == "medium":
+                self.expiry_date = timezone.now() + timedelta(days=365)  # Annual
+            elif self.plan == "premium":
+                self.expiry_date = timezone.now() + timedelta(days=365)  # Annual
+            # "onetime" could remain None for lifetime access
+        
         super().save(*args, **kwargs)
 
     # Check if subscription is still valid

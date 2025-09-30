@@ -208,6 +208,7 @@ def mpesa_subscription_callback(request):
                 500: ("basic", timedelta(days=30)),
                 1000: ("premium", timedelta(days=60)),
                 2000: ("enterprise", timedelta(days=90)),
+                35000: ("onetime", None),  # One-time payment, no expiry
             }
             if amount not in plans:
                 return JsonResponse({'error': 'Invalid amount'}, status=400)
