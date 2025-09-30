@@ -6,33 +6,51 @@ from django.utils.http import urlsafe_base64_encode
 from django.utils.encoding import force_bytes
 from django.core.mail import send_mail
 
+# Overide the token to use email instead of username for JWT authentication
+# accounts/serializers.py
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
+    username_field = "email"
+
+
+
+from rest_framework import serializers
+from .models import CustomUser
 
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = CustomUser
-        fields = ['id', 'email', 'first_name', 'last_name', 'date_joined', 'user_type', 'is_active', 'is_staff', 'is_superuser']
+        fields = [
+            'id',
+            'email',
+            'first_name',
+            'last_name',
+            'date_joined',
+            'user_type',
+            'is_active',
+            'is_staff',
+            'is_superuser',
+            'password'
+        ]
         read_only_fields = ['id', 'date_joined', 'is_active', 'is_staff', 'is_superuser']
-        if model.user_type == 'landlord':
-            fields.append('properties')  # Assuming a related name 'properties' for landlord's properties
-            is_staff = True  # Landlords are staff members
-        if model.user_type == 'tenant':
-            fields.append('rentals')  # Assuming a related name 'rentals' for tenant's rentals
-            is_staff = False  # Tenants are not staff members
         extra_kwargs = {
             'password': {'write_only': True}
         }
-        def create(self, validated_data):
-            user = CustomUser.objects.create_user(**validated_data)
-            return user
-        
-        def update(self, instance, validated_data):
-            for attr, value in validated_data.items():
-                if attr == 'password':
-                    instance.set_password(value)
-                else:
-                    setattr(instance, attr, value)
-            instance.save()
-            return instance
+
+    def create(self, validated_data):
+        # Always use the manager to ensure password is hashed
+        user = CustomUser.objects.create_user(**validated_data)
+        return user
+
+    def update(self, instance, validated_data):
+        for attr, value in validated_data.items():
+            if attr == 'password':
+                instance.set_password(value)
+            else:
+                setattr(instance, attr, value)
+        instance.save()
+        return instance
+
         
 class PropertySerializer(serializers.ModelSerializer):
     class Meta:

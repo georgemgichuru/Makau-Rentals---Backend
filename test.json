@@ -12,3 +12,11 @@
   "password": "TenantPass456!",
   "user_type": "tenant"
 }
+
+{
+  "email": "george@mail.com",
+  "first_name": "George",
+  "last_name": "Mwangi",
+  "user_type": "tenant",
+  "password": "StrongPass123!"
+}

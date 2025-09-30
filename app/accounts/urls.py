@@ -5,7 +5,8 @@ from rest_framework_simplejwt.views import (
 from django.urls import path
 from .views import (UserDetailView, UserListView, UserCreateView, PasswordResetView, 
                     CreatePropertyView, LandlordPropertiesView, CreateUnitView,
-                    UpdatePropertyView,UpdateUnitView,UpdateUserView, subscription_status
+                    UpdatePropertyView,UpdateUnitView,UpdateUserView, subscription_status,
+                    MyTokenObtainPairView,
 )
 urlpatterns = [
     # Signup endpoint for new users
@@ -15,7 +16,7 @@ urlpatterns = [
         # List view for all users
     path("users/", UserListView.as_view(), name="user-list"),
     # JWT authentication endpoints for login and token refresh
-    path('token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('token/', MyTokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     # Endpoint for password reset requests
     path('password-reset/', PasswordResetView.as_view(), name='password-reset'),
