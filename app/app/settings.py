@@ -208,3 +208,8 @@ CELERY_RESULT_BACKEND = "redis://redis:6379/0"
 # TODO: Run celery using the following commands -> celery -A your_project worker -l info
 # celery -A your_project beat -l info
 
+
+# Africa's Talking Configuration
+AT_USERNAME = config('AT_USERNAME')
+AT_API_KEY = config('AT_API_KEY')
+
