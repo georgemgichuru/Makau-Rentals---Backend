@@ -30,6 +30,7 @@ class UserSerializer(serializers.ModelSerializer):
             'is_active',
             'is_staff',
             'is_superuser',
+            'mpesa_till_number',
             'password'
         ]
         read_only_fields = ['id', 'date_joined', 'is_active', 'is_staff', 'is_superuser']
@@ -91,7 +92,7 @@ class PasswordResetSerializer(serializers.Serializer):
         token = default_token_generator.make_token(user)
         # Assuming you have a frontend URL to handle password resets
         # TODO: Update the frontend URL
-        reset_link = f"http://yourfrontend.com/reset-password/{uid}/{token}/" 
+        reset_link = f"http://localhost/reset-password/{uid}/{token}/" 
 
         send_mail(
             subject="Password Reset Request",

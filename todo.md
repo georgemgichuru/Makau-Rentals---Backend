@@ -1,17 +1,24 @@
-# TODO: prevent landlord from opening more properties depending on their payment plan
- **so the plans are as follows**
- *basic* = 500 for 2 properties
- *medium* = 2000 for 5 properties
- *premium* = 5000 for 10 properties
-# TODO:implement [africa's talking api] to use messaging features
-# TODO: ensure the tenants get [automatic] emails and messages reminding them of rent
-# TODO: ensure the tenants 
-# TODO: ensure landlords can just put their till number and they get paid via the app automatically
+# TODO: Implement Subscription-Based Access and Payment Flow
 
-# TODO: Impelemnt API view to show the payments, for all tenants, for a single tenant, for a single property
+## 1. Improve Subscription Enforcement
+- [x] Update `app/accounts/permissions.py` to add a permission class or decorator that checks if a tenant's landlord has an active subscription.
+- [ ] Apply subscription checks to tenant-facing views in payments app.
 
+## 2. Verify Payment Till Numbers
+- [x] Confirm in `app/payments/views.py` that subscription payments use the hardcoded central shortcode (user's till).
+- [x] Confirm rent payments use landlord's mpesa_till_number if set, else central shortcode.
 
+## 3. Add Landlord Till Number Update Endpoint
+- [x] Add a new view in `app/accounts/views.py` for landlords to update their mpesa_till_number.
+- [x] Add serializer for updating till number in `app/accounts/serializers.py`.
+- [x] Add URL pattern in `app/accounts/urls.py`.
 
-# TODO: ADD REDIS SUPPORT FOR ALL FEATURES FOR SPEED
-# TODO: Generate CSV files for the transactions 
-# TODO: Add a feature for the landlord to update the payment in their dashboard and confirm if it was paid and to state the payment method used so that we can generate the accurate transactions in csv
+## 4. Enforce Subscription in Views
+- [ ] Apply subscription permission to tenant views like stk_push for rent payments.
+- [ ] Ensure landlords can only access their own data if subscribed.
+
+## 5. Testing
+- [ ] Test subscription payment flow to user's till.
+- [ ] Test rent payment flow to landlord's till.
+- [ ] Test access restrictions for unsubscribed users.
+- [ ] Test till number update for landlords.

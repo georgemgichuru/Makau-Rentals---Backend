@@ -2,6 +2,7 @@ from django.urls import path
 from .views import (
     # STK Push + Callbacks
     stk_push,
+    stk_push_subscription,
     mpesa_rent_callback,
     mpesa_subscription_callback,
 
@@ -18,6 +19,7 @@ urlpatterns = [
     # M-PESA STK PUSH + CALLBACKS
     # ------------------------------
     path("stk-push/<int:unit_id>/", stk_push, name="stk-push"),
+    path("stk-push-subscription/", stk_push_subscription, name="stk-push-subscription"),
     path("callback/rent/", mpesa_rent_callback, name="mpesa-rent-callback"),
     path("callback/subscription/", mpesa_subscription_callback, name="mpesa-subscription-callback"),
 

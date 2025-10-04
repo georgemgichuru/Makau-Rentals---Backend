@@ -3,10 +3,10 @@ from rest_framework_simplejwt.views import (
     TokenRefreshView,
 )
 from django.urls import path
-from .views import (UserDetailView, UserListView, UserCreateView, PasswordResetView, 
+from .views import (UserDetailView, UserListView, UserCreateView, PasswordResetView,
                     CreatePropertyView, LandlordPropertiesView, CreateUnitView,
                     UpdatePropertyView,UpdateUnitView,UpdateUserView, subscription_status,
-                    MyTokenObtainPairView,
+                    UpdateTillNumberView, MyTokenObtainPairView,
 )
 urlpatterns = [
     # Signup endpoint for new users
@@ -34,5 +34,7 @@ urlpatterns = [
     path('users/<int:user_id>/update/', UpdateUserView.as_view(), name='update-user'),
     #Url to check subscription status
     path('subscription_status/', subscription_status, name='subscription_status'),
+    # Endpoint to update landlord's Mpesa till number
+    path('update-till-number/', UpdateTillNumberView.as_view(), name='update-till-number'),
 
 ]

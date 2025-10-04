@@ -15,6 +15,7 @@ from django.core.cache import cache
 from django.shortcuts import get_object_or_404
 
 from accounts.models import CustomUser, Subscription, Property, Unit
+from accounts.permissions import require_tenant_subscription
 from .models import Unit, Payment, SubscriptionPayment
 from .generate_token import generate_access_token
 
@@ -24,12 +25,14 @@ from .serializers import PaymentSerializer, SubscriptionPaymentSerializer
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from accounts.permissions import HasActiveSubscription
 
 
 # ------------------------------
 # STK PUSH INITIATION (Tenant Rent Payment)
 # ------------------------------
 @login_required
+@require_tenant_subscription
 def stk_push(request, unit_id):
     """
     Initiates an M-Pesa STK Push for a tenant's rent payment.
@@ -81,15 +84,18 @@ def stk_push(request, unit_id):
             (settings.MPESA_SHORTCODE + settings.MPESA_PASSKEY + timestamp).encode("utf-8")
         ).decode("utf-8")
 
+        # Use landlord's till number if set, otherwise central shortcode
+        business_shortcode = unit.property.landlord.mpesa_till_number or settings.MPESA_SHORTCODE
+
         # Build payload for Safaricom API
         payload = {
-            "BusinessShortCode": settings.MPESA_SHORTCODE,
+            "BusinessShortCode": business_shortcode,
             "Password": password,
             "Timestamp": timestamp,
             "TransactionType": "CustomerPayBillOnline",
             "Amount": str(payment.amount),  # Rent due
             "PartyA": request.user.phone_number,  # Tenant phone number (must be in 2547XXXXXXX format)
-            "PartyB": settings.MPESA_SHORTCODE,
+            "PartyB": business_shortcode,
             "PhoneNumber": request.user.phone_number,
             "CallBackURL": settings.MPESA_RENT_CALLBACK_URL,  # Rent callback endpoint
             "AccountReference": str(payment.id),  # Unique reference for reconciliation
@@ -109,6 +115,107 @@ def stk_push(request, unit_id):
         return JsonResponse({"error": "Unit not found or not assigned to you"}, status=404)
     except Exception as e:
         return JsonResponse({"error": f"Payment initiation failed: {str(e)}"}, status=500)
+
+
+# ------------------------------
+# STK PUSH INITIATION (Landlord Subscription Payment)
+# ------------------------------
+@login_required
+def stk_push_subscription(request):
+    """
+    Initiates an M-Pesa STK Push for a landlord's subscription payment.
+    - Creates a pending SubscriptionPayment record
+    - Calls Safaricom STK Push API using central shortcode
+    - Uses Redis for rate limiting and duplicate request prevention
+    """
+    try:
+        # Rate limiting: Check if user has made too many requests
+        rate_limit_key = f"stk_push_subscription_rate_limit:{request.user.id}"
+        recent_requests = cache.get(rate_limit_key, 0)
+
+        if recent_requests >= 3:  # Max 3 requests per minute
+            return JsonResponse({"error": "Too many requests. Please try again later."}, status=429)
+
+        # Update rate limit counter
+        cache.set(rate_limit_key, recent_requests + 1, timeout=60)
+
+        # Ensure the user is a landlord
+        if request.user.user_type != 'landlord':
+            return JsonResponse({"error": "Only landlords can make subscription payments."}, status=403)
+
+        # Get subscription plan from request
+        plan = request.GET.get('plan')
+        if not plan:
+            return JsonResponse({"error": "Plan parameter is required."}, status=400)
+
+        # Map plan to amount
+        plan_amounts = {
+            "basic": 500,
+            "premium": 1000,
+            "enterprise": 2000,
+            "onetime": 35000,
+        }
+        if plan not in plan_amounts:
+            return JsonResponse({"error": "Invalid plan."}, status=400)
+
+        amount = plan_amounts[plan]
+
+        # Check for duplicate pending subscription payment
+        duplicate_key = f"pending_subscription_payment:{request.user.id}:{plan}"
+        if cache.get(duplicate_key):
+            return JsonResponse({"error": "A subscription payment request is already pending."}, status=400)
+
+        # Create a pending subscription payment record
+        subscription_payment = SubscriptionPayment.objects.create(
+            user=request.user,
+            amount=amount,
+            mpesa_receipt_number="",  # Will be updated on callback
+            subscription_type=plan
+        )
+
+        # Mark payment as pending in Redis (5-minute expiry)
+        cache.set(duplicate_key, subscription_payment.id, timeout=300)
+
+        # Generate access token (with Redis caching)
+        access_token_cache_key = "mpesa_access_token"
+        access_token = cache.get(access_token_cache_key)
+
+        if not access_token:
+            access_token = generate_access_token()
+            # Cache access token for 55 minutes (MPESA tokens expire in 1 hour)
+            cache.set(access_token_cache_key, access_token, timeout=3300)
+
+        timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+        password = base64.b64encode(
+            (settings.MPESA_SHORTCODE + settings.MPESA_PASSKEY + timestamp).encode("utf-8")
+        ).decode("utf-8")
+
+        # Build payload for Safaricom API (using central shortcode)
+        payload = {
+            "BusinessShortCode": settings.MPESA_SHORTCODE,
+            "Password": password,
+            "Timestamp": timestamp,
+            "TransactionType": "CustomerPayBillOnline",
+            "Amount": str(amount),
+            "PartyA": request.user.phone_number,
+            "PartyB": settings.MPESA_SHORTCODE,
+            "PhoneNumber": request.user.phone_number,
+            "CallBackURL": settings.MPESA_SUBSCRIPTION_CALLBACK_URL,  # Subscription callback endpoint
+            "AccountReference": str(subscription_payment.id),  # Unique reference
+            "TransactionDesc": f"Subscription payment for {plan} plan"
+        }
+
+        headers = {"Authorization": f"Bearer {access_token}"}
+        response = requests.post(
+            "https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest",
+            json=payload,
+            headers=headers
+        )
+
+        return JsonResponse(response.json())
+
+    except Exception as e:
+        return JsonResponse({"error": f"Subscription payment initiation failed: {str(e)}"}, status=500)
 
 
 # ------------------------------
@@ -196,38 +303,85 @@ def mpesa_subscription_callback(request):
 
             amount = metadata.get("Amount")
             receipt = metadata.get("MpesaReceiptNumber")
-            phone = str(metadata.get("PhoneNumber"))
+            account_reference = metadata.get("AccountReference")  # For STK Push, this is the payment ID
 
-            # Find landlord by phone number
-            user = CustomUser.objects.filter(user_type='landlord', phone_number=phone).first()
-            if not user:
-                return JsonResponse({'error': 'Landlord not found'}, status=404)
+            if account_reference:
+                # Try to find pending subscription payment by ID
+                try:
+                    subscription_payment = SubscriptionPayment.objects.get(id=account_reference, mpesa_receipt_number="")
+                    subscription_payment.mpesa_receipt_number = receipt
+                    subscription_payment.save()
+                    user = subscription_payment.user
 
-            # Map amount to subscription type and duration
-            plans = {
-                500: ("basic", timedelta(days=30)),
-                1000: ("premium", timedelta(days=60)),
-                2000: ("enterprise", timedelta(days=90)),
-                35000: ("onetime", None),  # One-time payment, no expiry
-            }
-            if amount not in plans:
-                return JsonResponse({'error': 'Invalid amount'}, status=400)
+                    # Clear pending cache
+                    cache.delete(f"pending_subscription_payment:{user.id}:{subscription_payment.subscription_type}")
 
-            sub_type, duration = plans[amount]
+                except SubscriptionPayment.DoesNotExist:
+                    # Fallback to old method if no pending payment found
+                    phone = str(metadata.get("PhoneNumber"))
+                    user = CustomUser.objects.filter(user_type='landlord', phone_number=phone).first()
+                    if not user:
+                        return JsonResponse({'error': 'Landlord not found'}, status=404)
 
-            # Save subscription payment
-            subscription_payment = SubscriptionPayment.objects.create(
-                user=user,
-                amount=amount,
-                mpesa_receipt_number=receipt,
-                subscription_type=sub_type
-            )
+                    # Map amount to subscription type and duration
+                    plans = {
+                        500: ("basic", timedelta(days=30)),
+                        1000: ("premium", timedelta(days=60)),
+                        2000: ("enterprise", timedelta(days=90)),
+                        35000: ("onetime", None),  # One-time payment, no expiry
+                    }
+                    if amount not in plans:
+                        return JsonResponse({'error': 'Invalid amount'}, status=400)
+
+                    sub_type, duration = plans[amount]
+
+                    # Save subscription payment
+                    subscription_payment = SubscriptionPayment.objects.create(
+                        user=user,
+                        amount=amount,
+                        mpesa_receipt_number=receipt,
+                        subscription_type=sub_type
+                    )
+            else:
+                # Old method without account reference
+                phone = str(metadata.get("PhoneNumber"))
+                user = CustomUser.objects.filter(user_type='landlord', phone_number=phone).first()
+                if not user:
+                    return JsonResponse({'error': 'Landlord not found'}, status=404)
+
+                # Map amount to subscription type and duration
+                plans = {
+                    500: ("basic", timedelta(days=30)),
+                    1000: ("premium", timedelta(days=60)),
+                    2000: ("enterprise", timedelta(days=90)),
+                    35000: ("onetime", None),  # One-time payment, no expiry
+                }
+                if amount not in plans:
+                    return JsonResponse({'error': 'Invalid amount'}, status=400)
+
+                sub_type, duration = plans[amount]
+
+                # Save subscription payment
+                subscription_payment = SubscriptionPayment.objects.create(
+                    user=user,
+                    amount=amount,
+                    mpesa_receipt_number=receipt,
+                    subscription_type=sub_type
+                )
 
             # Update or create subscription
             subscription, _ = Subscription.objects.get_or_create(user=user)
-            subscription.plan = sub_type
+            subscription.plan = subscription_payment.subscription_type
             subscription.start_date = timezone.now()
-            subscription.expiry_date = timezone.now() + duration
+            if subscription_payment.subscription_type == "onetime":
+                subscription.expiry_date = None
+            else:
+                duration_map = {
+                    "basic": timedelta(days=30),
+                    "premium": timedelta(days=60),
+                    "enterprise": timedelta(days=90),
+                }
+                subscription.expiry_date = timezone.now() + duration_map.get(subscription_payment.subscription_type, timedelta(days=30))
             subscription.save()
 
             # Invalidate subscription-related caches
@@ -261,18 +415,18 @@ class PaymentListCreateView(generics.ListCreateAPIView):
       - Only tenants can create a new rent payment
     """
     serializer_class = PaymentSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, HasActiveSubscription]
 
     def get_queryset(self):
         user = self.request.user
         cache_key = f"payments:{user.user_type}:{user.id}"
-        
+
         # Try to get cached data
         cached_data = cache.get(cache_key)
         if cached_data:
             # Return a queryset-like object (we'll handle this in the serializer)
             return Payment.objects.none()  # Serializer will use cached data
-        
+
         # If not cached, fetch from database
         if user.user_type == "tenant":
             queryset = Payment.objects.filter(tenant=user).order_by('-transaction_date')
@@ -280,22 +434,22 @@ class PaymentListCreateView(generics.ListCreateAPIView):
             queryset = Payment.objects.filter(unit__property__landlord=user).order_by('-transaction_date')
         else:
             queryset = Payment.objects.none()
-        
+
         # Cache the results for 5 minutes
         if queryset.exists():
             cache.set(cache_key, PaymentSerializer(queryset, many=True).data, timeout=300)
-        
+
         return queryset
 
     def list(self, request, *args, **kwargs):
         # Custom list method to handle cached data
         user = self.request.user
         cache_key = f"payments:{user.user_type}:{user.id}"
-        
+
         cached_data = cache.get(cache_key)
         if cached_data:
             return Response(cached_data)
-        
+
         return super().list(request, *args, **kwargs)
 
     def perform_create(self, serializer):
@@ -315,7 +469,7 @@ class PaymentDetailView(generics.RetrieveAPIView):
       - Landlords: can view payment details for units in their properties (cached)
     """
     serializer_class = PaymentSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, HasActiveSubscription]
 
     def get_queryset(self):
         user = self.request.user
@@ -328,11 +482,11 @@ class PaymentDetailView(generics.RetrieveAPIView):
     def retrieve(self, request, *args, **kwargs):
         payment_id = kwargs.get('pk')
         cache_key = f"payment:{payment_id}:details"
-        
+
         cached_data = cache.get(cache_key)
         if cached_data:
             return Response(cached_data)
-        
+
         response = super().retrieve(request, *args, **kwargs)
         cache.set(cache_key, response.data, timeout=300)
         return response

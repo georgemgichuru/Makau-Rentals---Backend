@@ -324,3 +324,18 @@ def subscription_status(request):
         return HttpResponse(f"Subscription Status: {status}")
     else:
         return HttpResponse("No subscription found")
+
+# View to update landlord's Mpesa till number (landlord only)
+@method_decorator(require_subscription, name='dispatch')
+class UpdateTillNumberView(APIView):
+    permission_classes = [IsAuthenticated, IsLandlord]
+
+    def patch(self, request):
+        user = request.user
+        till_number = request.data.get('mpesa_till_number')
+        if not till_number:
+            return Response({"error": "mpesa_till_number is required"}, status=400)
+
+        user.mpesa_till_number = till_number
+        user.save()
+        return Response({"message": "Till number updated successfully", "mpesa_till_number": till_number})
