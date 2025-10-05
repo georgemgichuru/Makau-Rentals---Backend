@@ -40,7 +40,8 @@ Authorization: Bearer <your_jwt_token>
     "user_type": "landlord",
     "is_active": true,
     "is_staff": false,
-    "is_superuser": false
+    "is_superuser": false,
+    "mpesa_till_number": null
 }
 ```
 
@@ -103,11 +104,32 @@ Authorization: Bearer <your_jwt_token>
 }
 ```
 
+### 5. Update M-Pesa Till Number
+**Endpoint:** `PATCH /api/accounts/update-till-number/`  
+**Description:** Update landlord's M-Pesa till number  
+**Authentication:** Required  
+**Permissions:** Landlord only, active subscription required  
+
+**Request Body:**
+```json
+{
+    "mpesa_till_number": "123456"
+}
+```
+
+**Response (200 OK):**
+```json
+{
+    "message": "Till number updated successfully",
+    "mpesa_till_number": "123456"
+}
+```
+
 ---
 
 ## 👥 User Management Endpoints
 
-### 5. Get User Details
+### 6. Get User Details
 **Endpoint:** `GET /api/accounts/users/{user_id}/`  
 **Description:** Get details of a specific user  
 **Authentication:** Required  
@@ -217,8 +239,7 @@ Authorization: Bearer <your_jwt_token>
 {
     "name": "Sunset Apartments",
     "city": "Nairobi",
-    "state": "Nairobi County",
-    "unit_count": 10
+    "state": "Nairobi County"
 }
 ```
 
@@ -332,8 +353,7 @@ Authorization: Bearer <your_jwt_token>
     "bedrooms": 2,
     "bathrooms": 1,
     "rent": "25000.00",
-    "deposit": "50000.00",
-    "rent_due_date": "2024-02-01"
+    "deposit": "50000.00"
 }
 ```
 
@@ -429,8 +449,25 @@ Authorization: Bearer <your_jwt_token>
     "CustomerMessage": "Success. Request accepted for processing"
 }
 ```
+### 17. Initiate M-Pesa STK Push (Subscription Payment)
+**Endpoint:** `POST /api/payments/stk-push-subscription/`  
+**Description:** Initiate M-Pesa STK push for subscription payment (landlord only)  
+**Authentication:** Required  
+**Permissions:** Landlord only  
 
-### 17. M-Pesa Rent Payment Callback
+**Request Body:** (query param plan, e.g. ?plan=basic)  
+
+**Response (200 OK):**
+```json
+{
+    "MerchantRequestID": "29115-34620561-1",
+    "CheckoutRequestID": "ws_CO_191220191020363925",
+    "ResponseCode": "0",
+    "ResponseDescription": "Success. Request accepted for processing",
+    "CustomerMessage": "Success. Request accepted for processing"
+}
+```
+### 18. M-Pesa Rent Payment Callback
 **Endpoint:** `POST /api/payments/callback/rent/`  
 **Description:** M-Pesa callback for rent payments (internal use)  
 **Authentication:** Not required (M-Pesa callback)  
