@@ -10,7 +10,7 @@ from accounts.serializers import (
 from rest_framework.permissions import IsAuthenticated
 from django.core.cache import cache
 from .models import Property, Unit, CustomUser, Subscription
-from .permissions import IsLandlord, IsTenant, require_subscription
+from .permissions import IsLandlord, IsTenant, require_subscription, IsSuperuser
 
 from django.http import HttpResponse
 from django.contrib.auth.decorators import login_required
@@ -44,6 +44,27 @@ class UserDetailView(APIView):
                 return Response({"error": "User not found"}, status=404)
 
         return Response(user_data)
+
+
+# New admin view to list landlords and their subscription statuses (superuser only)
+class AdminLandlordSubscriptionStatusView(APIView):
+    permission_classes = [IsAuthenticated, IsSuperuser]
+
+    def get(self, request):
+        landlords = CustomUser.objects.filter(user_type='landlord')
+        data = []
+        for landlord in landlords:
+            subscription = getattr(landlord, 'subscription', None)
+            status = 'Subscribed' if subscription and subscription.is_active() else 'Inactive or None'
+            data.append({
+                'landlord_id': landlord.id,
+                'email': landlord.email,
+                'name': f"{landlord.first_name} {landlord.last_name}",
+                'subscription_plan': subscription.plan if subscription else 'None',
+                'subscription_status': status,
+                'expiry_date': subscription.expiry_date if subscription else None,
+            })
+        return Response(data)
 
 
 # Lists all tenants (cached)
@@ -190,14 +211,24 @@ class PropertyUnitsView(APIView):
 
 
 # Assign tenant to unit (invalidate cache)
-# View to assign a tenant to a unit (tenant only)
+# View to assign a tenant to a unit (landlord only, since tenant assigns themselves upon signup)
 class AssignTenantToUnitView(APIView):
-    permission_classes = [IsAuthenticated, IsTenant]
+    permission_classes = [IsAuthenticated, IsLandlord]
 
     def post(self, request, unit_id, tenant_id):
         try:
-            unit = Unit.objects.get(id=unit_id)
+            unit = Unit.objects.get(id=unit_id, property__landlord=request.user)
             tenant = CustomUser.objects.get(id=tenant_id, user_type="tenant")
+            # Check if tenant has made a deposit of at least the required amount to the landlord
+            from payments.models import Payment
+            deposit_payments = Payment.objects.filter(
+                tenant=tenant,
+                payment_type='deposit',
+                status='Success',
+                amount__gte=unit.deposit
+            )
+            if not deposit_payments.exists():
+                return Response({"error": f"Tenant must have made a deposit of at least KES {unit.deposit} to be assigned to the unit."}, status=400)
             unit.tenant = tenant
             unit.is_available = False
             unit.save()
@@ -205,7 +236,7 @@ class AssignTenantToUnitView(APIView):
             cache.delete(f"property:{unit.property.id}:units")
             return Response({"message": "Tenant assigned to unit successfully"})
         except Unit.DoesNotExist:
-            return Response({"error": "Unit not found"}, status=404)
+            return Response({"error": "Unit not found or you do not have permission"}, status=404)
         except CustomUser.DoesNotExist:
             return Response(
                 {"error": "Tenant not found or invalid user type"}, status=404

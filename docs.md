@@ -153,7 +153,7 @@ Authorization: Bearer <your_jwt_token>
 }
 ```
 
-### 6. List All Users
+### 7. List All Users
 **Endpoint:** `GET /api/accounts/users/`  
 **Description:** List all tenants (landlord only)  
 **Authentication:** Required  
@@ -176,7 +176,7 @@ Authorization: Bearer <your_jwt_token>
 ]
 ```
 
-### 7. Update User
+### 8. Update User
 **Endpoint:** `PUT /api/accounts/users/{user_id}/update/`  
 **Description:** Update user details (users can only update their own profile)  
 **Authentication:** Required  
@@ -684,8 +684,9 @@ No subscription found
 ### Plan Limits
 - **Free (60-day trial):** 2 properties maximum
 - **Basic:** 2 properties maximum
-- **Medium:** 5 properties maximum  
-- **Premium:** 10 properties maximum
+- **Premium:** 5 properties maximum  
+- **Enterprise:** 10 properties maximum
+- **One-time:** Unlimited
 
 ### Subscription Pricing (M-Pesa Amounts)
 - **Basic (30 days):** KES 500

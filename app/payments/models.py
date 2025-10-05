@@ -3,13 +3,18 @@ from accounts.models import CustomUser, Unit, Subscription
 from datetime import timedelta
 
 class Payment(models.Model):
+    PAYMENT_TYPES = [
+        ('rent', 'Rent'),
+        ('deposit', 'Deposit'),
+    ]
     tenant = models.ForeignKey(
         CustomUser,
         on_delete=models.CASCADE,
         limit_choices_to={'user_type': 'tenant'},
-        related_name='rent_payments'
+        related_name='payments'
     )
-    unit = models.ForeignKey(Unit, on_delete=models.CASCADE, related_name='payments')
+    unit = models.ForeignKey(Unit, on_delete=models.CASCADE, related_name='payments', null=True, blank=True)
+    payment_type = models.CharField(max_length=10, choices=PAYMENT_TYPES, default='rent')
     amount = models.DecimalField(max_digits=10, decimal_places=2)
     mpesa_receipt = models.CharField(max_length=50, blank=True, null=True)
     transaction_date = models.DateTimeField(auto_now_add=True)
@@ -20,12 +25,13 @@ class Payment(models.Model):
     )
 
     def __str__(self):
-        return f"{self.tenant.email} - Unit {self.unit.unit_number} - KES {self.amount} ({self.status})"
+        unit_str = f"Unit {self.unit.unit_number}" if self.unit else "Deposit"
+        return f"{self.tenant.email} - {unit_str} - KES {self.amount} ({self.status})"
 
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)
-        # Update unit rent tracking if payment is successful
-        if self.status == "Success":
+        # Update unit rent tracking if payment is successful and is rent payment
+        if self.status == "Success" and self.payment_type == "rent" and self.unit:
             self.unit.rent_paid += self.amount
             self.unit.rent_remaining = max(self.unit.rent - self.unit.rent_paid, 0)
             self.unit.save()

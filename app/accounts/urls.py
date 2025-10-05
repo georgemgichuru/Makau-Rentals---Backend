@@ -6,7 +6,7 @@ from django.urls import path
 from .views import (UserDetailView, UserListView, UserCreateView, PasswordResetView,
                     CreatePropertyView, LandlordPropertiesView, CreateUnitView,
                     UpdatePropertyView,UpdateUnitView,UpdateUserView, subscription_status,
-                    UpdateTillNumberView, MyTokenObtainPairView,
+                    UpdateTillNumberView, MyTokenObtainPairView, AdminLandlordSubscriptionStatusView,
 )
 urlpatterns = [
     # Signup endpoint for new users
@@ -36,5 +36,7 @@ urlpatterns = [
     path('subscription_status/', subscription_status, name='subscription_status'),
     # Endpoint to update landlord's Mpesa till number
     path('update-till-number/', UpdateTillNumberView.as_view(), name='update-till-number'),
+    # Admin section to view landlords subscription status (superuser only)
+    path('admin/landlord-subscriptions/', AdminLandlordSubscriptionStatusView.as_view(), name='admin-landlord-subscriptions'),
 
 ]

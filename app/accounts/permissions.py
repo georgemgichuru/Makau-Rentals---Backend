@@ -2,6 +2,11 @@ from rest_framework.permissions import BasePermission
 from django.http import HttpResponse
 from .models import Subscription, Unit
 
+# Decorator to check if user is a superuser
+class IsSuperuser(BasePermission):
+    def has_permission(self, request, view):
+        return request.user.is_authenticated and request.user.is_superuser
+
 # Decorator to check if user is a landlord
 class IsLandlord(BasePermission):
     def has_permission(self, request, view):
