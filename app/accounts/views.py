@@ -101,14 +101,13 @@ class UserCreateView(APIView):
 
 
 # Create a new property (invalidate landlord cache)
-# View to create a new property (landlord only) 
+# View to create a new property (landlord only)
 PLAN_LIMITS = {
     "free": 2,      # trial landlords can only create 2 properties
     "basic": 2,
     "medium": 5,
     "premium": 10,
 }
-@method_decorator(require_subscription, name='dispatch')
 class CreatePropertyView(APIView):
     permission_classes = [IsAuthenticated, IsLandlord]
 
@@ -370,3 +369,24 @@ class UpdateTillNumberView(APIView):
         user.mpesa_till_number = till_number
         user.save()
         return Response({"message": "Till number updated successfully", "mpesa_till_number": till_number})
+
+
+# Endpoint to get or update the currently authenticated user (simpler than decoding tokens client-side)
+class MeView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        serializer = UserSerializer(request.user)
+        return Response(serializer.data)
+
+    def patch(self, request):
+        serializer = UserSerializer(request.user, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            # invalidate cache for this user
+            cache.delete(f"user:{request.user.id}")
+            return Response(serializer.data)
+        return Response(serializer.errors, status=400)
+
+    def put(self, request):
+        return self.patch(request)

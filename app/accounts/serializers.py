@@ -31,6 +31,8 @@ class UserSerializer(serializers.ModelSerializer):
             'is_staff',
             'is_superuser',
             'mpesa_till_number',
+            'phone_number',
+            'emergency_contact',
             'password'
         ]
         read_only_fields = ['id', 'date_joined', 'is_active', 'is_staff', 'is_superuser']
@@ -52,11 +54,27 @@ class UserSerializer(serializers.ModelSerializer):
         instance.save()
         return instance
 
+    def validate_phone_number(self, value):
+        if not value:
+            return value
+        import re
+        if not re.match(r"^\+?[0-9]{7,15}$", value):
+            raise serializers.ValidationError("Enter a valid phone number in international format, e.g. +2547XXXXXXXX")
+        return value
+
+    def validate_emergency_contact(self, value):
+        if not value:
+            return value
+        import re
+        if not re.match(r"^\+?[0-9]{7,15}$", value):
+            raise serializers.ValidationError("Enter a valid emergency contact phone number in international format")
+        return value
+
         
 class PropertySerializer(serializers.ModelSerializer):
     class Meta:
         model = Property
-        fields = ['id', 'landlord', 'name', 'city', 'state', 'units']
+        fields = ['id', 'landlord', 'name', 'city', 'state', 'unit_count']
         read_only_fields = ['id', 'landlord']
     def create(self, validated_data):
         property = Property.objects.create(**validated_data)

@@ -70,12 +70,12 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    'corsheaders.middleware.CorsMiddleware',
 ]
 
 ROOT_URLCONF = 'app.urls'
@@ -200,6 +200,9 @@ MPESA_CONSUMER_SECRET = config('MPESA_CONSUMER_SECRET')
 MPESA_SHORTCODE = config('MPESA_SHORTCODE') 
 MPESA_PASSKEY = config('MPESA_PASSKEY')
 MPESA_CALLBACK_URL = config('MPESA_CALLBACK_URL')
+# Provide explicit callback URLs expected by payment views. If not set, fall back to MPESA_CALLBACK_URL
+MPESA_RENT_CALLBACK_URL = config('MPESA_RENT_CALLBACK_URL', default=MPESA_CALLBACK_URL)
+MPESA_SUBSCRIPTION_CALLBACK_URL = config('MPESA_SUBSCRIPTION_CALLBACK_URL', default=MPESA_CALLBACK_URL)
 # Celery configuration
 CELERY_BROKER_URL = "redis://redis:6379/0"   # adjust if your docker-compose uses another host
 CELERY_RESULT_BACKEND = "redis://redis:6379/0"

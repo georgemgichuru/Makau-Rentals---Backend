@@ -7,6 +7,7 @@ from .views import (UserDetailView, UserListView, UserCreateView, PasswordResetV
                     CreatePropertyView, LandlordPropertiesView, CreateUnitView,
                     UpdatePropertyView,UpdateUnitView,UpdateUserView, subscription_status,
                     UpdateTillNumberView, MyTokenObtainPairView, AdminLandlordSubscriptionStatusView,
+                    MeView,
 )
 urlpatterns = [
     # Signup endpoint for new users
@@ -32,6 +33,8 @@ urlpatterns = [
     path('units/<int:unit_id>/update/', UpdateUnitView.as_view(), name='update-unit'),
     # Endpoint to update user details (landlord and tenant)
     path('users/<int:user_id>/update/', UpdateUserView.as_view(), name='update-user'),
+    # Current user endpoint
+    path('me/', MeView.as_view(), name='me'),
     #Url to check subscription status
     path('subscription_status/', subscription_status, name='subscription_status'),
     # Endpoint to update landlord's Mpesa till number

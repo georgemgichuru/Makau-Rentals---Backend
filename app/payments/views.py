@@ -15,7 +15,7 @@ from django.core.cache import cache
 from django.shortcuts import get_object_or_404
 
 from accounts.models import CustomUser, Subscription, Property, Unit
-from accounts.permissions import require_tenant_subscription
+from accounts.permissions import require_tenant_subscription, require_subscription
 from .models import Unit, Payment, SubscriptionPayment
 from .generate_token import generate_access_token
 
@@ -25,6 +25,7 @@ from .serializers import PaymentSerializer, SubscriptionPaymentSerializer
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from django.utils.decorators import method_decorator
 from accounts.permissions import HasActiveSubscription
 
 
@@ -120,7 +121,7 @@ def stk_push(request, unit_id):
 # ------------------------------
 # STK PUSH INITIATION (Landlord Subscription Payment)
 # ------------------------------
-@login_required
+@csrf_exempt
 def stk_push_subscription(request):
     """
     Initiates an M-Pesa STK Push for a landlord's subscription payment.
@@ -129,24 +130,27 @@ def stk_push_subscription(request):
     - Uses Redis for rate limiting and duplicate request prevention
     """
     try:
-        # Rate limiting: Check if user has made too many requests
-        rate_limit_key = f"stk_push_subscription_rate_limit:{request.user.id}"
-        recent_requests = cache.get(rate_limit_key, 0)
+        # Get subscription plan from request (allow POST JSON or query param)
+        plan = None
+        phone_number = None
+        try:
+            if request.method == 'POST':
+                try:
+                    body = json.loads(request.body.decode('utf-8') or '{}')
+                except Exception:
+                    body = {}
+                plan = body.get('plan') or request.GET.get('plan')
+                phone_number = body.get('phone_number')
+            else:
+                plan = request.GET.get('plan')
+        except Exception:
+            plan = request.GET.get('plan')
 
-        if recent_requests >= 3:  # Max 3 requests per minute
-            return JsonResponse({"error": "Too many requests. Please try again later."}, status=429)
-
-        # Update rate limit counter
-        cache.set(rate_limit_key, recent_requests + 1, timeout=60)
-
-        # Ensure the user is a landlord
-        if request.user.user_type != 'landlord':
-            return JsonResponse({"error": "Only landlords can make subscription payments."}, status=403)
-
-        # Get subscription plan from request
-        plan = request.GET.get('plan')
         if not plan:
             return JsonResponse({"error": "Plan parameter is required."}, status=400)
+
+        if not phone_number:
+            return JsonResponse({"error": "Phone number is required."}, status=400)
 
         # Map plan to amount
         plan_amounts = {
@@ -160,14 +164,29 @@ def stk_push_subscription(request):
 
         amount = plan_amounts[plan]
 
+        # Rate limiting: Check if phone has made too many requests
+        rate_limit_key = f"stk_push_subscription_rate_limit:{phone_number}"
+        recent_requests = cache.get(rate_limit_key, 0)
+
+        if recent_requests >= 3:  # Max 3 requests per minute
+            return JsonResponse({"error": "Too many requests. Please try again later."}, status=429)
+
+        # Update rate limit counter
+        cache.set(rate_limit_key, recent_requests + 1, timeout=60)
+
         # Check for duplicate pending subscription payment
-        duplicate_key = f"pending_subscription_payment:{request.user.id}:{plan}"
+        duplicate_key = f"pending_subscription_payment:{phone_number}:{plan}"
         if cache.get(duplicate_key):
             return JsonResponse({"error": "A subscription payment request is already pending."}, status=400)
 
+        # Determine user
+        user = None
+        if request.user.is_authenticated and request.user.user_type == 'landlord':
+            user = request.user
+
         # Create a pending subscription payment record
         subscription_payment = SubscriptionPayment.objects.create(
-            user=request.user,
+            user=user,
             amount=amount,
             mpesa_receipt_number="",  # Will be updated on callback
             subscription_type=plan
@@ -191,15 +210,17 @@ def stk_push_subscription(request):
         ).decode("utf-8")
 
         # Build payload for Safaricom API (using central shortcode)
+        # If a phone_number was included in the request body, prefer it for PartyA/PhoneNumber
+        party_phone = phone_number or request.user.phone_number
         payload = {
             "BusinessShortCode": settings.MPESA_SHORTCODE,
             "Password": password,
             "Timestamp": timestamp,
             "TransactionType": "CustomerPayBillOnline",
             "Amount": str(amount),
-            "PartyA": request.user.phone_number,
+            "PartyA": party_phone,
             "PartyB": settings.MPESA_SHORTCODE,
-            "PhoneNumber": request.user.phone_number,
+            "PhoneNumber": party_phone,
             "CallBackURL": settings.MPESA_SUBSCRIPTION_CALLBACK_URL,  # Subscription callback endpoint
             "AccountReference": str(subscription_payment.id),  # Unique reference
             "TransactionDesc": f"Subscription payment for {plan} plan"
@@ -305,6 +326,38 @@ def mpesa_subscription_callback(request):
             receipt = metadata.get("MpesaReceiptNumber")
             account_reference = metadata.get("AccountReference")  # For STK Push, this is the payment ID
 
+            # Helper function to find user by phone with multiple formats
+            def find_user_by_phone(phone_str):
+                if not phone_str:
+                    return None
+                phone_variants = [phone_str]
+                if phone_str.startswith('+254'):
+                    phone_variants.extend([
+                        phone_str[4:],  # 722714334
+                        '0' + phone_str[4:],  # 0722714334
+                        phone_str[1:],  # 254722714334
+                    ])
+                elif phone_str.startswith('254'):
+                    phone_variants.extend([
+                        '+' + phone_str,  # +254722714334
+                        '0' + phone_str[3:],  # 0722714334
+                        phone_str[3:],  # 722714334
+                    ])
+                elif phone_str.startswith('0'):
+                    phone_variants.extend([
+                        '+254' + phone_str[1:],  # +254722714334
+                        '254' + phone_str[1:],  # 254722714334
+                        phone_str[1:],  # 722714334
+                    ])
+                else:
+                    # Assume it's local without 0, add variants
+                    phone_variants.extend([
+                        '+254' + phone_str,  # +254722714334
+                        '254' + phone_str,  # 254722714334
+                        '0' + phone_str,  # 0722714334
+                    ])
+                return CustomUser.objects.filter(user_type='landlord', phone_number__in=phone_variants).first()
+
             if account_reference:
                 # Try to find pending subscription payment by ID
                 try:
@@ -313,13 +366,22 @@ def mpesa_subscription_callback(request):
                     subscription_payment.save()
                     user = subscription_payment.user
 
+                    # If user is None, try to assign based on phone
+                    if not user:
+                        phone = metadata.get("PhoneNumber")
+                        user = find_user_by_phone(phone)
+                        if user:
+                            subscription_payment.user = user
+                            subscription_payment.save()
+
                     # Clear pending cache
-                    cache.delete(f"pending_subscription_payment:{user.id}:{subscription_payment.subscription_type}")
+                    if user:
+                        cache.delete(f"pending_subscription_payment:{user.id}:{subscription_payment.subscription_type}")
 
                 except SubscriptionPayment.DoesNotExist:
                     # Fallback to old method if no pending payment found
-                    phone = str(metadata.get("PhoneNumber"))
-                    user = CustomUser.objects.filter(user_type='landlord', phone_number=phone).first()
+                    phone = metadata.get("PhoneNumber")
+                    user = find_user_by_phone(phone)
                     if not user:
                         return JsonResponse({'error': 'Landlord not found'}, status=404)
 
@@ -344,8 +406,8 @@ def mpesa_subscription_callback(request):
                     )
             else:
                 # Old method without account reference
-                phone = str(metadata.get("PhoneNumber"))
-                user = CustomUser.objects.filter(user_type='landlord', phone_number=phone).first()
+                phone = metadata.get("PhoneNumber")
+                user = find_user_by_phone(phone)
                 if not user:
                     return JsonResponse({'error': 'Landlord not found'}, status=404)
 
@@ -368,6 +430,10 @@ def mpesa_subscription_callback(request):
                     mpesa_receipt_number=receipt,
                     subscription_type=sub_type
                 )
+
+            # Check if user was found
+            if not user:
+                return JsonResponse({'error': 'Landlord not found'}, status=404)
 
             # Update or create subscription
             subscription, _ = Subscription.objects.get_or_create(user=user)
@@ -562,6 +628,7 @@ class SubscriptionPaymentDetailView(generics.RetrieveAPIView):
         return response
 
 
+@method_decorator(require_subscription, name='dispatch')
 class RentSummaryView(APIView):
     """
     Provides a financial summary for landlords (cached):

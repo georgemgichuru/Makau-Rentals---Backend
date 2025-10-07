@@ -66,6 +66,8 @@ class CustomUser(AbstractBaseUser,PermissionsMixin):
     is_staff = models.BooleanField(default=False)
     is_superuser = models.BooleanField(default=False)
     mpesa_till_number = models.CharField(max_length=20, blank=True, null=True, help_text="M-Pesa till number for direct payments (landlords only)")
+    phone_number = models.CharField(max_length=30, blank=True, null=True, help_text="User phone number in international format")
+    emergency_contact = models.CharField(max_length=30, blank=True, null=True, help_text="Emergency contact phone number")
 
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS = ['first_name', 'last_name']

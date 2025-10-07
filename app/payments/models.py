@@ -42,7 +42,9 @@ class SubscriptionPayment(models.Model):
         CustomUser,
         on_delete=models.CASCADE,
         limit_choices_to={'user_type': 'landlord'},
-        related_name='subscription_payments'
+        related_name='subscription_payments',
+        null=True,
+        blank=True
     )
     amount = models.DecimalField(max_digits=10, decimal_places=2)
     mpesa_receipt_number = models.CharField(max_length=100, unique=True)
@@ -53,16 +55,18 @@ class SubscriptionPayment(models.Model):
     )
 
     def __str__(self):
-        return f"{self.user.email} - {self.subscription_type} - {self.mpesa_receipt_number}"
+        user_email = self.user.email if self.user else "Pending"
+        return f"{user_email} - {self.subscription_type} - {self.mpesa_receipt_number}"
 
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)
-        # Update user's subscription if payment is successful
-        subscription, created = Subscription.objects.get_or_create(user=self.user)
-        subscription.plan = self.subscription_type
-        subscription.start_date = self.transaction_date
-        subscription.expiry_date = self.transaction_date + self._get_plan_duration()
-        subscription.save()
+        # Update user's subscription if payment is successful and user is assigned
+        if self.user:
+            subscription, created = Subscription.objects.get_or_create(user=self.user)
+            subscription.plan = self.subscription_type
+            subscription.start_date = self.transaction_date
+            subscription.expiry_date = self.transaction_date + self._get_plan_duration()
+            subscription.save()
 
     def _get_plan_duration(self):
         durations = {

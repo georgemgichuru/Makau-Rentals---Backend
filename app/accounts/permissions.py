@@ -1,5 +1,5 @@
 from rest_framework.permissions import BasePermission
-from django.http import HttpResponse
+from rest_framework.exceptions import PermissionDenied
 from .models import Subscription, Unit
 
 # Decorator to check if user is a superuser
@@ -39,20 +39,20 @@ class HasActiveSubscription(BasePermission):
 def require_subscription(view_func):
     def wrapper(request, *args, **kwargs):
         if not request.user.is_authenticated:
-            return HttpResponse("Authentication required.")
+            raise PermissionDenied("Authentication required.")
         landlord = request.user
         subscription = Subscription.objects.filter(user=landlord).first()
         if subscription and subscription.is_active:
             return view_func(request, *args, **kwargs)
         else:
-            return HttpResponse("You are not subscribed to the service. Please subscribe to access this view.")
+            raise PermissionDenied("You are not subscribed to the service. Please subscribe to access this view.")
     return wrapper
 
 # Decorator to check if tenant's landlord has an active subscription
 def require_tenant_subscription(view_func):
     def wrapper(request, *args, **kwargs):
         if not request.user.is_authenticated:
-            return HttpResponse("Authentication required.")
+            raise PermissionDenied("Authentication required.")
         if request.user.user_type == 'tenant':
             # Find tenant's unit and landlord
             from .models import Unit
@@ -63,9 +63,9 @@ def require_tenant_subscription(view_func):
                 if subscription and subscription.is_active:
                     return view_func(request, *args, **kwargs)
                 else:
-                    return HttpResponse("Your landlord's subscription is inactive. Please contact your landlord.")
+                    raise PermissionDenied("Your landlord's subscription is inactive. Please contact your landlord.")
             else:
-                return HttpResponse("No unit assigned to you.")
+                raise PermissionDenied("No unit assigned to you.")
         else:
             return view_func(request, *args, **kwargs)  # For non-tenants, allow
     return wrapper
