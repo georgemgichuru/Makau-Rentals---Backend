@@ -71,8 +71,9 @@ class SubscriptionPayment(models.Model):
     def _get_plan_duration(self):
         durations = {
             "free": timedelta(days=60),
+            "starter": timedelta(days=30),
             "basic": timedelta(days=30),
-            "medium": timedelta(days=90),
-            "premium": timedelta(days=365),
+            "professional": timedelta(days=30),
+            # "onetime" will be treated as lifetime (None) by the subscription logic
         }
         return durations.get(self.subscription_type, timedelta(days=30))

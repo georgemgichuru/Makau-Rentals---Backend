@@ -4,24 +4,131 @@ from rest_framework import status
 from accounts.serializers import (
     PropertySerializer,
     UnitSerializer,
+    UnitNumberSerializer,
     UserSerializer,
     PasswordResetSerializer,
+    PasswordResetConfirmSerializer,
 )
 from rest_framework.permissions import IsAuthenticated
 from django.core.cache import cache
-from .models import Property, Unit, CustomUser, Subscription
+from .models import Property, Unit, CustomUser, Subscription, UnitType
+from payments.models import Payment
 from .permissions import IsLandlord, IsTenant, require_subscription, IsSuperuser
 
 from django.http import HttpResponse
 from django.contrib.auth.decorators import login_required
 from django.utils.decorators import method_decorator
+from django.db.models import Count, Sum, Q
+from django.utils import timezone
+from datetime import timedelta
 
 # accounts/views.py
 from rest_framework_simplejwt.views import TokenObtainPairView
 from .serializers import MyTokenObtainPairSerializer
+from .serializers import UnitTypeSerializer
 
 class MyTokenObtainPairView(TokenObtainPairView):
     serializer_class = MyTokenObtainPairSerializer
+
+
+@method_decorator(require_subscription, name='dispatch')
+class UnitTypeListCreateView(APIView):
+    permission_classes = [IsAuthenticated, IsLandlord]
+
+    def get(self, request):
+        unit_types = request.user.unit_types.all()
+        serializer = UnitTypeSerializer(unit_types, many=True)
+        return Response(serializer.data)
+
+    def post(self, request):
+        serializer = UnitTypeSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save(landlord=request.user)
+            return Response(serializer.data, status=201)
+        return Response(serializer.errors, status=400)
+
+
+@method_decorator(require_subscription, name='dispatch')
+class LandlordDashboardStatsView(APIView):
+    permission_classes = [IsAuthenticated, IsLandlord]
+
+    def get(self, request):
+        landlord = request.user
+
+        # Total active tenants: tenants assigned to units of this landlord and active
+        total_active_tenants = CustomUser.objects.filter(
+            user_type='tenant',
+            is_active=True,
+            unit__property_obj__landlord=landlord
+        ).distinct().count()
+
+        # Total units available
+        total_units_available = Unit.objects.filter(
+            property_obj__landlord=landlord,
+            is_available=True
+        ).count()
+
+        # Total units occupied
+        total_units_occupied = Unit.objects.filter(
+            property_obj__landlord=landlord,
+            is_available=False
+        ).count()
+
+        # Monthly revenue: sum of successful rent payments in the current month for this landlord
+        now = timezone.now()
+        start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        monthly_revenue_agg = Payment.objects.filter(
+            unit__property_obj__landlord=landlord,
+            payment_type='rent',
+            status='Success',
+            transaction_date__gte=start_of_month,
+            transaction_date__lte=now
+        ).aggregate(total=Sum('amount'))
+        monthly_revenue = monthly_revenue_agg['total'] or 0
+
+        data = {
+            "total_active_tenants": total_active_tenants,
+            "total_units_available": total_units_available,
+            "total_units_occupied": total_units_occupied,
+            "monthly_revenue": float(monthly_revenue),
+        }
+
+        return Response(data)
+
+
+@method_decorator(require_subscription, name='dispatch')
+class UnitTypeDetailView(APIView):
+    permission_classes = [IsAuthenticated, IsLandlord]
+
+    def get_object(self, pk, user):
+        return UnitType.objects.get(id=pk, landlord=user)
+
+    def get(self, request, pk):
+        try:
+            ut = self.get_object(pk, request.user)
+            serializer = UnitTypeSerializer(ut)
+            return Response(serializer.data)
+        except UnitType.DoesNotExist:
+            return Response({"error": "UnitType not found"}, status=404)
+
+    def put(self, request, pk):
+        try:
+            ut = self.get_object(pk, request.user)
+            serializer = UnitTypeSerializer(ut, data=request.data, partial=True)
+            if serializer.is_valid():
+                serializer.save()
+                return Response(serializer.data)
+            return Response(serializer.errors, status=400)
+        except UnitType.DoesNotExist:
+            return Response({"error": "UnitType not found"}, status=404)
+
+    def delete(self, request, pk):
+        try:
+            ut = self.get_object(pk, request.user)
+            ut.delete()
+            return Response({"message": "UnitType deleted"}, status=200)
+        except UnitType.DoesNotExist:
+            return Response({"error": "UnitType not found"}, status=404)
 
 
 # Lists a single user (cached)
@@ -59,7 +166,7 @@ class AdminLandlordSubscriptionStatusView(APIView):
             data.append({
                 'landlord_id': landlord.id,
                 'email': landlord.email,
-                'name': f"{landlord.first_name} {landlord.last_name}",
+                'name': landlord.full_name,
                 'subscription_plan': subscription.plan if subscription else 'None',
                 'subscription_status': status,
                 'expiry_date': subscription.expiry_date if subscription else None,
@@ -93,20 +200,91 @@ class UserCreateView(APIView):
         serializer = UserSerializer(data=request.data)
         if serializer.is_valid():
             user = serializer.save()
-            # Invalidate tenant list cache if a tenant was created
+
+            # Landlord onboarding: optionally auto-create properties and units if provided
+            if user.user_type == 'landlord':
+                # Expect optional 'properties' array in request.data, each item: {name, city, state, unit_count, vacant_units}
+                properties = request.data.get('properties')
+                from .models import Property, Unit, UnitType
+                import uuid
+
+                if properties and isinstance(properties, list):
+                    for prop in properties:
+                        name = prop.get('name') or f"Property-{uuid.uuid4().hex[:6].upper()}"
+                        city = prop.get('city', '')
+                        state = prop.get('state', '')
+                        unit_count = int(prop.get('unit_count', 0))
+                        p = Property.objects.create(landlord=user, name=name, city=city, state=state, unit_count=unit_count)
+
+                        # Create at least one unit if unit_count > 0
+                        for i in range(1, unit_count + 1):
+                            unit_number = str(i)
+                            unit_code = f"U-{p.id}-{i}"
+                            # Determine vacancy status based on optional vacant_units or default all vacant
+                            vacant_units = int(prop.get('vacant_units', unit_count))
+                            is_available = i <= vacant_units
+
+                            # Optionally link to a unit_type if provided via name
+                            unit_type_obj = None
+                            unit_type_name = prop.get('unit_type')
+                            if unit_type_name:
+                                unit_type_obj, _ = UnitType.objects.get_or_create(landlord=user, name=unit_type_name)
+
+                            Unit.objects.create(
+                                property_obj=p,
+                                unit_code=unit_code,
+                                unit_number=unit_number,
+                                unit_type=unit_type_obj,
+                                is_available=is_available,
+                                rent=unit_type_obj.rent if unit_type_obj else 0,
+                                deposit=unit_type_obj.deposit if unit_type_obj else 0,
+                            )
+
+            # Tenant created: attempt to assign unit if landlord_code and unit_code provided
             if user.user_type == "tenant":
                 cache.delete("tenants:list")
+                landlord_code = request.data.get('landlord_code')
+                unit_code = request.data.get('unit_code')
+                if landlord_code and unit_code:
+                    try:
+                        landlord = CustomUser.objects.get(landlord_code=landlord_code, user_type='landlord')
+                        unit = Unit.objects.get(unit_code=unit_code, property_obj__landlord=landlord)
+                        # Check for deposit payments
+                        from payments.models import Payment
+                        deposit_payments = Payment.objects.filter(
+                            tenant=user,
+                            payment_type='deposit',
+                            status='Success',
+                            amount__gte=unit.deposit
+                        )
+                        if deposit_payments.exists():
+                            unit.tenant = user
+                            unit.is_available = False
+                            unit.save()
+                        else:
+                            # leave unassigned; frontend should request deposit
+                            pass
+                    except CustomUser.DoesNotExist:
+                        # landlord not found; ignore
+                        pass
+                    except Unit.DoesNotExist:
+                        pass
+
             return Response(serializer.data, status=201)
         return Response(serializer.errors, status=400)
 
 
 # Create a new property (invalidate landlord cache)
 # View to create a new property (landlord only)
+# NOTE: The product defines plans by allowed units. For simplicity we map those to
+# conservative property limits here. If you prefer enforcing unit-level limits
+# across all properties, we can implement that check instead.
 PLAN_LIMITS = {
-    "free": 2,      # trial landlords can only create 2 properties
-    "basic": 2,
-    "medium": 5,
-    "premium": 10,
+    "free": 2,         # trial landlords can only create 2 properties
+    "starter": 3,      # starter (up to 10 units) -> small number of properties
+    "basic": 10,       # basic (10-50 units)
+    "professional": 25,# professional (50-100 units)
+    "onetime": None,   # unlimited
 }
 class CreatePropertyView(APIView):
     permission_classes = [IsAuthenticated, IsLandlord]
@@ -196,7 +374,7 @@ class PropertyUnitsView(APIView):
         if not units_data:
             try:
                 property = Property.objects.get(id=property_id, landlord=request.user)
-                units = Unit.objects.filter(property=property)
+                units = Unit.objects.filter(property_obj=property)
                 serializer = UnitSerializer(units, many=True)
                 units_data = serializer.data
                 cache.set(cache_key, units_data, timeout=300)
@@ -216,7 +394,7 @@ class AssignTenantToUnitView(APIView):
 
     def post(self, request, unit_id, tenant_id):
         try:
-            unit = Unit.objects.get(id=unit_id, property__landlord=request.user)
+            unit = Unit.objects.get(id=unit_id, property_obj__landlord=request.user)
             tenant = CustomUser.objects.get(id=tenant_id, user_type="tenant")
             # Check if tenant has made a deposit of at least the required amount to the landlord
             from payments.models import Payment
@@ -232,7 +410,7 @@ class AssignTenantToUnitView(APIView):
             unit.is_available = False
             unit.save()
             # Invalidate property units cache
-            cache.delete(f"property:{unit.property.id}:units")
+            cache.delete(f"property:{unit.property_obj.id}:units")
             return Response({"message": "Tenant assigned to unit successfully"})
         except Unit.DoesNotExist:
             return Response({"error": "Unit not found or you do not have permission"}, status=404)
@@ -286,12 +464,12 @@ class UpdateUnitView(APIView):
 
     def put(self, request, unit_id):
         try:
-            unit = Unit.objects.get(id=unit_id, property__landlord=request.user)
+            unit = Unit.objects.get(id=unit_id, property_obj__landlord=request.user)
             serializer = UnitSerializer(unit, data=request.data, partial=True)
             if serializer.is_valid():
                 serializer.save()
                 cache.delete(f"landlord:{request.user.id}:properties")
-                cache.delete(f"property:{unit.property.id}:units")
+                cache.delete(f"property:{unit.property_obj.id}:units")
                 return Response(serializer.data)
             return Response(serializer.errors, status=400)
         except Unit.DoesNotExist:
@@ -299,14 +477,31 @@ class UpdateUnitView(APIView):
 
     def delete(self, request, unit_id):
         try:
-            unit = Unit.objects.get(id=unit_id, property__landlord=request.user)
-            property_id = unit.property.id
+            unit = Unit.objects.get(id=unit_id, property_obj__landlord=request.user)
+            property_id = unit.property_obj.id
             unit.delete()
             cache.delete(f"landlord:{request.user.id}:properties")
             cache.delete(f"property:{property_id}:units")
             return Response({"message": "Unit deleted successfully."}, status=200)
         except Unit.DoesNotExist:
             return Response({"error": "Unit not found or you do not have permission"}, status=404)
+
+
+@method_decorator(require_subscription, name='dispatch')
+class TenantUpdateUnitView(APIView):
+    permission_classes = [IsAuthenticated, IsTenant]
+
+    def put(self, request):
+        try:
+            unit = Unit.objects.get(tenant=request.user)
+            serializer = UnitNumberSerializer(unit, data=request.data, partial=True)
+            if serializer.is_valid():
+                serializer.save()
+                cache.delete(f"property:{unit.property_obj.id}:units")
+                return Response(serializer.data)
+            return Response(serializer.errors, status=400)
+        except Unit.DoesNotExist:
+            return Response({"error": "No unit assigned to you"}, status=404)
 
 # view to update user details (landlord and tenant) and to delete the user account (landlord and tenant)
 @method_decorator(require_subscription, name='dispatch')
@@ -341,7 +536,56 @@ class UpdateUserView(APIView):
             return Response({"message": "User deleted successfully."}, status=200)
         except CustomUser.DoesNotExist:
             return Response({"error": "User not found"}, status=404)
-        
+
+
+@method_decorator(require_subscription, name='dispatch')
+class AdjustRentView(APIView):
+    permission_classes = [IsAuthenticated, IsLandlord]
+
+    def post(self, request):
+        landlord = request.user
+        adjustment_type = request.data.get('adjustment_type')  # 'percentage' or 'fixed'
+        value = request.data.get('value')  # decimal, positive for increase, negative for decrease
+        unit_type_id = request.data.get('unit_type_id')  # optional, if provided, adjust only units of this type
+
+        if adjustment_type not in ['percentage', 'fixed']:
+            return Response({"error": "adjustment_type must be 'percentage' or 'fixed'"}, status=400)
+
+        try:
+            value = float(value)
+        except (ValueError, TypeError):
+            return Response({"error": "value must be a valid number"}, status=400)
+
+        # Filter units
+        units = Unit.objects.filter(property_obj__landlord=landlord)
+        if unit_type_id:
+            try:
+                unit_type = UnitType.objects.get(id=unit_type_id, landlord=landlord)
+                units = units.filter(unit_type=unit_type)
+            except UnitType.DoesNotExist:
+                return Response({"error": "UnitType not found or not owned by you"}, status=404)
+
+        updated_count = 0
+        for unit in units:
+            old_rent = unit.rent
+            if adjustment_type == 'percentage':
+                new_rent = old_rent * (1 + value / 100)
+            else:  # fixed
+                new_rent = old_rent + value
+            # Ensure rent doesn't go negative
+            new_rent = max(0, new_rent)
+            unit.rent = new_rent
+            unit.save()  # This will update rent_remaining
+            updated_count += 1
+
+        # Invalidate caches
+        cache.delete(f"landlord:{landlord.id}:properties")
+        # Also invalidate rent_summary cache
+        from payments.views import RentSummaryView
+        cache.delete(f"rent_summary:{landlord.id}")
+
+        return Response({"message": f"Rent adjusted for {updated_count} units successfully"})
+
 # TODO: Add url routes for the new views in urls.py, Update user view, Update property view, Update unit view, Assign tenant to unit view, Property units view
 
 # View to check subscription status (landlord only)
@@ -390,3 +634,13 @@ class MeView(APIView):
 
     def put(self, request):
         return self.patch(request)
+
+
+# Password reset confirm view
+class PasswordResetConfirmView(APIView):
+    def post(self, request):
+        serializer = PasswordResetConfirmSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response({"message": "Password has been reset successfully."}, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

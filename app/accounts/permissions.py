@@ -69,3 +69,14 @@ def require_tenant_subscription(view_func):
         else:
             return view_func(request, *args, **kwargs)  # For non-tenants, allow
     return wrapper
+
+# Permission to access reports: tenants can access their own, landlords can access reports on their properties
+class CanAccessReport(BasePermission):
+    def has_object_permission(self, request, view, obj):
+        if not request.user.is_authenticated:
+            return False
+        if request.user.user_type == 'tenant':
+            return obj.tenant == request.user
+        elif request.user.user_type == 'landlord':
+            return obj.unit.property.landlord == request.user
+        return False

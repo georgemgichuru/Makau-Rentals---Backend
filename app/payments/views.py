@@ -3,6 +3,7 @@ import datetime
 import json
 import requests
 import csv
+from decimal import Decimal, InvalidOperation
 from django.http import HttpResponse
 from datetime import timedelta
 
@@ -37,11 +38,25 @@ from accounts.permissions import HasActiveSubscription
 def stk_push(request, unit_id):
     """
     Initiates an M-Pesa STK Push for a tenant's rent payment.
+    - Validates payment amount: positive, <=500000, multiple of rent, <= rent*12
     - Creates a pending Payment record
     - Calls Safaricom STK Push API
     - Uses Redis for rate limiting and duplicate request prevention
     """
     try:
+        if request.method != 'POST':
+            return JsonResponse({"error": "POST method required."}, status=405)
+
+        # Get amount from POST data
+        amount_str = request.POST.get('amount')
+        if not amount_str:
+            return JsonResponse({"error": "Amount is required."}, status=400)
+
+        try:
+            amount = Decimal(amount_str)
+        except InvalidOperation:
+            return JsonResponse({"error": "Invalid amount format."}, status=400)
+
         # Rate limiting: Check if user has made too many requests
         rate_limit_key = f"stk_push_rate_limit:{request.user.id}"
         recent_requests = cache.get(rate_limit_key, 0)
@@ -55,6 +70,17 @@ def stk_push(request, unit_id):
         # Ensure the unit belongs to the logged-in tenant
         unit = Unit.objects.get(id=unit_id, tenant=request.user)
 
+        # Validate amount
+        if amount <= 0:
+            return JsonResponse({"error": "Amount must be positive."}, status=400)
+        if amount > 500000:
+            return JsonResponse({"error": "Amount cannot exceed 500,000."}, status=400)
+        if amount % unit.rent != 0:
+            return JsonResponse({"error": "Amount must be a multiple of the monthly rent."}, status=400)
+        max_amount = unit.rent * 12
+        if amount > max_amount:
+            return JsonResponse({"error": "Amount cannot exceed one year's rent."}, status=400)
+
         # Check for duplicate pending payment
         duplicate_key = f"pending_payment:{request.user.id}:{unit_id}"
         if cache.get(duplicate_key):
@@ -64,7 +90,7 @@ def stk_push(request, unit_id):
         payment = Payment.objects.create(
             tenant=request.user,
             unit=unit,
-            amount=unit.rent_remaining,
+            amount=amount,
             status="Pending"
         )
 
@@ -86,7 +112,7 @@ def stk_push(request, unit_id):
         ).decode("utf-8")
 
         # Use landlord's till number if set, otherwise central shortcode
-        business_shortcode = unit.property.landlord.mpesa_till_number or settings.MPESA_SHORTCODE
+        business_shortcode = unit.property_obj.landlord.mpesa_till_number or settings.MPESA_SHORTCODE
 
         # Build payload for Safaricom API
         payload = {
@@ -153,11 +179,13 @@ def stk_push_subscription(request):
             return JsonResponse({"error": "Phone number is required."}, status=400)
 
         # Map plan to amount
+        # Prices (KES): Starter (up to 10 units) - 2000/month, Basic (10-50) - 5000/month,
+        # Professional (50-100) - 10000/month (assumed by developer), One-time - 40000
         plan_amounts = {
-            "basic": 500,
-            "premium": 1000,
-            "enterprise": 2000,
-            "onetime": 35000,
+            "starter": 2000,
+            "basic": 5000,
+            "professional": 10000,
+            "onetime": 40000,
         }
         if plan not in plan_amounts:
             return JsonResponse({"error": "Invalid plan."}, status=400)
@@ -280,8 +308,8 @@ def mpesa_rent_callback(request):
                     cache.delete_many([
                         f"pending_payment:{payment.tenant.id}:{unit.id}",
                         f"payments:tenant:{payment.tenant.id}",
-                        f"payments:landlord:{unit.property.landlord.id}",
-                        f"rent_summary:{unit.property.landlord.id}",
+                        f"payments:landlord:{payment.unit.property_obj.landlord.id}",
+                        f"rent_summary:{unit.property_obj.landlord.id}",
                         f"unit:{unit.id}:details"
                     ])
 
@@ -387,10 +415,10 @@ def mpesa_subscription_callback(request):
 
                     # Map amount to subscription type and duration
                     plans = {
-                        500: ("basic", timedelta(days=30)),
-                        1000: ("premium", timedelta(days=60)),
-                        2000: ("enterprise", timedelta(days=90)),
-                        35000: ("onetime", None),  # One-time payment, no expiry
+                        2000: ("starter", timedelta(days=30)),
+                        5000: ("basic", timedelta(days=30)),
+                        10000: ("professional", timedelta(days=30)),
+                        40000: ("onetime", None),  # One-time payment, no expiry
                     }
                     if amount not in plans:
                         return JsonResponse({'error': 'Invalid amount'}, status=400)
@@ -413,10 +441,10 @@ def mpesa_subscription_callback(request):
 
                 # Map amount to subscription type and duration
                 plans = {
-                    500: ("basic", timedelta(days=30)),
-                    1000: ("premium", timedelta(days=60)),
-                    2000: ("enterprise", timedelta(days=90)),
-                    35000: ("onetime", None),  # One-time payment, no expiry
+                    2000: ("starter", timedelta(days=30)),
+                    5000: ("basic", timedelta(days=30)),
+                    10000: ("professional", timedelta(days=30)),
+                    40000: ("onetime", None),  # One-time payment, no expiry
                 }
                 if amount not in plans:
                     return JsonResponse({'error': 'Invalid amount'}, status=400)
@@ -443,9 +471,9 @@ def mpesa_subscription_callback(request):
                 subscription.expiry_date = None
             else:
                 duration_map = {
+                    "starter": timedelta(days=30),
                     "basic": timedelta(days=30),
-                    "premium": timedelta(days=60),
-                    "enterprise": timedelta(days=90),
+                    "professional": timedelta(days=30),
                 }
                 subscription.expiry_date = timezone.now() + duration_map.get(subscription_payment.subscription_type, timedelta(days=30))
             subscription.save()
@@ -497,7 +525,7 @@ class PaymentListCreateView(generics.ListCreateAPIView):
         if user.user_type == "tenant":
             queryset = Payment.objects.filter(tenant=user).order_by('-transaction_date')
         elif user.user_type == "landlord":
-            queryset = Payment.objects.filter(unit__property__landlord=user).order_by('-transaction_date')
+            queryset = Payment.objects.filter(unit__property_obj__landlord=user).order_by('-transaction_date')
         else:
             queryset = Payment.objects.none()
 
@@ -523,7 +551,7 @@ class PaymentListCreateView(generics.ListCreateAPIView):
             payment = serializer.save(tenant=self.request.user)
             # Invalidate cache after creation
             cache.delete(f"payments:tenant:{self.request.user.id}")
-            cache.delete(f"payments:landlord:{payment.unit.property.landlord.id}")
+            cache.delete(f"payments:landlord:{payment.unit.property_obj.landlord.id}")
         else:
             raise PermissionError("Only tenants can create rent payments.")
 
@@ -542,7 +570,7 @@ class PaymentDetailView(generics.RetrieveAPIView):
         if user.user_type == "tenant":
             return Payment.objects.filter(tenant=user)
         elif user.user_type == "landlord":
-            return Payment.objects.filter(unit__property__landlord=user)
+            return Payment.objects.filter(unit__property_obj__landlord=user)
         return Payment.objects.none()
 
     def retrieve(self, request, *args, **kwargs):
@@ -651,7 +679,7 @@ class RentSummaryView(APIView):
             return Response(cached_summary)
 
         # Get all units owned by this landlord
-        units = Unit.objects.filter(property__landlord=user)
+        units = Unit.objects.filter(property_obj__landlord=user)
 
         total_collected = 0
         total_outstanding = 0
@@ -762,7 +790,7 @@ def tenant_csv(request, unit_id):
     writer = csv.writer(response)
     writer.writerow(['Property', 'Unit Number', 'Floor', 'Bedrooms', 'Bathrooms', 'Rent', 'Rent Paid', 'Rent Remaining', 'Rent Due Date', 'Deposit'])
     writer.writerow([
-        unit.property.name,  # Fixed: was unit.property_obj.name
+        unit.property_obj.name,
         unit.unit_number, 
         unit.floor, 
         unit.bedrooms, 

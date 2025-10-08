@@ -28,6 +28,11 @@ CELERY_BEAT_SCHEDULE = {
         "task": "app.tasks.landlord_summary_task",
         "schedule": crontab(hour=9, minute=30),
     },
+    # Deadline reminders at 10 AM
+    "daily-deadline-reminders": {
+        "task": "app.tasks.deadline_reminder_task",
+        "schedule": crontab(hour=10, minute=0),
+    },
 }
 
 
@@ -213,6 +218,27 @@ CELERY_RESULT_BACKEND = "redis://redis:6379/0"
 
 
 # Africa's Talking Configuration
-AT_USERNAME = config('AT_USERNAME')
-AT_API_KEY = config('AT_API_KEY')
+# AT_USERNAME = config('AT_USERNAME')
+# AT_API_KEY = config('AT_API_KEY')
+
+# Frontend URL for password reset links
+FRONTEND_URL = config('FRONTEND_URL', default='http://localhost:3000')
+
+# Optional: S3 storage for uploaded id_document files via django-storages
+# To enable, set USE_S3=True and provide the AWS_* env vars. Install: pip install django-storages[boto3]
+USE_S3 = config('USE_S3', default=False, cast=bool)
+if USE_S3:
+    INSTALLED_APPS.append('storages')
+    AWS_ACCESS_KEY_ID = config('AWS_ACCESS_KEY_ID')
+    AWS_SECRET_ACCESS_KEY = config('AWS_SECRET_ACCESS_KEY')
+    AWS_STORAGE_BUCKET_NAME = config('AWS_STORAGE_BUCKET_NAME')
+    AWS_S3_REGION_NAME = config('AWS_S3_REGION_NAME', default=None)
+    AWS_S3_CUSTOM_DOMAIN = f"{AWS_STORAGE_BUCKET_NAME}.s3.amazonaws.com"
+    AWS_DEFAULT_ACL = None
+
+    DEFAULT_FILE_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'
+    MEDIA_URL = f"https://{AWS_S3_CUSTOM_DOMAIN}/media/"
+else:
+    MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+    MEDIA_URL = '/media/'
 

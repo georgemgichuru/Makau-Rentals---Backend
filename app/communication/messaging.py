@@ -1,16 +1,6 @@
 # services/messaging.py
-import africastalking
 from django.conf import settings
 from django.core.mail import send_mail
-
-# ------------------------------
-# Initialize Africa's Talking SDK
-# ------------------------------
-africastalking.initialize(
-    username=settings.AT_USERNAME,
-    api_key=settings.AT_API_KEY
-)
-sms = africastalking.SMS
 
 
 def send_bulk_emails(tenants):
@@ -21,7 +11,7 @@ def send_bulk_emails(tenants):
     for tenant in tenants:
         subject = "Rent Payment Reminder"
         message = (
-            f"Hello {tenant.first_name},\n\n"
+            f"Hello {tenant.full_name},\n\n"
             f"This is a reminder to pay your rent.\n"
             f"Outstanding balance: KES {tenant.unit.rent_remaining}."
         )
@@ -31,38 +21,87 @@ def send_bulk_emails(tenants):
             print(f"Email failed for {tenant.email}: {e}")
 
 
-def send_bulk_sms(tenants):
+
+
+
+def send_deadline_reminder_emails(tenants):
     """
-    Send rent reminder SMS to a list of tenants.
-    Uses Africa's Talking SMS gateway.
+    Send rent deadline reminder emails to a list of tenants.
+    Each email includes the payment deadline date, outstanding balance, and login link.
     """
     for tenant in tenants:
+        unit = tenant.unit
+        subject = "Rent Payment Deadline Reminder"
+        login_link = f"{settings.FRONTEND_URL}/login"
         message = (
-            f"Hello {tenant.first_name}, kindly pay your rent. "
-            f"Outstanding balance: KES {tenant.unit.rent_remaining}."
+            f"Hello {tenant.full_name},\n\n"
+            f"This is a reminder that your rent payment is due on {unit.rent_due_date}.\n"
+            f"Outstanding balance: KES {unit.rent_remaining}.\n\n"
+            f"Please log in to your account to make the payment: {login_link}\n\n"
+            "Thank you,\n"
+            "Makau Rentals Team"
         )
         try:
-            response = sms.send(message, [tenant.phone_number], sender_id=settings.AT_SENDER_ID)
-            print(response)
+            send_mail(subject, message, settings.EMAIL_HOST_USER, [tenant.email])
         except Exception as e:
-            print(f"SMS failed for {tenant.phone_number}: {e}")
+            print(f"Email failed for {tenant.email}: {e}")
 
 
-def notify_tenants():
+def send_deadline_reminders():
     """
-    Notify all tenants with outstanding balances via SMS and Email.
-    This function is called by the Celery task on schedule.
+    Send reminders to tenants whose rent payment deadline is 10 days away.
     """
+    from datetime import timedelta
+    from django.utils import timezone
     from accounts.models import CustomUser
-    tenants = CustomUser.objects.filter(user_type="tenant", unit__isnull=False)
 
-    # Only notify tenants who actually owe rent
-    tenants = [t for t in tenants if t.unit and t.unit.rent_remaining > 0]
+    reminder_date = timezone.now().date() + timedelta(days=10)
+    tenants = CustomUser.objects.filter(
+        user_type="tenant",
+        unit__isnull=False,
+        unit__rent_due_date=reminder_date,
+        unit__rent_remaining__gt=0
+    )
 
-    send_bulk_sms(tenants)
-    send_bulk_emails(tenants)
+    if tenants:
+        send_deadline_reminder_emails(tenants)
 
 # TODO:
-# - This module handles sending bulk emails and SMS to tenants for rent reminders.
-# - It integrates with Africa's Talking for SMS and Django's send_mail for email.
-# - The notify_tenants() function is scheduled via Celery Beat to run automatically.
+# - This module handles sending bulk emails to tenants for rent reminders.
+# - It uses Django's send_mail for email notifications.
+# - The send_deadline_reminders() function is scheduled via Celery Beat to run automatically.
+
+def send_report_email(report):
+    """
+    Send an email to the landlord when a new report is created.
+    """
+    landlord = report.unit.property_obj.landlord
+    subject = f"New Issue Report: {report.issue_title}"
+    issue_url = f"{settings.FRONTEND_URL}/reports/{report.id}"
+    message = (
+        f"Hello {landlord.full_name},\n\n"
+        f"A new issue report has been submitted by tenant {report.tenant.full_name}.\n\n"
+        f"Unit Number: {report.unit.unit_number}\n"
+        f"Issue Category: {report.issue_category}\n"
+        f"Priority Level: {report.priority_level}\n"
+        f"Issue Title: {report.issue_title}\n"
+        f"Description:\n{report.description}\n\n"
+        f"To resolve the issue, please visit: {issue_url}\n\n"
+        "Best regards,\n"
+        "Makau Rentals System"
+    )
+    try:
+        send_mail(subject, message, settings.EMAIL_HOST_USER, [landlord.email])
+    except Exception as e:
+        print(f"Failed to send report email: {e}")
+
+
+def send_landlord_email(subject, message, tenants):
+    """
+    Send a custom email from landlord to a list of tenants.
+    """
+    recipient_emails = [tenant.email for tenant in tenants]
+    try:
+        send_mail(subject, message, settings.EMAIL_HOST_USER, recipient_emails)
+    except Exception as e:
+        print(f"Failed to send landlord email: {e}")

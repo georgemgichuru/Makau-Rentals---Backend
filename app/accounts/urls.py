@@ -7,7 +7,8 @@ from .views import (UserDetailView, UserListView, UserCreateView, PasswordResetV
                     CreatePropertyView, LandlordPropertiesView, CreateUnitView,
                     UpdatePropertyView,UpdateUnitView,UpdateUserView, subscription_status,
                     UpdateTillNumberView, MyTokenObtainPairView, AdminLandlordSubscriptionStatusView,
-                    MeView,
+                    MeView, PasswordResetConfirmView, UnitTypeListCreateView, UnitTypeDetailView,
+                    LandlordDashboardStatsView, TenantUpdateUnitView, AdjustRentView,
 )
 urlpatterns = [
     # Signup endpoint for new users
@@ -21,16 +22,23 @@ urlpatterns = [
     path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     # Endpoint for password reset requests
     path('password-reset/', PasswordResetView.as_view(), name='password-reset'),
+    # Endpoint for password reset confirmation
+    path('password-reset-confirm/', PasswordResetConfirmView.as_view(), name='password-reset-confirm'),
     # Endpoint to create a new property (landlord only)
     path('properties/create/', CreatePropertyView.as_view(), name='create-property'),
     # Endpoint to list all properties of the logged-in landlord
     path('properties/', LandlordPropertiesView.as_view(), name='landlord-properties'),
     # Endpoint to create a new unit under a property (landlord only)
     path('units/create/', CreateUnitView.as_view(), name='create-unit'),
+    # UnitType endpoints
+    path('unit-types/', UnitTypeListCreateView.as_view(), name='unittype-list-create'),
+    path('unit-types/<int:pk>/', UnitTypeDetailView.as_view(), name='unittype-detail'),
     # Endpoint to update property details (landlord only)
     path('properties/<int:property_id>/update/', UpdatePropertyView.as_view(), name='update-property'),
     # Endpoint to update unit details (landlord only)
     path('units/<int:unit_id>/update/', UpdateUnitView.as_view(), name='update-unit'),
+    # Endpoint to update tenant's unit number (tenant only)
+    path('units/tenant/update/', TenantUpdateUnitView.as_view(), name='tenant-update-unit'),
     # Endpoint to update user details (landlord and tenant)
     path('users/<int:user_id>/update/', UpdateUserView.as_view(), name='update-user'),
     # Current user endpoint
@@ -41,5 +49,9 @@ urlpatterns = [
     path('update-till-number/', UpdateTillNumberView.as_view(), name='update-till-number'),
     # Admin section to view landlords subscription status (superuser only)
     path('admin/landlord-subscriptions/', AdminLandlordSubscriptionStatusView.as_view(), name='admin-landlord-subscriptions'),
+    # Landlord dashboard statistics
+    path('landlord/dashboard-stats/', LandlordDashboardStatsView.as_view(), name='landlord-dashboard-stats'),
+    # Endpoint to adjust rent prices (landlord only)
+    path('adjust-rent/', AdjustRentView.as_view(), name='adjust-rent'),
 
 ]
