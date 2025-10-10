@@ -5,11 +5,12 @@ from rest_framework_simplejwt.views import (
 from django.urls import path
 from .views import (UserDetailView, UserListView, UserCreateView, PasswordResetView,
                     CreatePropertyView, LandlordPropertiesView, CreateUnitView,
-                    UpdatePropertyView,UpdateUnitView,UpdateUserView, subscription_status,
+                    UpdatePropertyView,UpdateUnitView,UpdateUserView, SubscriptionStatusView,
                     UpdateTillNumberView, MyTokenObtainPairView, AdminLandlordSubscriptionStatusView,
                     MeView, PasswordResetConfirmView, UnitTypeListCreateView, UnitTypeDetailView,
                     LandlordDashboardStatsView, TenantUpdateUnitView, AdjustRentView,
-                    PropertyUnitsView, AssignTenantToUnitView,
+                    PropertyUnitsView, AssignTenantToUnitView, UpdateReminderPreferencesView,
+                    LandlordAvailableUnitsView,
 )
 urlpatterns = [
     # Signup endpoint for new users
@@ -45,7 +46,7 @@ urlpatterns = [
     # Current user endpoint
     path('me/', MeView.as_view(), name='me'),
     #Url to check subscription status
-    path('subscription_status/', subscription_status, name='subscription_status'),
+    path('subscription_status/', SubscriptionStatusView.as_view(), name='subscription_status'),
     # Endpoint to update landlord's Mpesa till number
     path('update-till-number/', UpdateTillNumberView.as_view(), name='update-till-number'),
     # Admin section to view landlords subscription status (superuser only)
@@ -58,5 +59,9 @@ urlpatterns = [
     path('properties/<int:property_id>/units/', PropertyUnitsView.as_view(), name='property-units'),
     # Endpoint to assign tenant to unit (landlord only)
     path('units/<int:unit_id>/assign/<int:tenant_id>/', AssignTenantToUnitView.as_view(), name='assign-tenant-to-unit'),
+    # Endpoint to update tenant reminder preferences
+    path('update-reminder-preferences/', UpdateReminderPreferencesView.as_view(), name='update-reminder-preferences'),
+    # Endpoint to list available units for landlords to share with tenants
+    path('available-units/', LandlordAvailableUnitsView.as_view(), name='landlord-available-units'),
 
 ]

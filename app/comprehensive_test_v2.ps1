@@ -1,0 +1,304 @@
+# Comprehensive test script v2 for Makau Rentals backend flows
+# Adjusted to create resources step-by-step without assuming properties in signup
+
+$baseUrl = "http://localhost"
+
+# Function to perform POST request with JSON body
+function Invoke-PostJson {
+    param (
+        [string]$url,
+        [hashtable]$headers = @{},
+        [string]$body
+    )
+    try {
+        return Invoke-RestMethod -Uri $url -Method POST -Headers $headers -Body $body -ContentType "application/json"
+    } catch {
+        Write-Host "Error in POST to $url`: $($_.Exception.Message)"
+        throw
+    }
+}
+
+# Function to perform GET request with Authorization header
+function Invoke-GetAuth {
+    param (
+        [string]$url,
+        [string]$token
+    )
+    $headers = @{ Authorization = "Bearer $token" }
+    try {
+        return Invoke-RestMethod -Uri $url -Method GET -Headers $headers
+    } catch {
+        Write-Host "Error in GET to $url`: $($_.Exception.Message)"
+        throw
+    }
+}
+
+# Test data
+$timestamp = Get-Date -Format 'yyyyMMddHHmmss'
+$landlordEmail = "test_landlord_$timestamp@example.com"  # Use timestamp to ensure uniqueness
+$landlordPassword = "testpass123"
+$landlordFullName = "Test Landlord"
+$landlordPhone = "254712345678"
+
+$tenantEmail = "test_tenant_$timestamp@example.com"
+$tenantPassword = "testpass123"
+$tenantFullName = "Test Tenant"
+$tenantPhone = "254798765432"
+
+# 1. Signup Landlord (no properties)
+Write-Host "1. Signing up landlord..."
+$landlordSignupBody = @{
+    email = $landlordEmail
+    full_name = $landlordFullName
+    user_type = "landlord"
+    password = $landlordPassword
+    phone_number = $landlordPhone
+} | ConvertTo-Json
+
+$landlordSignupResponse = Invoke-PostJson -url "$baseUrl/api/accounts/signup/" -body $landlordSignupBody
+Write-Host "Landlord signup successful. ID: $($landlordSignupResponse.id)"
+$landlordId = $landlordSignupResponse.id
+$landlordCode = $landlordSignupResponse.landlord_code
+Write-Host "Landlord code: $landlordCode"
+
+# 2. Login Landlord
+Write-Host "2. Logging in landlord..."
+$landlordLoginBody = @{
+    email = $landlordEmail
+    password = $landlordPassword
+    user_type = "landlord"
+} | ConvertTo-Json
+
+$landlordLoginResponse = Invoke-PostJson -url "$baseUrl/api/accounts/token/" -body $landlordLoginBody
+Write-Host "Landlord login successful."
+$landlordToken = $landlordLoginResponse.access
+
+# 2.1. Test token refresh
+Write-Host "2.1. Refreshing token..."
+$refreshBody = @{
+    refresh = $landlordLoginResponse.refresh
+} | ConvertTo-Json
+
+$refreshResponse = Invoke-PostJson -url "$baseUrl/api/accounts/token/refresh/" -body $refreshBody
+Write-Host "Token refreshed successfully."
+$landlordToken = $refreshResponse.access
+
+# 2.2. Test /me/ endpoint
+Write-Host "2.2. Getting current user info..."
+$meResponse = Invoke-GetAuth -url "$baseUrl/api/accounts/me/" -token $landlordToken
+Write-Host "Current user: $($meResponse | ConvertTo-Json)"
+
+# 2.3. Test subscription_status/
+Write-Host "2.3. Getting subscription status..."
+$statusResponse = Invoke-GetAuth -url "$baseUrl/api/accounts/subscription_status/" -token $landlordToken
+Write-Host "Subscription status: $($statusResponse | ConvertTo-Json)"
+
+# 3. Create Property as Landlord
+Write-Host "3. Creating property..."
+$propertyBody = @{
+    name = "Test Property"
+    city = "Nairobi"
+    state = "Kenya"
+    unit_count = 1
+} | ConvertTo-Json
+
+$propertyHeaders = @{ Authorization = "Bearer $landlordToken" }
+$propertyResponse = Invoke-PostJson -url "$baseUrl/api/accounts/properties/create/" -headers $propertyHeaders -body $propertyBody
+Write-Host "Property created. ID: $($propertyResponse.id)"
+$propertyId = $propertyResponse.id
+
+# 4. Create UnitType as Landlord with automatic unit creation
+Write-Host "4. Creating unit type with automatic units..."
+$unitTypeBody = @{
+    name = "1 Bedroom"
+    deposit = 1000
+    rent = 2000
+    number_of_units = 2
+    property_id = $propertyId
+} | ConvertTo-Json
+
+$unitTypeResponse = Invoke-PostJson -url "$baseUrl/api/accounts/unit-types/" -headers $propertyHeaders -body $unitTypeBody
+Write-Host "Unit type created. ID: $($unitTypeResponse.id)"
+$unitTypeId = $unitTypeResponse.id
+
+# 5. List Units to verify automatic creation
+Write-Host "5. Listing units..."
+$unitsResponse = Invoke-GetAuth -url "$baseUrl/api/accounts/properties/$propertyId/units/" -token $landlordToken
+Write-Host "Units created: $($unitsResponse.count) units"
+$unitId = $unitsResponse.results[0].id
+$unitCode = $unitsResponse.results[0].unit_code
+Write-Host "First unit ID: $unitId, Code: $unitCode"
+
+# 5.1. Test available-units/
+Write-Host "5.1. Listing available units..."
+$availableResponse = Invoke-GetAuth -url "$baseUrl/api/accounts/available-units/" -token $landlordToken
+Write-Host "Available units: $($availableResponse | ConvertTo-Json)"
+
+# 5.2. Test dashboard-stats/
+Write-Host "5.2. Getting dashboard stats..."
+$statsResponse = Invoke-GetAuth -url "$baseUrl/api/accounts/landlord/dashboard-stats/" -token $landlordToken
+Write-Host "Dashboard stats: $($statsResponse | ConvertTo-Json)"
+
+# 6. Signup Tenant (with landlord_code, no unit_code to skip deposit check)
+Write-Host "6. Signing up tenant..."
+$tenantSignupBody = @{
+    email = $tenantEmail
+    full_name = $tenantFullName
+    user_type = "tenant"
+    password = $tenantPassword
+    phone_number = $tenantPhone
+    landlord_code = $landlordCode
+    # No unit_code to avoid deposit requirement
+} | ConvertTo-Json
+
+$tenantSignupResponse = Invoke-PostJson -url "$baseUrl/api/accounts/signup/" -body $tenantSignupBody
+Write-Host "Tenant signup successful. ID: $($tenantSignupResponse.id)"
+$tenantId = $tenantSignupResponse.id
+
+# 7. Login Tenant
+Write-Host "7. Logging in tenant..."
+$tenantLoginBody = @{
+    email = $tenantEmail
+    password = $tenantPassword
+    user_type = "tenant"
+} | ConvertTo-Json
+
+$tenantLoginResponse = Invoke-PostJson -url "$baseUrl/api/accounts/token/" -body $tenantLoginBody
+Write-Host "Tenant login successful."
+$tenantToken = $tenantLoginResponse.access
+
+# 7.1. Test update-reminder-preferences/
+Write-Host "7.1. Updating reminder preferences..."
+$reminderBody = @{
+    rent_reminder = $true
+    maintenance_reminder = $true
+} | ConvertTo-Json
+
+$reminderResponse = Invoke-PostJson -url "$baseUrl/api/accounts/update-reminder-preferences/" -headers $depositHeaders -body $reminderBody
+Write-Host "Reminder preferences updated: $($reminderResponse | ConvertTo-Json)"
+
+# 8. Initiate Deposit Payment as Tenant (for testing, note no real payment)
+Write-Host "8. Initiating deposit payment..."
+$depositBody = @{
+    phone_number = $tenantPhone
+    unit_type_id = $unitTypeId
+    tenant_email = $tenantEmail
+} | ConvertTo-Json
+
+$depositHeaders = @{ Authorization = "Bearer $tenantToken" }
+try {
+    $depositResponse = Invoke-PostJson -url "$baseUrl/api/payments/initiate-deposit/" -headers $depositHeaders -body $depositBody
+    Write-Host "Deposit STK push initiated: $($depositResponse | ConvertTo-Json)"
+} catch {
+    Write-Host "Deposit initiation failed (expected if no M-Pesa setup): $($_.Exception.Message)"
+}
+
+# For testing, manually set unit as assigned (in real, would be after callback)
+# But since no deposit_paid field, we'll proceed to assign directly
+
+# 9. Assign Tenant to Unit as Landlord
+Write-Host "9. Assigning tenant to unit..."
+$assignBody = @{} | ConvertTo-Json
+$assignResponse = Invoke-PostJson -url "$baseUrl/api/accounts/units/$unitId/assign/$tenantId/" -headers $propertyHeaders -body $assignBody
+Write-Host "Tenant assigned to unit: $($assignResponse | ConvertTo-Json)"
+
+# 10. Initiate Rent Payment as Tenant
+Write-Host "10. Initiating rent payment..."
+$rentBody = @{
+    amount = "2000"
+} | ConvertTo-Json
+
+try {
+$rentResponse = Invoke-PostJson -url "$baseUrl/api/payments/stk-push/$unitId/" -headers $depositHeaders -body $rentBody
+    Write-Host "Rent STK push initiated: $($rentResponse | ConvertTo-Json)"
+} catch {
+    Write-Host "Rent initiation failed (expected if no M-Pesa setup): $($_.Exception.Message)"
+}
+
+# 10.1. Test rent-payments/ list
+Write-Host "10.1. Listing rent payments..."
+$rentPaymentsResponse = Invoke-GetAuth -url "$baseUrl/api/payments/rent-payments/" -token $tenantToken
+Write-Host "Rent payments: $($rentPaymentsResponse | ConvertTo-Json)"
+
+# 11. Create Report as Tenant
+Write-Host "11. Creating report as tenant..."
+$reportBody = @{
+    unit = $unitId
+    title = "Test Report"
+    description = "This is a test report for maintenance."
+    priority_level = "normal"
+} | ConvertTo-Json
+
+$reportResponse = Invoke-PostJson -url "$baseUrl/api/communication/reports/" -headers $depositHeaders -body $reportBody
+Write-Host "Report created. ID: $($reportResponse.id)"
+$reportId = $reportResponse.id
+
+# 11.1. Test reports/urgent/
+Write-Host "11.1. Listing urgent reports..."
+$urgentResponse = Invoke-GetAuth -url "$baseUrl/api/communication/reports/urgent/" -token $landlordToken
+Write-Host "Urgent reports: $($urgentResponse | ConvertTo-Json)"
+
+# 11.2. Test reports/in-progress/
+Write-Host "11.2. Listing in-progress reports..."
+$inProgressResponse = Invoke-GetAuth -url "$baseUrl/api/communication/reports/in-progress/" -token $landlordToken
+Write-Host "In-progress reports: $($inProgressResponse | ConvertTo-Json)"
+
+# 11.3. Test reports/resolved/
+Write-Host "11.3. Listing resolved reports..."
+$resolvedResponse = Invoke-GetAuth -url "$baseUrl/api/communication/reports/resolved/" -token $landlordToken
+Write-Host "Resolved reports: $($resolvedResponse | ConvertTo-Json)"
+
+# 11.4. Test update-report-status/
+Write-Host "11.4. Updating report status..."
+$updateStatusBody = @{
+    status = "in_progress"
+} | ConvertTo-Json
+
+$updateResponse = Invoke-PostJson -url "$baseUrl/api/communication/reports/$reportId/update-status/" -headers $propertyHeaders -body $updateStatusBody
+Write-Host "Report status updated: $($updateResponse | ConvertTo-Json)"
+
+# 11.5. Test send-email/
+Write-Host "11.5. Sending email..."
+$emailBody = @{
+    subject = "Test Email"
+    message = "This is a test email."
+    recipient_email = $tenantEmail
+} | ConvertTo-Json
+
+$emailResponse = Invoke-PostJson -url "$baseUrl/api/communication/send-email/" -headers $propertyHeaders -body $emailBody
+Write-Host "Email sent: $($emailResponse | ConvertTo-Json)"
+
+# 12. Initiate Subscription Payment as Landlord
+Write-Host "12. Initiating subscription payment..."
+$subscriptionBody = @{
+    plan = "starter"
+    phone_number = $landlordPhone
+} | ConvertTo-Json
+
+$subscriptionHeaders = @{ Authorization = "Bearer $landlordToken" }
+try {
+$subscriptionResponse = Invoke-PostJson -url "$baseUrl/api/payments/stk-push-subscription/" -headers $subscriptionHeaders -body $subscriptionBody
+    Write-Host "Subscription STK push initiated: $($subscriptionResponse | ConvertTo-Json)"
+} catch {
+    Write-Host "Subscription initiation failed (expected if no M-Pesa setup): $($_.Exception.Message)"
+}
+
+# 12.1. Test subscription-payments/ list
+Write-Host "12.1. Listing subscription payments..."
+$subscriptionPaymentsResponse = Invoke-GetAuth -url "$baseUrl/api/payments/subscription-payments/" -token $landlordToken
+Write-Host "Subscription payments: $($subscriptionPaymentsResponse | ConvertTo-Json)"
+
+# 13. View Open Reports as Landlord
+Write-Host "13. Viewing open reports as landlord..."
+$reportsResponse = Invoke-GetAuth -url "$baseUrl/api/communication/reports/open/" -token $landlordToken
+Write-Host "Open reports found: $($reportsResponse.count) reports"
+if ($reportsResponse.count -gt 0) {
+    Write-Host "First report: $($reportsResponse.results[0] | ConvertTo-Json)"
+}
+
+# 14. Get Rent Summary as Landlord
+Write-Host "14. Getting rent summary as landlord..."
+$summaryResponse = Invoke-GetAuth -url "$baseUrl/api/payments/rent-summary/" -token $landlordToken
+Write-Host "Rent summary: $($summaryResponse | ConvertTo-Json)"
+
+Write-Host "All tests completed successfully!"

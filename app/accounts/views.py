@@ -8,12 +8,14 @@ from accounts.serializers import (
     UserSerializer,
     PasswordResetSerializer,
     PasswordResetConfirmSerializer,
+    ReminderPreferencesSerializer,
+    AvailableUnitsSerializer,
 )
 from rest_framework.permissions import IsAuthenticated
 from django.core.cache import cache
 from .models import Property, Unit, CustomUser, Subscription, UnitType
 from payments.models import Payment
-from .permissions import IsLandlord, IsTenant, require_subscription, IsSuperuser
+from .permissions import IsLandlord, IsTenant, require_subscription, IsSuperuser, HasActiveSubscription
 
 from django.http import HttpResponse
 from django.contrib.auth.decorators import login_required
@@ -31,9 +33,8 @@ class MyTokenObtainPairView(TokenObtainPairView):
     serializer_class = MyTokenObtainPairSerializer
 
 
-@method_decorator(require_subscription, name='dispatch')
 class UnitTypeListCreateView(APIView):
-    permission_classes = [IsAuthenticated, IsLandlord]
+    permission_classes = [IsAuthenticated, IsLandlord, HasActiveSubscription]
 
     def get(self, request):
         unit_types = request.user.unit_types.all()
@@ -48,9 +49,8 @@ class UnitTypeListCreateView(APIView):
         return Response(serializer.errors, status=400)
 
 
-@method_decorator(require_subscription, name='dispatch')
 class LandlordDashboardStatsView(APIView):
-    permission_classes = [IsAuthenticated, IsLandlord]
+    permission_classes = [IsAuthenticated, IsLandlord, HasActiveSubscription]
 
     def get(self, request):
         landlord = request.user
@@ -96,9 +96,8 @@ class LandlordDashboardStatsView(APIView):
         return Response(data)
 
 
-@method_decorator(require_subscription, name='dispatch')
 class UnitTypeDetailView(APIView):
-    permission_classes = [IsAuthenticated, IsLandlord]
+    permission_classes = [IsAuthenticated, IsLandlord, HasActiveSubscription]
 
     def get_object(self, pk, user):
         return UnitType.objects.get(id=pk, landlord=user)
@@ -176,9 +175,8 @@ class AdminLandlordSubscriptionStatusView(APIView):
 
 # Lists all tenants (cached)
 # View to list all tenants (landlord only)
-@method_decorator(require_subscription, name='dispatch')
 class UserListView(APIView):
-    permission_classes = [IsAuthenticated, IsLandlord]
+    permission_classes = [IsAuthenticated, IsLandlord, HasActiveSubscription]
 
     def get(self, request):
         cache_key = "tenants:list"
@@ -287,7 +285,7 @@ PLAN_LIMITS = {
     "onetime": None,   # unlimited
 }
 class CreatePropertyView(APIView):
-    permission_classes = [IsAuthenticated, IsLandlord]
+    permission_classes = [IsAuthenticated, IsLandlord, HasActiveSubscription]
 
     def post(self, request):
         user = request.user
@@ -327,9 +325,8 @@ class CreatePropertyView(APIView):
 
 # List landlord properties (cached)
 # View to list all properties of a landlord (landlord only)
-@method_decorator(require_subscription, name='dispatch')
 class LandlordPropertiesView(APIView):
-    permission_classes = [IsAuthenticated, IsLandlord]
+    permission_classes = [IsAuthenticated, IsLandlord, HasActiveSubscription]
 
     def get(self, request):
         cache_key = f"landlord:{request.user.id}:properties"
@@ -346,10 +343,8 @@ class LandlordPropertiesView(APIView):
 
 # Create a new unit (invalidate landlord cache)
 # View to create a new unit in a property (landlord only)
-@method_decorator(require_subscription, name='dispatch')
-
 class CreateUnitView(APIView):
-    permission_classes = [IsAuthenticated, IsLandlord]
+    permission_classes = [IsAuthenticated, IsLandlord, HasActiveSubscription]
 
     def post(self, request):
         serializer = UnitSerializer(data=request.data)
@@ -362,10 +357,8 @@ class CreateUnitView(APIView):
 
 # List units of a property (cached)
 # View to list all units of a property (landlord only)
-@method_decorator(require_subscription, name='dispatch')
-
 class PropertyUnitsView(APIView):
-    permission_classes = [IsAuthenticated, IsLandlord]
+    permission_classes = [IsAuthenticated, IsLandlord, HasActiveSubscription]
 
     def get(self, request, property_id):
         cache_key = f"property:{property_id}:units"
@@ -390,22 +383,25 @@ class PropertyUnitsView(APIView):
 # Assign tenant to unit (invalidate cache)
 # View to assign a tenant to a unit (landlord only, since tenant assigns themselves upon signup)
 class AssignTenantToUnitView(APIView):
-    permission_classes = [IsAuthenticated, IsLandlord]
+    permission_classes = [IsAuthenticated, IsLandlord, HasActiveSubscription]
 
     def post(self, request, unit_id, tenant_id):
         try:
             unit = Unit.objects.get(id=unit_id, property_obj__landlord=request.user)
             tenant = CustomUser.objects.get(id=tenant_id, user_type="tenant")
-            # Check if tenant has made a deposit of at least the required amount to the landlord
+            # Check if tenant has made a deposit payment for this unit
             from payments.models import Payment
-            deposit_payments = Payment.objects.filter(
+            deposit_payment = Payment.objects.filter(
                 tenant=tenant,
+                unit=unit,
                 payment_type='deposit',
                 status='Success',
                 amount__gte=unit.deposit
-            )
-            if not deposit_payments.exists():
-                return Response({"error": f"Tenant must have made a deposit of at least KES {unit.deposit} to be assigned to the unit."}, status=400)
+            ).exists()
+            if not deposit_payment:
+                return Response({'error': 'Tenant must have paid the deposit for this unit'}, status=400)
+            if not unit.is_available:
+                return Response({'error': 'Unit is not available'}, status=400)
             unit.tenant = tenant
             unit.is_available = False
             unit.save()
@@ -433,10 +429,8 @@ class PasswordResetView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
 # View to update the Property details (landlord only) and Unit details (landlord only) and delete
-@method_decorator(require_subscription, name='dispatch')
-
 class UpdatePropertyView(APIView):
-    permission_classes = [IsAuthenticated, IsLandlord]
+    permission_classes = [IsAuthenticated, IsLandlord, HasActiveSubscription]
 
     def put(self, request, property_id):
         try:
@@ -458,9 +452,8 @@ class UpdatePropertyView(APIView):
             return Response({"message": "Property deleted successfully."}, status=200)
         except Property.DoesNotExist:
             return Response({"error": "Property not found or you do not have permission"}, status=404)
-@method_decorator(require_subscription, name='dispatch')
 class UpdateUnitView(APIView):
-    permission_classes = [IsAuthenticated, IsLandlord]
+    permission_classes = [IsAuthenticated, IsLandlord, HasActiveSubscription]
 
     def put(self, request, unit_id):
         try:
@@ -538,9 +531,8 @@ class UpdateUserView(APIView):
             return Response({"error": "User not found"}, status=404)
 
 
-@method_decorator(require_subscription, name='dispatch')
 class AdjustRentView(APIView):
-    permission_classes = [IsAuthenticated, IsLandlord]
+    permission_classes = [IsAuthenticated, IsLandlord, HasActiveSubscription]
 
     def post(self, request):
         landlord = request.user
@@ -589,20 +581,26 @@ class AdjustRentView(APIView):
 # TODO: Add url routes for the new views in urls.py, Update user view, Update property view, Update unit view, Assign tenant to unit view, Property units view
 
 # View to check subscription status (landlord only)
-@login_required
-def subscription_status(request):
-    landlord = request.user
-    subscription = Subscription.objects.filter(user=landlord).first()
-    if subscription:
-        status = 'Subscribed' if subscription.is_active else 'Inactive'
-        return HttpResponse(f"Subscription Status: {status}")
-    else:
-        return HttpResponse("No subscription found")
+class SubscriptionStatusView(APIView):
+    permission_classes = [IsAuthenticated, IsLandlord]
+
+    def get(self, request):
+        user = request.user
+        try:
+            subscription = Subscription.objects.get(user=user)
+            data = {
+                "plan": subscription.plan,
+                "is_active": subscription.is_active(),
+                "expiry_date": subscription.expiry_date,
+                "status": "Subscribed" if subscription.is_active() else "Inactive"
+            }
+        except Subscription.DoesNotExist:
+            data = {"status": "No subscription found"}
+        return Response(data)
 
 # View to update landlord's Mpesa till number (landlord only)
-@method_decorator(require_subscription, name='dispatch')
 class UpdateTillNumberView(APIView):
-    permission_classes = [IsAuthenticated, IsLandlord]
+    permission_classes = [IsAuthenticated, IsLandlord, HasActiveSubscription]
 
     def patch(self, request):
         user = request.user
@@ -636,6 +634,19 @@ class MeView(APIView):
         return self.patch(request)
 
 
+# View to update tenant reminder preferences
+@method_decorator(require_subscription, name='dispatch')
+class UpdateReminderPreferencesView(APIView):
+    permission_classes = [IsAuthenticated, IsTenant]
+
+    def patch(self, request):
+        serializer = ReminderPreferencesSerializer(request.user, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=400)
+
+
 # Password reset confirm view
 class PasswordResetConfirmView(APIView):
     def post(self, request):
@@ -644,3 +655,13 @@ class PasswordResetConfirmView(APIView):
             serializer.save()
             return Response({"message": "Password has been reset successfully."}, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+# View to list available units for landlords to share with tenants
+class LandlordAvailableUnitsView(APIView):
+    permission_classes = [IsAuthenticated, IsLandlord, HasActiveSubscription]
+
+    def get(self, request):
+        units = Unit.objects.filter(property_obj__landlord=request.user, is_available=True)
+        serializer = AvailableUnitsSerializer(units, many=True)
+        return Response(serializer.data)

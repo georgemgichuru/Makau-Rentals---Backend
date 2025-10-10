@@ -49,22 +49,36 @@ def send_deadline_reminder_emails(tenants):
 
 def send_deadline_reminders():
     """
-    Send reminders to tenants whose rent payment deadline is 10 days away.
+    Send reminders to tenants based on their custom reminder preferences.
     """
     from datetime import timedelta
     from django.utils import timezone
     from accounts.models import CustomUser
 
-    reminder_date = timezone.now().date() + timedelta(days=10)
+    today = timezone.now().date()
+    tenants_to_remind = []
+
+    # Get all tenants with units and outstanding rent
     tenants = CustomUser.objects.filter(
         user_type="tenant",
         unit__isnull=False,
-        unit__rent_due_date=reminder_date,
         unit__rent_remaining__gt=0
-    )
+    ).select_related('unit')
 
-    if tenants:
-        send_deadline_reminder_emails(tenants)
+    for tenant in tenants:
+        unit = tenant.unit
+        if tenant.reminder_mode == 'days_before':
+            reminder_date = unit.rent_due_date - timedelta(days=tenant.reminder_value)
+            if reminder_date == today:
+                tenants_to_remind.append(tenant)
+        elif tenant.reminder_mode == 'fixed_day':
+            if today.day == tenant.reminder_value:
+                # Optionally, check if due date is within a reasonable period, e.g., next 30 days
+                if unit.rent_due_date and unit.rent_due_date >= today and (unit.rent_due_date - today).days <= 30:
+                    tenants_to_remind.append(tenant)
+
+    if tenants_to_remind:
+        send_deadline_reminder_emails(tenants_to_remind)
 
 # TODO:
 # - This module handles sending bulk emails to tenants for rent reminders.

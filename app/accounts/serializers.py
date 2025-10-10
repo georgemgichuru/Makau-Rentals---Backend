@@ -60,6 +60,8 @@ class UserSerializer(serializers.ModelSerializer):
             'mpesa_till_number',
             'phone_number',
             'emergency_contact',
+            'reminder_mode',
+            'reminder_value',
             'password'
         ]
         read_only_fields = ['id', 'date_joined', 'is_active', 'is_staff', 'is_superuser', 'landlord_code']
@@ -212,3 +214,20 @@ class PasswordResetConfirmSerializer(serializers.Serializer):
         user.set_password(new_password)
         user.save()
         return user
+
+
+class ReminderPreferencesSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CustomUser
+        fields = ['reminder_mode', 'reminder_value']
+
+
+class AvailableUnitsSerializer(serializers.ModelSerializer):
+    landlord_id = serializers.CharField(source='property_obj.landlord.landlord_code', read_only=True)
+    property_id = serializers.IntegerField(source='property_obj.id', read_only=True)
+    property_name = serializers.CharField(source='property_obj.name', read_only=True)
+    unit_number = serializers.CharField(read_only=True)
+
+    class Meta:
+        model = Unit
+        fields = ['landlord_id', 'property_id', 'property_name', 'unit_number']

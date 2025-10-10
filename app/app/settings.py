@@ -49,7 +49,7 @@ SECRET_KEY = config('SECRET_KEY')
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config('DEBUG', default=False, cast=bool)
 
-ALLOWED_HOSTS = ['localhost', '127.0.0.1', '10.66.47.34']
+ALLOWED_HOSTS = ['*']
 
 
 # Application definition
@@ -169,7 +169,7 @@ STATIC_ROOT = os.path.join(BASE_DIR, 'static')  # or your preferred path
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=30),
+    'ACCESS_TOKEN_LIFETIME': timedelta(hours=1),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
     'ROTATE_REFRESH_TOKENS': False,
     'BLACKLIST_AFTER_ROTATION': True,
@@ -188,14 +188,14 @@ CACHES = {
 }
 
 # Email Configuration
-EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-EMAIL_HOST = 'smtp.gmail.com'
-EMAIL_PORT = 587
-EMAIL_USE_TLS = True
+EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+# EMAIL_HOST = 'smtp.gmail.com'
+# EMAIL_PORT = 587
+# EMAIL_USE_TLS = True
 # TODO: Use environment variables or Django decouple to manage sensitive info
 # TODO: Creaete a dedicated email for the application
-EMAIL_HOST_USER = config('EMAIL_HOST_USER')
-EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD')
+# EMAIL_HOST_USER = config('EMAIL_HOST_USER')
+# EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD')
 
 # Mpesa Configuration
 # TODO: Update these settings with your actual Mpesa credentials
@@ -208,6 +208,7 @@ MPESA_CALLBACK_URL = config('MPESA_CALLBACK_URL')
 # Provide explicit callback URLs expected by payment views. If not set, fall back to MPESA_CALLBACK_URL
 MPESA_RENT_CALLBACK_URL = config('MPESA_RENT_CALLBACK_URL', default=MPESA_CALLBACK_URL)
 MPESA_SUBSCRIPTION_CALLBACK_URL = config('MPESA_SUBSCRIPTION_CALLBACK_URL', default=MPESA_CALLBACK_URL)
+MPESA_DEPOSIT_CALLBACK_URL = config('MPESA_DEPOSIT_CALLBACK_URL', default=MPESA_CALLBACK_URL)
 # Celery configuration
 CELERY_BROKER_URL = "redis://redis:6379/0"   # adjust if your docker-compose uses another host
 CELERY_RESULT_BACKEND = "redis://redis:6379/0"

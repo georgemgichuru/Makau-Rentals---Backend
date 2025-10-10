@@ -76,6 +76,16 @@ class CustomUser(AbstractBaseUser,PermissionsMixin):
     mpesa_till_number = models.CharField(max_length=20, blank=True, null=True, help_text="M-Pesa till number for direct payments (landlords only)")
     phone_number = models.CharField(max_length=30, blank=True, null=True, help_text="User phone number in international format")
     emergency_contact = models.CharField(max_length=30, blank=True, null=True, help_text="Emergency contact phone number")
+    reminder_mode = models.CharField(
+        max_length=20,
+        choices=[('days_before', 'Days Before Due Date'), ('fixed_day', 'Fixed Day of Month')],
+        default='days_before',
+        help_text="How the tenant wants to receive rent reminders"
+    )
+    reminder_value = models.IntegerField(
+        default=10,
+        help_text="For 'days_before': days before due date; For 'fixed_day': day of the month (1-31)"
+    )
 
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS = ['full_name']
@@ -150,6 +160,7 @@ class UnitType(models.Model):
     name = models.CharField(max_length=50)
     deposit = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     rent = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    number_of_units = models.IntegerField(default=0, help_text="Number of units of this type to create automatically")
 
     def __str__(self):
         return f"{self.landlord.email} - {self.name}"
