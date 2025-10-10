@@ -44,9 +44,50 @@ class UnitTypeListCreateView(APIView):
     def post(self, request):
         serializer = UnitTypeSerializer(data=request.data)
         if serializer.is_valid():
-            serializer.save(landlord=request.user)
+            unit_type = serializer.save(landlord=request.user)
+            
+            # Automatically create units based on the unit_count
+            unit_count = request.data.get('unit_count', 1)
+            property_id = request.data.get('property_id')
+            
+            if property_id and unit_count > 0:
+                try:
+                    property_obj = Property.objects.get(id=property_id, landlord=request.user)
+                    self.create_units_for_unit_type(property_obj, unit_type, unit_count)
+                except Property.DoesNotExist:
+                    return Response({"error": "Property not found or you do not have permission"}, status=404)
+            
             return Response(serializer.data, status=201)
         return Response(serializer.errors, status=400)
+    
+    def create_units_for_unit_type(self, property_obj, unit_type, unit_count):
+        """Create multiple units for a given unit type"""
+        # Get existing units to determine next unit number
+        existing_units = Unit.objects.filter(property_obj=property_obj)
+        last_unit = existing_units.order_by('-unit_number').first()
+        
+        if last_unit and last_unit.unit_number.isdigit():
+            start_number = int(last_unit.unit_number) + 1
+        else:
+            start_number = 1
+        
+        units_created = []
+        for i in range(unit_count):
+            unit_number = start_number + i
+            unit_code = f"U-{property_obj.id}-{unit_type.name.replace(' ', '-')}-{unit_number}"
+            
+            unit = Unit.objects.create(
+                property_obj=property_obj,
+                unit_code=unit_code,
+                unit_number=str(unit_number),
+                unit_type=unit_type,
+                is_available=True,
+                rent=unit_type.rent,
+                deposit=unit_type.deposit,
+            )
+            units_created.append(unit)
+        
+        return units_created
 
 
 class LandlordDashboardStatsView(APIView):
@@ -195,9 +236,12 @@ class UserListView(APIView):
 # View to create a new user Landlord or Tenant
 class UserCreateView(APIView):
     def post(self, request):
+        print("Signup request received:", request.data)  # Debug logging
+        
         serializer = UserSerializer(data=request.data)
         if serializer.is_valid():
             user = serializer.save()
+            print(f"User created successfully: {user.email}, ID: {user.id}")  # Debug logging
 
             # Landlord onboarding: optionally auto-create properties and units if provided
             if user.user_type == 'landlord':
@@ -269,14 +313,13 @@ class UserCreateView(APIView):
                         pass
 
             return Response(serializer.data, status=201)
-        return Response(serializer.errors, status=400)
+        else:
+            print("Serializer errors:", serializer.errors)  # Debug logging
+            return Response(serializer.errors, status=400)
 
 
 # Create a new property (invalidate landlord cache)
 # View to create a new property (landlord only)
-# NOTE: The product defines plans by allowed units. For simplicity we map those to
-# conservative property limits here. If you prefer enforcing unit-level limits
-# across all properties, we can implement that check instead.
 PLAN_LIMITS = {
     "free": 2,         # trial landlords can only create 2 properties
     "starter": 3,      # starter (up to 10 units) -> small number of properties
@@ -284,6 +327,7 @@ PLAN_LIMITS = {
     "professional": 25,# professional (50-100 units)
     "onetime": None,   # unlimited
 }
+
 class CreatePropertyView(APIView):
     permission_classes = [IsAuthenticated, IsLandlord, HasActiveSubscription]
 
@@ -324,7 +368,6 @@ class CreatePropertyView(APIView):
         return Response(serializer.errors, status=400)
 
 # List landlord properties (cached)
-# View to list all properties of a landlord (landlord only)
 class LandlordPropertiesView(APIView):
     permission_classes = [IsAuthenticated, IsLandlord, HasActiveSubscription]
 
@@ -342,7 +385,6 @@ class LandlordPropertiesView(APIView):
 
 
 # Create a new unit (invalidate landlord cache)
-# View to create a new unit in a property (landlord only)
 class CreateUnitView(APIView):
     permission_classes = [IsAuthenticated, IsLandlord, HasActiveSubscription]
 
@@ -356,7 +398,6 @@ class CreateUnitView(APIView):
 
 
 # List units of a property (cached)
-# View to list all units of a property (landlord only)
 class PropertyUnitsView(APIView):
     permission_classes = [IsAuthenticated, IsLandlord, HasActiveSubscription]
 
@@ -381,7 +422,6 @@ class PropertyUnitsView(APIView):
 
 
 # Assign tenant to unit (invalidate cache)
-# View to assign a tenant to a unit (landlord only, since tenant assigns themselves upon signup)
 class AssignTenantToUnitView(APIView):
     permission_classes = [IsAuthenticated, IsLandlord, HasActiveSubscription]
 
@@ -416,8 +456,7 @@ class AssignTenantToUnitView(APIView):
             )
 
 
-# Password reset (no caching needed)
-# view for password reset
+# Password reset
 class PasswordResetView(APIView):
     def post(self, request):
         serializer = PasswordResetSerializer(data=request.data)
@@ -428,7 +467,7 @@ class PasswordResetView(APIView):
             )
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
-# View to update the Property details (landlord only) and Unit details (landlord only) and delete
+# Update property
 class UpdatePropertyView(APIView):
     permission_classes = [IsAuthenticated, IsLandlord, HasActiveSubscription]
 
@@ -452,6 +491,8 @@ class UpdatePropertyView(APIView):
             return Response({"message": "Property deleted successfully."}, status=200)
         except Property.DoesNotExist:
             return Response({"error": "Property not found or you do not have permission"}, status=404)
+
+# Update unit
 class UpdateUnitView(APIView):
     permission_classes = [IsAuthenticated, IsLandlord, HasActiveSubscription]
 
@@ -480,7 +521,6 @@ class UpdateUnitView(APIView):
             return Response({"error": "Unit not found or you do not have permission"}, status=404)
 
 
-@method_decorator(require_subscription, name='dispatch')
 class TenantUpdateUnitView(APIView):
     permission_classes = [IsAuthenticated, IsTenant]
 
@@ -496,8 +536,7 @@ class TenantUpdateUnitView(APIView):
         except Unit.DoesNotExist:
             return Response({"error": "No unit assigned to you"}, status=404)
 
-# view to update user details (landlord and tenant) and to delete the user account (landlord and tenant)
-@method_decorator(require_subscription, name='dispatch')
+# Update user
 class UpdateUserView(APIView):  
     permission_classes = [IsAuthenticated]
 
@@ -578,8 +617,6 @@ class AdjustRentView(APIView):
 
         return Response({"message": f"Rent adjusted for {updated_count} units successfully"})
 
-# TODO: Add url routes for the new views in urls.py, Update user view, Update property view, Update unit view, Assign tenant to unit view, Property units view
-
 # View to check subscription status (landlord only)
 class SubscriptionStatusView(APIView):
     permission_classes = [IsAuthenticated, IsLandlord]
@@ -613,7 +650,7 @@ class UpdateTillNumberView(APIView):
         return Response({"message": "Till number updated successfully", "mpesa_till_number": till_number})
 
 
-# Endpoint to get or update the currently authenticated user (simpler than decoding tokens client-side)
+# Endpoint to get or update the currently authenticated user
 class MeView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -635,7 +672,6 @@ class MeView(APIView):
 
 
 # View to update tenant reminder preferences
-@method_decorator(require_subscription, name='dispatch')
 class UpdateReminderPreferencesView(APIView):
     permission_classes = [IsAuthenticated, IsTenant]
 
