@@ -14,6 +14,7 @@ class Payment(models.Model):
         related_name='payments'
     )
     unit = models.ForeignKey(Unit, on_delete=models.CASCADE, related_name='payments', null=True, blank=True)
+    unit_type = models.ForeignKey('accounts.UnitType', on_delete=models.CASCADE, related_name='payments', null=True, blank=True)
     payment_type = models.CharField(max_length=10, choices=PAYMENT_TYPES, default='rent')
     amount = models.DecimalField(max_digits=10, decimal_places=2)
     mpesa_receipt = models.CharField(max_length=50, blank=True, null=True)

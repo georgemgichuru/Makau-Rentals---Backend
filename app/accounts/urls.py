@@ -9,6 +9,7 @@ from .views import (UserDetailView, UserListView, UserCreateView, PasswordResetV
                     UpdateTillNumberView, MyTokenObtainPairView, AdminLandlordSubscriptionStatusView,
                     MeView, PasswordResetConfirmView, UnitTypeListCreateView, UnitTypeDetailView,
                     LandlordDashboardStatsView, TenantUpdateUnitView, AdjustRentView,
+                    PropertyUnitsView, AssignTenantToUnitView,
 )
 urlpatterns = [
     # Signup endpoint for new users
@@ -53,5 +54,9 @@ urlpatterns = [
     path('landlord/dashboard-stats/', LandlordDashboardStatsView.as_view(), name='landlord-dashboard-stats'),
     # Endpoint to adjust rent prices (landlord only)
     path('adjust-rent/', AdjustRentView.as_view(), name='adjust-rent'),
+    # Endpoint to list units of a property (landlord only)
+    path('properties/<int:property_id>/units/', PropertyUnitsView.as_view(), name='property-units'),
+    # Endpoint to assign tenant to unit (landlord only)
+    path('units/<int:unit_id>/assign/<int:tenant_id>/', AssignTenantToUnitView.as_view(), name='assign-tenant-to-unit'),
 
 ]

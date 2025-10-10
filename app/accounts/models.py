@@ -60,7 +60,9 @@ class CustomUserManager(BaseUserManager):
 
 class CustomUser(AbstractBaseUser,PermissionsMixin):
     email = models.EmailField(unique=True)
-    full_name = models.CharField(max_length=120)
+    full_name = models.CharField(max_length=120, default='')
+    # Government ID number (National ID or Passport)
+    government_id = models.CharField(max_length=20, blank=True, null=True, help_text="Government ID number (e.g., National ID or Passport)")
     # ID or passport image for verification
     id_document = models.ImageField(upload_to='id_documents/', null=True, blank=True)
     # Human-facing landlord code used externally (different from DB id)
@@ -161,7 +163,7 @@ class Unit(models.Model):
         db_column="property_id"
     )
     # system-generated unit code (unique per unit)
-    unit_code = models.CharField(max_length=30, unique=True)
+    unit_code = models.CharField(max_length=30, unique=True, default='')
     unit_number = models.CharField(max_length=10)
     floor = models.IntegerField(null=True, blank=True)
     bedrooms = models.IntegerField(default=0)

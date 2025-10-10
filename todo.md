@@ -1,7 +1,14 @@
-# TODO: Implement Landlord Email Sending Feature
+# TODO: Connect Report System Backend and Frontend
 
-- [x] Add SendEmailSerializer in app/communication/serializers.py
-- [x] Add send_landlord_email function in app/communication/messaging.py
-- [x] Add SendEmailView in app/communication/views.py
-- [x] Add URL route in app/communication/urls.py
-- [ ] Test the implementation
+## Steps to Complete
+- [x] Add API functions in api.js for fetching reports by different statuses (urgent, in-progress, resolved)
+- [x] Update AdminReports.jsx to fetch all report statuses, make stats dynamic, and call API when updating report status
+- [x] Update TenantReportIssue.jsx to submit reports via the API instead of simulating
+- [x] Test the connections by running the app and verifying report creation and status updates work
+
+# TODO: Fix Django Admin Error - Missing communication_report Table
+
+## Steps to Complete
+- [x] Generate migrations for communication app: docker-compose exec web python manage.py makemigrations communication
+- [x] Apply migrations: docker-compose exec web python manage.py migrate communication
+- [x] Verify: Check migration status with docker-compose exec web python manage.py showmigrations communication, model accessible via shell, superuser ready for admin testing

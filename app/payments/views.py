@@ -15,8 +15,9 @@ from django.utils import timezone
 from django.core.cache import cache
 from django.shortcuts import get_object_or_404
 
-from accounts.models import CustomUser, Subscription, Property, Unit
+from accounts.models import CustomUser, Subscription, Property, Unit, UnitType
 from accounts.permissions import require_tenant_subscription, require_subscription
+from accounts.serializers import UnitTypeSerializer
 from .models import Unit, Payment, SubscriptionPayment
 from .generate_token import generate_access_token
 
@@ -806,3 +807,140 @@ def tenant_csv(request, unit_id):
     cache.set(cache_key, response.content, timeout=300)
 
     return response
+
+
+# ------------------------------
+# UNIT TYPES LIST (For Tenants to Choose Room Types)
+# ------------------------------
+class UnitTypeListView(APIView):
+    def get(self, request):
+        landlord_code = request.query_params.get('landlord_code')
+        if landlord_code:
+            try:
+                landlord = CustomUser.objects.get(landlord_code=landlord_code, user_type='landlord')
+                unit_types = UnitType.objects.filter(landlord=landlord)
+            except CustomUser.DoesNotExist:
+                return Response({'error': 'Invalid landlord code'}, status=400)
+        else:
+            unit_types = UnitType.objects.all()
+        serializer = UnitTypeSerializer(unit_types, many=True)
+        return Response(serializer.data)
+
+
+# ------------------------------
+# INITIATE DEPOSIT PAYMENT
+# ------------------------------
+class InitiateDepositPaymentView(APIView):
+    def post(self, request):
+        phone_number = request.data.get('phone_number')
+        unit_type_id = request.data.get('unit_type_id')
+        tenant_email = request.data.get('tenant_email')  # optional, for associating
+
+        try:
+            unit_type = UnitType.objects.get(id=unit_type_id)
+        except UnitType.DoesNotExist:
+            return Response({'error': 'Invalid unit type'}, status=400)
+
+        amount = unit_type.deposit
+
+        # Get access token
+        access_token = generate_access_token()
+        if not access_token:
+            return Response({'error': 'Failed to get access token'}, status=500)
+
+        import datetime
+        timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+        password = base64.b64encode(
+            (settings.MPESA_SHORTCODE + settings.MPESA_PASSKEY + timestamp).encode("utf-8")
+        ).decode("utf-8")
+
+        business_shortcode = unit_type.landlord.mpesa_till_number or settings.MPESA_SHORTCODE
+
+        payload = {
+            "BusinessShortCode": business_shortcode,
+            "Password": password,
+            "Timestamp": timestamp,
+            "TransactionType": "CustomerPayBillOnline",
+            "Amount": str(amount),
+            "PartyA": phone_number,
+            "PartyB": business_shortcode,
+            "PhoneNumber": phone_number,
+            "CallBackURL": settings.MPESA_DEPOSIT_CALLBACK_URL,
+            "AccountReference": f"DEPOSIT-{unit_type.id}-{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}",
+            "TransactionDesc": f"Deposit payment for {unit_type.name}"
+        }
+
+        headers = {"Authorization": f"Bearer {access_token}"}
+        response = requests.post(
+            "https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest",
+            json=payload,
+            headers=headers
+        )
+
+        if response.status_code == 200:
+            # Create payment record
+            tenant = None
+            if tenant_email:
+                try:
+                    tenant = CustomUser.objects.get(email=tenant_email, user_type='tenant')
+                except CustomUser.DoesNotExist:
+                    pass
+            payment = Payment.objects.create(
+                tenant=tenant,
+                unit_type=unit_type,
+                payment_type='deposit',
+                amount=amount,
+                status='Pending'
+            )
+            serializer = PaymentSerializer(payment)
+            return Response(serializer.data)
+        else:
+            return Response({'error': 'Payment initiation failed'}, status=400)
+
+
+# ------------------------------
+# DEPOSIT PAYMENT CALLBACK
+# ------------------------------
+@csrf_exempt
+def mpesa_deposit_callback(request):
+    """
+    Handles M-Pesa callback for deposit payments.
+    - Updates Payment status
+    """
+    try:
+        data = json.loads(request.body.decode("utf-8"))
+        body = data.get("Body", {}).get("stkCallback", {})
+        result_code = body.get("ResultCode")
+
+        if result_code == 0:  # ✅ Transaction successful
+            metadata_items = body.get("CallbackMetadata", {}).get("Item", [])
+            metadata = {item["Name"]: item.get("Value") for item in metadata_items}
+
+            amount = metadata.get("Amount")
+            receipt = metadata.get("MpesaReceiptNumber")
+            account_reference = metadata.get("AccountReference")  # e.g. DEPOSIT-1-20231010
+
+            # Parse account_reference to get unit_type_id
+            try:
+                ref_parts = account_reference.split('-')
+                unit_type_id = int(ref_parts[1])
+                payment = Payment.objects.get(unit_type_id=unit_type_id, payment_type='deposit', status='Pending', amount=amount)
+                payment.status = 'Success'
+                payment.mpesa_receipt = receipt
+                payment.save()
+
+                print(f"✅ Deposit payment successful: {receipt} for unit_type {unit_type_id}")
+
+            except (ValueError, Payment.DoesNotExist):
+                print(f"Deposit payment not found for {account_reference}")
+
+        else:
+            # ❌ Transaction failed
+            error_msg = body.get("ResultDesc", "Unknown error")
+            print(f"❌ Deposit transaction failed: {error_msg}")
+
+    except Exception as e:
+        print("Error processing deposit callback:", e)
+
+    # Always respond with success to Safaricom
+    return JsonResponse({"ResultCode": 0, "ResultDesc": "Accepted"})

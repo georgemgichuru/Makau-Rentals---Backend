@@ -8,6 +8,5 @@ urlpatterns = [
     # from payments/urls.py
     path("api/payments/", include("payments.urls")),
     # from communication/urls.py
-    #TODO: Uncomment when ready to use communication app AFTER FIXING IT
     path("api/communication/", include("communication.urls")),
 ]

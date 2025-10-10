@@ -4,14 +4,14 @@ from rest_framework.response import Response
 from rest_framework import status
 from .models import Report
 from .serializers import ReportSerializer, UpdateReportStatusSerializer, SendEmailSerializer
-from accounts.permissions import CanAccessReport, IsTenant, IsLandlord
+from accounts.permissions import CanAccessReport, IsTenant, IsLandlord, HasActiveSubscription
 from accounts.models import CustomUser, Unit
 from .messaging import send_landlord_email
 
 class CreateReportView(generics.CreateAPIView):
     queryset = Report.objects.all()
     serializer_class = ReportSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, HasActiveSubscription]
 
     def perform_create(self, serializer):
         report = serializer.save()
@@ -21,7 +21,7 @@ class CreateReportView(generics.CreateAPIView):
 
 class OpenReportsView(generics.ListAPIView):
     serializer_class = ReportSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, HasActiveSubscription]
 
     def get_queryset(self):
         user = self.request.user
@@ -33,7 +33,7 @@ class OpenReportsView(generics.ListAPIView):
 
 class UrgentReportsView(generics.ListAPIView):
     serializer_class = ReportSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, HasActiveSubscription]
 
     def get_queryset(self):
         user = self.request.user
@@ -45,7 +45,7 @@ class UrgentReportsView(generics.ListAPIView):
 
 class InProgressReportsView(generics.ListAPIView):
     serializer_class = ReportSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, HasActiveSubscription]
 
     def get_queryset(self):
         user = self.request.user
@@ -57,7 +57,7 @@ class InProgressReportsView(generics.ListAPIView):
 
 class ResolvedReportsView(generics.ListAPIView):
     serializer_class = ReportSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, HasActiveSubscription]
 
     def get_queryset(self):
         user = self.request.user
@@ -70,10 +70,10 @@ class ResolvedReportsView(generics.ListAPIView):
 class UpdateReportStatusView(generics.UpdateAPIView):
     queryset = Report.objects.all()
     serializer_class = UpdateReportStatusSerializer
-    permission_classes = [permissions.IsAuthenticated, CanAccessReport]
+    permission_classes = [permissions.IsAuthenticated, CanAccessReport, HasActiveSubscription]
 
 class SendEmailView(APIView):
-    permission_classes = [permissions.IsAuthenticated, IsLandlord]
+    permission_classes = [permissions.IsAuthenticated, IsLandlord, HasActiveSubscription]
 
     def post(self, request):
         serializer = SendEmailSerializer(data=request.data, context={'request': request})

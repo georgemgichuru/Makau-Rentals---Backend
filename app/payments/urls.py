@@ -5,6 +5,7 @@ from .views import (
     stk_push_subscription,
     mpesa_rent_callback,
     mpesa_subscription_callback,
+    mpesa_deposit_callback,
 
     # DRF views
     PaymentListCreateView,
@@ -12,6 +13,12 @@ from .views import (
     SubscriptionPaymentListCreateView,
     SubscriptionPaymentDetailView,
     RentSummaryView,
+    UnitTypeListView,
+    InitiateDepositPaymentView,
+
+    # CSV reports
+    landlord_csv,
+    tenant_csv,
 )
 
 urlpatterns = [
@@ -22,6 +29,7 @@ urlpatterns = [
     path("stk-push-subscription/", stk_push_subscription, name="stk-push-subscription"),
     path("callback/rent/", mpesa_rent_callback, name="mpesa-rent-callback"),
     path("callback/subscription/", mpesa_subscription_callback, name="mpesa-subscription-callback"),
+    path("callback/deposit/", mpesa_deposit_callback, name="mpesa-deposit-callback"),
 
     # ------------------------------
     # RENT PAYMENTS (DRF)
@@ -35,4 +43,20 @@ urlpatterns = [
     path("subscription-payments/", SubscriptionPaymentListCreateView.as_view(), name="subscription-payment-list-create"),
     path("subscription-payments/<int:pk>/", SubscriptionPaymentDetailView.as_view(), name="subscription-payment-detail"),
     path("rent-payments/summary/", RentSummaryView.as_view(), name="rent-summary"),
+
+    # ------------------------------
+    # UNIT TYPES
+    # ------------------------------
+    path("unit-types/", UnitTypeListView.as_view(), name="unit-types"),
+
+    # ------------------------------
+    # INITIATE DEPOSIT PAYMENT
+    # ------------------------------
+    path("initiate-deposit/", InitiateDepositPaymentView.as_view(), name="initiate-deposit"),
+
+    # ------------------------------
+    # CSV REPORTS
+    # ------------------------------
+    path("landlord-csv/<int:property_id>/", landlord_csv, name="landlord-csv"),
+    path("tenant-csv/<int:unit_id>/", tenant_csv, name="tenant-csv"),
 ]
