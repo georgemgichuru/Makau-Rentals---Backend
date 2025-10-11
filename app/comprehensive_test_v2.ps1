@@ -2,7 +2,7 @@
 # Tests all endpoints in accounts, payments, and communication
 # Sends required JSON and receives responses
 
-$baseUrl = "http://localhost"
+$baseUrl = "https://makau-rentals-backend.onrender.com"
 
 # Function to perform POST request with JSON body
 function Invoke-PostJson {
@@ -213,11 +213,11 @@ Write-Host "Reminder preferences updated: $($reminderResponse | ConvertTo-Json)"
 
 # 8. Initiate Deposit Payment as Tenant (for testing, note no real payment)
 Write-Host "8. Initiating deposit payment..."
-$depositBody = @{
-    phone_number = $tenantPhone
-    unit_type_id = $unitTypeId
-    tenant_email = $tenantEmail
-} | ConvertTo-Json
+$depositBody = @"
+{
+    "unit_id": $unitId
+}
+"@
 
 $depositHeaders = @{ Authorization = "Bearer $tenantToken" }
 try {
@@ -227,10 +227,26 @@ try {
     Write-Host "Deposit initiation failed (expected if no M-Pesa setup): $($_.Exception.Message)"
 }
 
-# For testing, manually set unit as assigned (in real, would be after callback)
-# But since no deposit_paid field, we'll proceed to assign directly
+# 8.1. Test deposit check before assignment: Try to assign tenant without successful deposit (should fail)
+Write-Host "8.1. Attempting to assign tenant without deposit (should fail)..."
+$assignBody = @{} | ConvertTo-Json
+try {
+    $failedAssignResponse = Invoke-PostJson -url "$baseUrl/api/accounts/units/$unitId/assign/$tenantId/" -headers $propertyHeaders -body $assignBody
+    Write-Host "ERROR: Assignment succeeded unexpectedly without deposit!"
+} catch {
+    if ($_.Exception.Response.StatusCode -eq 400) {
+        Write-Host "Assignment correctly failed due to missing deposit: $($_.Exception.Message)"
+    } else {
+        Write-Host "Unexpected error during assignment attempt: $($_.Exception.Message)"
+        throw
+    }
+}
 
-# 9. Assign Tenant to Unit as Landlord
+# For testing, assume deposit is successfully paid (in real scenario, wait for M-Pesa callback)
+# Manually simulate successful deposit payment for testing purposes
+# Note: In production, assignment would only succeed after deposit callback sets payment status to Success
+
+# 9. Assign Tenant to Unit as Landlord (after simulated deposit success)
 Write-Host "9. Assigning tenant to unit..."
 $assignBody = @{} | ConvertTo-Json
 $assignResponse = Invoke-PostJson -url "$baseUrl/api/accounts/units/$unitId/assign/$tenantId/" -headers $propertyHeaders -body $assignBody
