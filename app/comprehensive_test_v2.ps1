@@ -258,9 +258,10 @@ Write-Host "Rent payments: $($rentPaymentsResponse | ConvertTo-Json)"
 Write-Host "11. Creating report as tenant..."
 $reportBody = @{
     unit = $unitId
-    title = "Test Report"
+    issue_title = "Test Report"
+    issue_category = "maintenance"
     description = "This is a test report for maintenance."
-    priority_level = "normal"
+    priority_level = "low"
 } | ConvertTo-Json
 
 $reportResponse = Invoke-PostJson -url "$baseUrl/api/communication/reports/create/" -headers $depositHeaders -body $reportBody
@@ -288,7 +289,7 @@ $updateStatusBody = @{
     status = "in_progress"
 } | ConvertTo-Json
 
-$updateResponse = Invoke-PostJson -url "$baseUrl/api/communication/reports/$reportId/update-status/" -headers $propertyHeaders -body $updateStatusBody
+$updateResponse = Invoke-PutAuth -url "$baseUrl/api/communication/reports/$reportId/update-status/" -token $landlordToken -body $updateStatusBody
 Write-Host "Report status updated: $($updateResponse | ConvertTo-Json)"
 
 # 11.5. Test send-email/
@@ -296,7 +297,7 @@ Write-Host "11.5. Sending email..."
 $emailBody = @{
     subject = "Test Email"
     message = "This is a test email."
-    recipient_email = $tenantEmail
+    send_to_all = $true
 } | ConvertTo-Json
 
 $emailResponse = Invoke-PostJson -url "$baseUrl/api/communication/reports/send-email/" -headers $propertyHeaders -body $emailBody
@@ -332,7 +333,7 @@ if ($reportsResponse.count -gt 0) {
 
 # 14. Get Rent Summary as Landlord
 Write-Host "14. Getting rent summary as landlord..."
-$summaryResponse = Invoke-GetAuth -url "$baseUrl/api/payments/rent-summary/" -token $landlordToken
+$summaryResponse = Invoke-GetAuth -url "$baseUrl/api/payments/rent-payments/summary/" -token $landlordToken
 Write-Host "Rent summary: $($summaryResponse | ConvertTo-Json)"
 
 # Additional Accounts Tests

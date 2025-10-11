@@ -17,8 +17,8 @@ from .views import (
     InitiateDepositPaymentView,
 
     # CSV reports
-    landlord_csv,
-    tenant_csv,
+    LandLordCSVView as landlord_csv,
+    TenantCSVView as tenant_csv,
 )
 
 urlpatterns = [
@@ -57,6 +57,6 @@ urlpatterns = [
     # ------------------------------
     # CSV REPORTS
     # ------------------------------
-    path("landlord-csv/<int:property_id>/", landlord_csv, name="landlord-csv"),
-    path("tenant-csv/<int:unit_id>/", tenant_csv, name="tenant-csv"),
+    path("landlord-csv/<int:property_id>/", landlord_csv.as_view(), name="landlord-csv"),
+    path("tenant-csv/<int:unit_id>/", tenant_csv.as_view(), name="tenant-csv"),
 ]

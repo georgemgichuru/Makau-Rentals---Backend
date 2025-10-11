@@ -16,7 +16,7 @@ class CreateReportView(generics.CreateAPIView):
     def perform_create(self, serializer):
         report = serializer.save()
         # Import here to avoid circular imports
-        from app.app.tasks import send_report_email_task
+        from app.tasks import send_report_email_task
         send_report_email_task.delay(report.id)
 
 # In your communication/views.py, add this import and modify permission classes temporarily
@@ -36,7 +36,7 @@ class OpenReportsView(generics.ListAPIView):
         if user.user_type == 'tenant':
             queryset = Report.objects.filter(tenant=user, status='open')
         elif user.user_type == 'landlord':
-            queryset = Report.objects.filter(unit__property__landlord=user, status='open')
+            queryset = Report.objects.filter(unit__property_obj__landlord=user, status='open')
         else:
             queryset = Report.objects.none()
         
@@ -52,7 +52,7 @@ class UrgentReportsView(generics.ListAPIView):
         if user.user_type == 'tenant':
             return Report.objects.filter(tenant=user, priority_level='urgent')
         elif user.user_type == 'landlord':
-            return Report.objects.filter(unit__property__landlord=user, priority_level='urgent')
+            return Report.objects.filter(unit__property_obj__landlord=user, priority_level='urgent')
         return Report.objects.none()
 
 class InProgressReportsView(generics.ListAPIView):
@@ -64,7 +64,7 @@ class InProgressReportsView(generics.ListAPIView):
         if user.user_type == 'tenant':
             return Report.objects.filter(tenant=user, status='in_progress')
         elif user.user_type == 'landlord':
-            return Report.objects.filter(unit__property__landlord=user, status='in_progress')
+            return Report.objects.filter(unit__property_obj__landlord=user, status='in_progress')
         return Report.objects.none()
 
 class ResolvedReportsView(generics.ListAPIView):
@@ -76,7 +76,7 @@ class ResolvedReportsView(generics.ListAPIView):
         if user.user_type == 'tenant':
             return Report.objects.filter(tenant=user, status='resolved')
         elif user.user_type == 'landlord':
-            return Report.objects.filter(unit__property__landlord=user, status='resolved')
+            return Report.objects.filter(unit__property_obj__landlord=user, status='resolved')
         return Report.objects.none()
 
 class UpdateReportStatusView(generics.UpdateAPIView):

@@ -1,8 +1,11 @@
-# TODO: Fix comprehensive_test_v2.ps1 errors
+# TODO: Fix Unit Creation API Error
 
-- [x] Define tenant headers after tenant login (section 7)
-- [x] Change unit type creation to send 'unit_count' instead of 'number_of_units'
-- [x] Update units response handling to use array indexing instead of .results
-- [x] Change reminder preferences update to PATCH method with tenant token
-- [x] Fix reports response indexing to use array instead of .results
-- [x] Test the script after fixes (runs successfully until deposit payment, which fails as expected without M-Pesa setup)
+## Tasks
+- [x] Update UnitSerializer in app/accounts/serializers.py to handle 'property' field alias, auto-generate unit_number, set rent/deposit from unit_type, and validate ownership.
+- [x] Update CreateUnitView in app/accounts/views.py to add error handling for invalid property/unit_type IDs. (Handled in serializer validate method)
+- [ ] Test the changes by running the comprehensive test script.
+- [ ] Verify subsequent test steps pass (e.g., update unit).
+
+## Progress
+- Analyzed error: Missing 'property_obj' and 'unit_number' in request.
+- Plan approved: Modify serializer for flexibility and auto-generation.

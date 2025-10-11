@@ -23,6 +23,7 @@ from django.utils.decorators import method_decorator
 from django.db.models import Count, Sum, Q
 from django.utils import timezone
 from datetime import timedelta
+from decimal import Decimal
 
 # accounts/views.py
 from rest_framework_simplejwt.views import TokenObtainPairView
@@ -173,9 +174,8 @@ class UnitTypeDetailView(APIView):
 
 # Lists a single user (cached)
 # View to get user details
-@method_decorator(require_subscription, name='dispatch')
 class UserDetailView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [HasActiveSubscription]
 
     def get(self, request, user_id):
         cache_key = f"user:{user_id}"
@@ -389,7 +389,7 @@ class CreateUnitView(APIView):
     permission_classes = [IsAuthenticated, IsLandlord, HasActiveSubscription]
 
     def post(self, request):
-        serializer = UnitSerializer(data=request.data)
+        serializer = UnitSerializer(data=request.data, context={'request': request})
         if serializer.is_valid():
             unit = serializer.save()
             cache.delete(f"landlord:{request.user.id}:properties")
@@ -499,7 +499,7 @@ class UpdateUnitView(APIView):
     def put(self, request, unit_id):
         try:
             unit = Unit.objects.get(id=unit_id, property_obj__landlord=request.user)
-            serializer = UnitSerializer(unit, data=request.data, partial=True)
+            serializer = UnitSerializer(unit, data=request.data, partial=True, context={'request': request})
             if serializer.is_valid():
                 serializer.save()
                 cache.delete(f"landlord:{request.user.id}:properties")
@@ -583,7 +583,7 @@ class AdjustRentView(APIView):
             return Response({"error": "adjustment_type must be 'percentage' or 'fixed'"}, status=400)
 
         try:
-            value = float(value)
+            value = Decimal(value)
         except (ValueError, TypeError):
             return Response({"error": "value must be a valid number"}, status=400)
 
@@ -600,11 +600,11 @@ class AdjustRentView(APIView):
         for unit in units:
             old_rent = unit.rent
             if adjustment_type == 'percentage':
-                new_rent = old_rent * (1 + value / 100)
+                new_rent = old_rent * (Decimal(1) + value / Decimal(100))
             else:  # fixed
                 new_rent = old_rent + value
             # Ensure rent doesn't go negative
-            new_rent = max(0, new_rent)
+            new_rent = max(Decimal(0), new_rent)
             unit.rent = new_rent
             unit.save()  # This will update rent_remaining
             updated_count += 1
@@ -616,6 +616,40 @@ class AdjustRentView(APIView):
         cache.delete(f"rent_summary:{landlord.id}")
 
         return Response({"message": f"Rent adjusted for {updated_count} units successfully"})
+
+    def put(self, request):
+        landlord = request.user
+        new_rent = request.data.get('new_rent')
+        unit_type_id = request.data.get('unit_type_id')  # optional
+
+        if new_rent is None:
+            return Response({"error": "new_rent is required"}, status=400)
+
+        try:
+            new_rent = Decimal(new_rent)
+        except (ValueError, TypeError):
+            return Response({"error": "new_rent must be a valid number"}, status=400)
+
+        units = Unit.objects.filter(property_obj__landlord=landlord)
+        if unit_type_id:
+            try:
+                unit_type = UnitType.objects.get(id=unit_type_id, landlord=landlord)
+                units = units.filter(unit_type=unit_type)
+            except UnitType.DoesNotExist:
+                return Response({"error": "UnitType not found or not owned by you"}, status=404)
+
+        updated_count = 0
+        for unit in units:
+            unit.rent = new_rent
+            unit.save()
+            updated_count += 1
+
+        # Invalidate caches
+        cache.delete(f"landlord:{landlord.id}:properties")
+        from payments.views import RentSummaryView
+        cache.delete(f"rent_summary:{landlord.id}")
+
+        return Response({"message": f"Rent set to {new_rent} for {updated_count} units successfully"})
 
 # View to check subscription status (landlord only)
 class SubscriptionStatusView(APIView):
@@ -648,6 +682,9 @@ class UpdateTillNumberView(APIView):
         user.mpesa_till_number = till_number
         user.save()
         return Response({"message": "Till number updated successfully", "mpesa_till_number": till_number})
+
+    def put(self, request):
+        return self.patch(request)
 
 
 # Endpoint to get or update the currently authenticated user

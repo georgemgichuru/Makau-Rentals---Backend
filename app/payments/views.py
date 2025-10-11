@@ -578,7 +578,6 @@ class SubscriptionPaymentDetailView(generics.RetrieveAPIView):
         cache.set(cache_key, response.data, timeout=300)
         return response
 
-@method_decorator(require_subscription, name='dispatch')
 class RentSummaryView(APIView):
     """
     Provides a financial summary for landlords (cached):
@@ -586,7 +585,7 @@ class RentSummaryView(APIView):
     - Total outstanding rent
     - Per-unit breakdown (unit number, tenant, paid, remaining)
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasActiveSubscription]
 
     def get(self, request, *args, **kwargs):
         user = request.user
@@ -628,30 +627,70 @@ class RentSummaryView(APIView):
 # ------------------------------
 # GENERATE RENT PAYMENTS CSV REPORT
 # ------------------------------
-@login_required
-def landlord_csv(request, property_id):
+class LandLordCSVView(APIView):
     """
     Generate CSV report for landlord with Redis caching for frequent requests
     """
-    cache_key = f"landlord_csv:{property_id}:{request.user.id}"
-    cached_response = cache.get(cache_key)
-    if cached_response:
-        response = HttpResponse(cached_response, content_type='text/csv')
+    permission_classes = [IsAuthenticated, HasActiveSubscription]
+
+    def get(self, request, property_id):
+        cache_key = f"landlord_csv:{property_id}:{request.user.id}"
+        cached_response = cache.get(cache_key)
+        if cached_response:
+            response = HttpResponse(cached_response, content_type='text/csv')
+            response['Content-Disposition'] = 'attachment; filename="landlord_data.csv"'
+            return response
+        property = get_object_or_404(Property, pk=property_id)
+        # Verify the property belongs to the logged-in landlord
+        if property.landlord != request.user:
+            return HttpResponse("Unauthorized", status=403)
+        units = property.unit_list.all()
+        response = HttpResponse(content_type='text/csv')
         response['Content-Disposition'] = 'attachment; filename="landlord_data.csv"'
+        writer = csv.writer(response)
+        writer.writerow(['Tenant', 'Unit Number', 'Floor', 'Bedrooms', 'Bathrooms', 'Rent',
+                         'Rent Paid', 'Rent Remaining', 'Rent Due Date', 'Deposit', 'Is Available'])
+        for unit in units:
+            writer.writerow([
+                unit.tenant.email if unit.tenant else 'Vacant',
+                unit.unit_number,
+                unit.floor,
+                unit.bedrooms,
+                unit.bathrooms,
+                unit.rent,
+                unit.rent_paid,
+                unit.rent_remaining,  # Fixed: was unit.balance
+                unit.rent_due_date,
+                unit.deposit,
+                unit.is_available
+            ])
+        # Cache the CSV content for 5 minutes (for frequent downloads)
+        cache.set(cache_key, response.content, timeout=300)
         return response
-    property = get_object_or_404(Property, pk=property_id)
-    # Verify the property belongs to the logged-in landlord
-    if property.landlord != request.user:
-        return HttpResponse("Unauthorized", status=403)
-    units = property.unit_list.all()
-    response = HttpResponse(content_type='text/csv')
-    response['Content-Disposition'] = 'attachment; filename="landlord_data.csv"'
-    writer = csv.writer(response)
-    writer.writerow(['Tenant', 'Unit Number', 'Floor', 'Bedrooms', 'Bathrooms', 'Rent',
-                     'Rent Paid', 'Rent Remaining', 'Rent Due Date', 'Deposit', 'Is Available'])
-    for unit in units:
+class TenantCSVView(APIView):
+    """
+    Generate CSV report for tenant with Redis caching
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, unit_id):
+        cache_key = f"tenant_csv:{unit_id}:{request.user.id}"
+        cached_response = cache.get(cache_key)
+        if cached_response:
+            response = HttpResponse(cached_response, content_type='text/csv')
+            response['Content-Disposition'] = 'attachment; filename="tenant_data.csv"'
+            return response
+        unit = get_object_or_404(Unit, pk=unit_id)
+        # Verify the unit belongs to the logged-in tenant
+        if unit.tenant != request.user:
+            return HttpResponse("Unauthorized", status=403)
+        response = HttpResponse(content_type='text/csv')
+        response['Content-Disposition'] = 'attachment; filename="tenant_data.csv"'
+        writer = csv.writer(response)
+        writer.writerow(['Property', 'Unit Number', 'Floor', 'Bedrooms', 'Bathrooms',
+                         'Rent', 'Rent Paid', 'Rent Remaining', 'Rent Due Date', 'Deposit'])
         writer.writerow([
-            unit.tenant.email if unit.tenant else 'Vacant',
+            unit.property_obj.name,
             unit.unit_number,
             unit.floor,
             unit.bedrooms,
@@ -660,47 +699,11 @@ def landlord_csv(request, property_id):
             unit.rent_paid,
             unit.rent_remaining,  # Fixed: was unit.balance
             unit.rent_due_date,
-            unit.deposit,
-            unit.is_available
+            unit.deposit
         ])
-    # Cache the CSV content for 5 minutes (for frequent downloads)
-    cache.set(cache_key, response.content, timeout=300)
-    return response
-@ login_required
-def tenant_csv(request, unit_id):
-    """
-    Generate CSV report for tenant with Redis caching
-    """
-    cache_key = f"tenant_csv:{unit_id}:{request.user.id}"
-    cached_response = cache.get(cache_key)
-    if cached_response:
-        response = HttpResponse(cached_response, content_type='text/csv')
-        response['Content-Disposition'] = 'attachment; filename="tenant_data.csv"'
+        # Cache the CSV content for 5 minutes
+        cache.set(cache_key, response.content, timeout=300)
         return response
-    unit = get_object_or_404(Unit, pk=unit_id)
-    # Verify the unit belongs to the logged-in tenant
-    if unit.tenant != request.user:
-        return HttpResponse("Unauthorized", status=403)
-    response = HttpResponse(content_type='text/csv')
-    response['Content-Disposition'] = 'attachment; filename="tenant_data.csv"'
-    writer = csv.writer(response)
-    writer.writerow(['Property', 'Unit Number', 'Floor', 'Bedrooms', 'Bathrooms',
-                     'Rent', 'Rent Paid', 'Rent Remaining', 'Rent Due Date', 'Deposit'])
-    writer.writerow([
-        unit.property_obj.name,
-        unit.unit_number,
-        unit.floor,
-        unit.bedrooms,
-        unit.bathrooms,
-        unit.rent,
-        unit.rent_paid,
-        unit.rent_remaining,  # Fixed: was unit.balance
-        unit.rent_due_date,
-        unit.deposit
-    ])
-    # Cache the CSV content for 5 minutes
-    cache.set(cache_key, response.content, timeout=300)
-    return response
 # ------------------------------
 # UNIT TYPES LIST (For Tenants to Choose Room Types)
 # ------------------------------

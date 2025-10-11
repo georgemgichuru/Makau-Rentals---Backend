@@ -122,16 +122,53 @@ class UnitTypeSerializer(serializers.ModelSerializer):
 
 
 class UnitSerializer(serializers.ModelSerializer):
+    property = serializers.IntegerField(write_only=True, required=False)  # Alias for property_obj
+
     class Meta:
         model = Unit
-        fields = ['id', 'property_obj', 'unit_code', 'unit_number', 'floor', 'bedrooms', 'bathrooms', 'unit_type', 'rent', 'tenant', 'rent_paid', 'rent_remaining', 'deposit', 'is_available']
+        fields = ['id', 'property_obj', 'unit_code', 'unit_number', 'floor', 'bedrooms', 'bathrooms', 'unit_type', 'rent', 'tenant', 'rent_paid', 'rent_remaining', 'deposit', 'is_available', 'property']
         read_only_fields = ['id', 'rent_remaining', 'unit_code']
+        extra_kwargs = {
+            'unit_number': {'required': False},
+            'property_obj': {'required': False},
+        }
+
+    def validate(self, attrs):
+        user = self.context['request'].user
+        # Handle property alias
+        if 'property' in attrs:
+            try:
+                prop = Property.objects.get(id=attrs.pop('property'))
+                if prop.landlord != user:
+                    raise serializers.ValidationError("Property not owned by you.")
+                attrs['property_obj'] = prop
+            except Property.DoesNotExist:
+                raise serializers.ValidationError("Property not found.")
+        # Validate property_obj ownership if set directly
+        if 'property_obj' in attrs:
+            if attrs['property_obj'].landlord != user:
+                raise serializers.ValidationError("Property not owned by you.")
+        # Validate unit_type ownership
+        if 'unit_type' in attrs and attrs['unit_type']:
+            if attrs['unit_type'].landlord != user:
+                raise serializers.ValidationError("UnitType not owned by you.")
+        return super().validate(attrs)
 
     def create(self, validated_data):
+        # Auto-generate unit_number if not provided
+        if not validated_data.get('unit_number'):
+            prop = validated_data.get('property_obj')
+            if prop:
+                existing_units = Unit.objects.filter(property_obj=prop)
+                last_unit = existing_units.order_by('-unit_number').first()
+                if last_unit and last_unit.unit_number.isdigit():
+                    next_num = int(last_unit.unit_number) + 1
+                else:
+                    next_num = 1
+                validated_data['unit_number'] = str(next_num)
         # Auto-generate unit_code if not provided
         if not validated_data.get('unit_code'):
-            prop = validated_data.get('property_obj') or validated_data.get('property')
-            # Determine next index for unit under property
+            prop = validated_data.get('property_obj')
             if prop and getattr(prop, 'id', None):
                 existing_count = Unit.objects.filter(property_obj=prop).count()
                 validated_data['unit_code'] = f"U-{prop.id}-{existing_count+1}"
@@ -139,8 +176,15 @@ class UnitSerializer(serializers.ModelSerializer):
                 # fallback unique code
                 import uuid
                 validated_data['unit_code'] = f"U-{uuid.uuid4().hex[:10].upper()}"
+        # Set rent and deposit from unit_type if not provided
+        unit_type = validated_data.get('unit_type')
+        if unit_type:
+            if not validated_data.get('rent'):
+                validated_data['rent'] = unit_type.rent
+            if not validated_data.get('deposit'):
+                validated_data['deposit'] = unit_type.deposit
         # Enforce landlord has at least one UnitType defined before creating units
-        prop = validated_data.get('property_obj') or validated_data.get('property')
+        prop = validated_data.get('property_obj')
         if prop and prop.landlord:
             landlord = prop.landlord
             if not UnitType.objects.filter(landlord=landlord).exists():
