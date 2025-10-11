@@ -7,9 +7,8 @@ django==4.2.7
 requests==2.31.0
 gunicorn
 psycopg2-binary
-africastalking
+whitenoise
 django-crontab
 celery[redis]
 django-cors-headers
 setuptools
-django-heroku
