@@ -117,7 +117,7 @@ DATABASES = {
         'NAME': config('POSTGRES_DB'),
         'USER': config('POSTGRES_USER'),
         'PASSWORD': config('POSTGRES_PASSWORD'),
-        'HOST': 'db',  # This matches the service name in docker-compose
+        'HOST': config('DB_HOST'),
         'PORT': '5432',
     }
 }
