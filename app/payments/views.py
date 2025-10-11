@@ -83,13 +83,16 @@ def stk_push(request, unit_id):
     )
     # Mark payment as pending in Redis (5-minute expiry)
     cache.set(duplicate_key, payment.id, timeout=300)
-    # Generate access token (with Redis caching)
-    access_token_cache_key = "mpesa_access_token"
-    access_token = cache.get(access_token_cache_key)
-    if not access_token:
-     access_token = generate_access_token()
-    # Cache access token for 55 minutes (MPESA tokens expire in 1 hour)
-    cache.set(access_token_cache_key, access_token, timeout=3300)
+    try:
+        # Generate access token (with Redis caching)
+        access_token_cache_key = "mpesa_access_token"
+        access_token = cache.get(access_token_cache_key)
+        if not access_token:
+         access_token = generate_access_token()
+        # Cache access token for 55 minutes (MPESA tokens expire in 1 hour)
+        cache.set(access_token_cache_key, access_token, timeout=3300)
+    except ValueError as e:
+        return JsonResponse({"error": f"Payment initiation failed: Invalid M-Pesa credentials. {str(e)}"}, status=400)
     timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
     password = base64.b64encode(
      (settings.MPESA_SHORTCODE + settings.MPESA_PASSKEY + timestamp).encode("utf-8")
@@ -189,13 +192,16 @@ def stk_push_subscription(request):
        )
        # Mark payment as pending in Redis (5-minute expiry)
        cache.set(duplicate_key, subscription_payment.id, timeout=300)
-       # Generate access token (with Redis caching)
-       access_token_cache_key = "mpesa_access_token"
-       access_token = cache.get(access_token_cache_key)
-       if not access_token:
-           access_token = generate_access_token()
-       # Cache access token for 55 minutes (MPESA tokens expire in 1 hour)
-       cache.set(access_token_cache_key, access_token, timeout=3300)
+       try:
+           # Generate access token (with Redis caching)
+           access_token_cache_key = "mpesa_access_token"
+           access_token = cache.get(access_token_cache_key)
+           if not access_token:
+               access_token = generate_access_token()
+           # Cache access token for 55 minutes (MPESA tokens expire in 1 hour)
+           cache.set(access_token_cache_key, access_token, timeout=3300)
+       except ValueError as e:
+           return JsonResponse({"error": f"Payment initiation failed: Invalid M-Pesa credentials. {str(e)}"}, status=400)
        timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
        password = base64.b64encode(
            (settings.MPESA_SHORTCODE + settings.MPESA_PASSKEY + timestamp).encode("utf-8")
@@ -755,13 +761,16 @@ class InitiateDepositPaymentView(APIView):
         )
         # Mark payment as pending in Redis (5-minute expiry)
         cache.set(duplicate_key, payment.id, timeout=300)
-        # Generate access token (with Redis caching)
-        access_token_cache_key = "mpesa_access_token"
-        access_token = cache.get(access_token_cache_key)
-        if not access_token:
-            access_token = generate_access_token()
-        # Cache access token for 55 minutes (MPESA tokens expire in 1 hour)
-        cache.set(access_token_cache_key, access_token, timeout=3300)
+        try:
+            # Generate access token (with Redis caching)
+            access_token_cache_key = "mpesa_access_token"
+            access_token = cache.get(access_token_cache_key)
+            if not access_token:
+                access_token = generate_access_token()
+            # Cache access token for 55 minutes (MPESA tokens expire in 1 hour)
+            cache.set(access_token_cache_key, access_token, timeout=3300)
+        except ValueError as e:
+            return Response({"error": f"Payment initiation failed: Invalid M-Pesa credentials. {str(e)}"}, status=400)
         timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
         password = base64.b64encode(
             (settings.MPESA_SHORTCODE + settings.MPESA_PASSKEY + timestamp).encode("utf-8")
