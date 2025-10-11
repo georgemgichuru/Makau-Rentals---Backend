@@ -33,11 +33,6 @@ class Payment(models.Model):
 
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)
-        # Update unit rent tracking if payment is successful and is rent payment
-        if self.status == "Success" and self.payment_type == "rent" and self.unit:
-            self.unit.rent_paid += self.amount
-            self.unit.rent_remaining = max(self.unit.rent - self.unit.rent_paid, 0)
-            self.unit.save()
 
 
 class SubscriptionPayment(models.Model):
@@ -63,13 +58,6 @@ class SubscriptionPayment(models.Model):
 
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)
-        # Update user's subscription if payment is successful and user is assigned
-        if self.user:
-            subscription, created = Subscription.objects.get_or_create(user=self.user)
-            subscription.plan = self.subscription_type
-            subscription.start_date = self.transaction_date
-            subscription.expiry_date = self.transaction_date + self._get_plan_duration()
-            subscription.save()
 
     def _get_plan_duration(self):
         durations = {

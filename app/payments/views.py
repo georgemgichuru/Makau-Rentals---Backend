@@ -16,7 +16,7 @@ from django.shortcuts import get_object_or_404
 from accounts.models import CustomUser, Subscription, Property, Unit, UnitType
 from accounts.permissions import require_tenant_subscription, require_subscription
 from accounts.serializers import UnitTypeSerializer
-from .models import Unit, Payment, SubscriptionPayment
+from .models import Payment, SubscriptionPayment
 from .generate_token import generate_access_token
 from rest_framework import generics, permissions
 from .serializers import PaymentSerializer, SubscriptionPaymentSerializer
@@ -309,7 +309,7 @@ def mpesa_subscription_callback(request):
           metadata_items = body.get("CallbackMetadata", {}).get("Item", [])
           metadata = {item["Name"]: item.get("Value") for item in metadata_items}
           # FIXED: Convert amount to proper type
-          amount = metadata.get("Amount")
+          amount = int(metadata.get("Amount"))
           receipt = metadata.get("MpesaReceiptNumber")
           # For STK Push, this is the payment ID
           account_reference = metadata.get("AccountReference")

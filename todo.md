@@ -1,19 +1,14 @@
-# TODO: Fix Production Connection Issue
+# M-Pesa Daraja Setup and Fixes
 
-## Problem
-- In production on Render, creating a property causes "connection was closed unexpectedly" error.
-- Locally works fine.
+## Tasks
+- [x] Fix import error in app/payments/views.py: Remove Unit from from .models import
+- [x] Remove subscription update logic from SubscriptionPayment model save method
+- [x] In mpesa_subscription_callback, convert amount to int for plan matching
+- [x] Ensure onetime plan sets expiry_date = None in subscription updates
+- [x] Remove duplicate unit balance update in mpesa_rent_callback
+- [x] Verify callback URLs in settings
 
-## Root Cause
-- Likely due to Redis cache backend not being available on Render, causing cache operations to fail and close the connection.
-
-## Changes Made
-- [x] Changed CACHES to use LocMemCache instead of Redis.
-- [x] Added logging to CreatePropertyView for debugging.
-- [x] Added logging configuration to settings.py.
-
-## Next Steps
-- Deploy the changes to Render.
-- Test the property creation endpoint.
-- Check Render logs for any errors or the added logs.
-- If still failing, check for DB connection issues or timeouts.
+## Followup
+- [ ] Run migrations if needed
+- [ ] Set env vars for M-Pesa
+- [ ] Test payments
