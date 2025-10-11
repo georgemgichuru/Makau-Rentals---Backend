@@ -739,7 +739,7 @@ class InitiateDepositPaymentView(APIView):
             unit = Unit.objects.get(id=unit_id, is_available=True)
         except Unit.DoesNotExist:
             return Response({'error': 'Invalid unit or not available'}, status=400)
-        amount = unit.deposit
+        amount = 1
         # Rate limiting: Check if user has made too many requests
         rate_limit_key = f"deposit_stk_push_rate_limit:{request.user.id}"
         recent_requests = cache.get(rate_limit_key, 0)

@@ -1,14 +1,5 @@
-# M-Pesa Daraja Setup and Fixes
+# TODO: Debug Deposit Payment STK Push
 
-## Tasks
-- [x] Fix import error in app/payments/views.py: Remove Unit from from .models import
-- [x] Remove subscription update logic from SubscriptionPayment model save method
-- [x] In mpesa_subscription_callback, convert amount to int for plan matching
-- [x] Ensure onetime plan sets expiry_date = None in subscription updates
-- [x] Remove duplicate unit balance update in mpesa_rent_callback
-- [x] Verify callback URLs in settings
-
-## Followup
-- [ ] Run migrations if needed
-- [ ] Set env vars for M-Pesa
-- [ ] Test payments
+- [x] Temporarily change amount = unit.deposit to amount = 1 in InitiateDepositPaymentView.post
+- [x] Run the comprehensive test script app/comprehensive_test_v2.ps1 to verify deposit payment works with 1 shilling
+- [ ] Revert the change back to amount = unit.deposit

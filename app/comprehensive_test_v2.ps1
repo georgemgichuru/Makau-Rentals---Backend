@@ -71,12 +71,12 @@ $timestamp = Get-Date -Format 'yyyyMMddHHmmss'
 $landlordEmail = "test_landlord_$timestamp@example.com"  # Use timestamp to ensure uniqueness
 $landlordPassword = "testpass123"
 $landlordFullName = "Test Landlord"
-$landlordPhone = "254712345678"
+$landlordPhone = "254722714334"
 
 $tenantEmail = "test_tenant_$timestamp@example.com"
 $tenantPassword = "testpass123"
 $tenantFullName = "Test Tenant"
-$tenantPhone = "254798765432"
+$tenantPhone = "254722714334"
 
 # 1. Signup Landlord (no properties)
 Write-Host "1. Signing up landlord..."
