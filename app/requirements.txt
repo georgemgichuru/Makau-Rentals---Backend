@@ -12,3 +12,4 @@ django-crontab
 celery[redis]
 django-cors-headers
 setuptools
+django-heroku

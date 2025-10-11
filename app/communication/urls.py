@@ -11,7 +11,7 @@ from .views import (
 
 urlpatterns = [
     # Create a new report (POST)
-    path('reports/', CreateReportView.as_view(), name='create-report'),
+    path('reports/create/', CreateReportView.as_view(), name='create-report'),  # Added /create/
 
     # List open reports for the authenticated user (GET)
     path('reports/open/', OpenReportsView.as_view(), name='open-reports'),
@@ -29,5 +29,5 @@ urlpatterns = [
     path('reports/<int:pk>/update-status/', UpdateReportStatusView.as_view(), name='update-report-status'),
 
     # Send email to tenants (POST)
-    path('send-email/', SendEmailView.as_view(), name='send-email'),
+    path('reports/send-email/', SendEmailView.as_view(), name='send-email'),  # Added /reports/ prefix
 ]

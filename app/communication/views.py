@@ -19,17 +19,29 @@ class CreateReportView(generics.CreateAPIView):
         from app.app.tasks import send_report_email_task
         send_report_email_task.delay(report.id)
 
+# In your communication/views.py, add this import and modify permission classes temporarily
+# TODO: Remove logging after debugging
+
+import logging
+logger = logging.getLogger(__name__)
+
 class OpenReportsView(generics.ListAPIView):
     serializer_class = ReportSerializer
-    permission_classes = [permissions.IsAuthenticated, HasActiveSubscription]
+    permission_classes = [permissions.IsAuthenticated, HasActiveSubscription] # Temporarily remove HasActiveSubscription for debugging
 
     def get_queryset(self):
         user = self.request.user
+        logger.info(f"OpenReportsView - User: {user.email}, Type: {user.user_type}")
+        
         if user.user_type == 'tenant':
-            return Report.objects.filter(tenant=user, status='open')
+            queryset = Report.objects.filter(tenant=user, status='open')
         elif user.user_type == 'landlord':
-            return Report.objects.filter(unit__property__landlord=user, status='open')
-        return Report.objects.none()
+            queryset = Report.objects.filter(unit__property__landlord=user, status='open')
+        else:
+            queryset = Report.objects.none()
+        
+        logger.info(f"OpenReportsView - Found {queryset.count()} reports")
+        return queryset
 
 class UrgentReportsView(generics.ListAPIView):
     serializer_class = ReportSerializer

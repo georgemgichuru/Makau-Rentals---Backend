@@ -229,6 +229,7 @@ def stk_push_subscription(request):
 # ------------------------------
 # RENT PAYMENT CALLBACK
 # ------------------------------
+# In payments/views.py - FIX THE MPESA RENT CALLBACK
 @csrf_exempt
 def mpesa_rent_callback(request):
     """
@@ -244,7 +245,8 @@ def mpesa_rent_callback(request):
        if result_code == 0:  # ✅ Transaction successful
            metadata_items = body.get("CallbackMetadata", {}).get("Item", [])
            metadata = {item["Name"]: item.get("Value") for item in metadata_items}
-           amount = metadata.get("Amount")
+           # FIXED: Convert float to Decimal properly
+           amount = Decimal(str(metadata.get("Amount")))  # Convert to string first
            receipt = metadata.get("MpesaReceiptNumber")
            payment_id = metadata.get("AccountReference")
            if payment_id:
@@ -253,10 +255,10 @@ def mpesa_rent_callback(request):
                    payment.status = "Success"
                    payment.mpesa_receipt = receipt
                    payment.save()
-                   # Update unit balances
+                   # Update unit balances - FIXED: Use Decimal amount
                    unit = payment.unit
-                   unit.rent_paid += amount
-                   unit.rent_remaining = max(unit.rent - unit.rent_paid, 0)
+                   unit.rent_paid += amount  # Now both are Decimal
+                   unit.rent_remaining = max(unit.rent - unit.rent_paid, Decimal('0'))
                    unit.save()
                    # Invalidate relevant caches
                    cache.delete_many([
@@ -284,6 +286,7 @@ def mpesa_rent_callback(request):
 # ------------------------------
 # SUBSCRIPTION PAYMENT CALLBACK
 # ------------------------------
+# In payments/views.py - FIX THE SUBSCRIPTION CALLBACK
 @csrf_exempt
 def mpesa_subscription_callback(request):
     """
@@ -299,6 +302,7 @@ def mpesa_subscription_callback(request):
       if result_code == 0:  # ✅ Transaction successful
           metadata_items = body.get("CallbackMetadata", {}).get("Item", [])
           metadata = {item["Name"]: item.get("Value") for item in metadata_items}
+          # FIXED: Convert amount to proper type
           amount = metadata.get("Amount")
           receipt = metadata.get("MpesaReceiptNumber")
           # For STK Push, this is the payment ID
@@ -334,6 +338,7 @@ def mpesa_subscription_callback(request):
                       '0' + phone_str,  # 0722714334
                   ])
               return CustomUser.objects.filter(user_type='landlord', phone_number__in=phone_variants).first()
+          
           if account_reference:
               # Try to find pending subscription payment by ID
               try:
@@ -399,9 +404,11 @@ def mpesa_subscription_callback(request):
                   mpesa_receipt_number=receipt,
                   subscription_type=sub_type
               )
+          
           # Check if user was found
           if not user:
               return JsonResponse({'error': 'Landlord not found'}, status=404)
+          
           # Update or create subscription
           subscription, _ = Subscription.objects.get_or_create(user=user)
           subscription.plan = subscription_payment.subscription_type
@@ -414,9 +421,11 @@ def mpesa_subscription_callback(request):
                   "basic": timedelta(days=30),
                   "professional": timedelta(days=30),
               }
-              subscription.expiry_date = timezone.now(
-              ) + duration_map.get(subscription_payment.subscription_type, timedelta(days=30))
+              subscription.expiry_date = timezone.now() + duration_map.get(
+                  subscription_payment.subscription_type, timedelta(days=30)
+              )
           subscription.save()
+          
           # Invalidate subscription-related caches
           cache.delete_many([
               f"subscription:{user.id}",

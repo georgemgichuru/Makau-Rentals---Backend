@@ -218,10 +218,6 @@ CELERY_RESULT_BACKEND = "redis://redis:6379/0"
 # celery -A your_project beat -l info
 
 
-# Africa's Talking Configuration
-# AT_USERNAME = config('AT_USERNAME')
-# AT_API_KEY = config('AT_API_KEY')
-
 # Frontend URL for password reset links
 FRONTEND_URL = config('FRONTEND_URL', default='http://localhost:3000')
 

@@ -2,6 +2,8 @@ from rest_framework_simplejwt.views import (
     TokenObtainPairView,
     TokenRefreshView,
 )
+from rest_framework.routers import DefaultRouter
+from . import views
 from django.urls import path
 from .views import (UserDetailView, UserListView, UserCreateView, PasswordResetView,
                     CreatePropertyView, LandlordPropertiesView, CreateUnitView,
@@ -13,78 +15,52 @@ from .views import (UserDetailView, UserListView, UserCreateView, PasswordResetV
                     LandlordAvailableUnitsView,
 )
 
+router = DefaultRouter()
+# Remove or comment these out if you're not using ViewSets
+# router.register('properties', views.PropertyViewSet, basename='property')
+# router.register('units', views.UnitViewSet, basename='unit')
+# router.register('users', views.UserViewSet, basename='user')
+
 urlpatterns = [
-    # Signup endpoint for new users
+    # Authentication endpoints
     path("signup/", UserCreateView.as_view(), name="signup"),
-    
-    # Detail view for a specific user
-    path("users/<int:user_id>/", UserDetailView.as_view(), name="user-detail"),
-    
-    # List view for all users
-    path("users/", UserListView.as_view(), name="user-list"),
-    
-    # JWT authentication endpoints for login and token refresh
     path('token/', MyTokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     
-    # Endpoint for password reset requests
-    path('password-reset/', PasswordResetView.as_view(), name='password-reset'),
-    
-    # Endpoint for password reset confirmation
-    path('password-reset-confirm/', PasswordResetConfirmView.as_view(), name='password-reset-confirm'),
-    
-    # Endpoint to create a new property (landlord only)
-    path('properties/create/', CreatePropertyView.as_view(), name='create-property'),
-    
-    # Endpoint to list all properties of the logged-in landlord
-    path('properties/', LandlordPropertiesView.as_view(), name='landlord-properties'),
-    
-    # Endpoint to create a new unit under a property (landlord only)
-    path('units/create/', CreateUnitView.as_view(), name='create-unit'),
-    
-    # UnitType endpoints
-    path('unit-types/', UnitTypeListCreateView.as_view(), name='unittype-list-create'),
-    path('unit-types/<int:pk>/', UnitTypeDetailView.as_view(), name='unittype-detail'),
-    
-    # Endpoint to update property details (landlord only)
-    path('properties/<int:property_id>/update/', UpdatePropertyView.as_view(), name='update-property'),
-    
-    # Endpoint to update unit details (landlord only)
-    path('units/<int:unit_id>/update/', UpdateUnitView.as_view(), name='update-unit'),
-    
-    # Endpoint to update tenant's unit number (tenant only)
-    path('units/tenant/update/', TenantUpdateUnitView.as_view(), name='tenant-update-unit'),
-    
-    # Endpoint to update user details (landlord and tenant)
-    path('users/<int:user_id>/update/', UpdateUserView.as_view(), name='update-user'),
-    
-    # Current user endpoint
+    # User endpoints
+    path("users/<int:user_id>/", UserDetailView.as_view(), name="user-detail"),
+    path("users/", UserListView.as_view(), name="user-list"),
+    path('users/<int:user_id>/update/', UpdateUserView.as_view(), name='user-update'),
     path('me/', MeView.as_view(), name='me'),
     
-    # Url to check subscription status
-    path('subscription-status/', SubscriptionStatusView.as_view(), name='subscription-status'),
+    # Password reset
+    path('password-reset/', PasswordResetView.as_view(), name='password-reset'),
+    path('password-reset-confirm/', PasswordResetConfirmView.as_view(), name='password-reset-confirm'),
     
-    # Endpoint to update landlord's Mpesa till number
-    path('update-till-number/', UpdateTillNumberView.as_view(), name='update-till-number'),
-    
-    # Admin section to view landlords subscription status (superuser only)
-    path('admin/landlord-subscriptions/', AdminLandlordSubscriptionStatusView.as_view(), name='admin-landlord-subscriptions'),
-    
-    # Landlord dashboard statistics
-    path('dashboard-stats/', LandlordDashboardStatsView.as_view(), name='dashboard-stats'),
-    
-    # Endpoint to adjust rent prices (landlord only)
-    path('adjust-rent/', AdjustRentView.as_view(), name='adjust-rent'),
-    
-    # Endpoint to list units of a property (landlord only)
+    # Property endpoints - FIXED URL NAMES
+    path('properties/create/', CreatePropertyView.as_view(), name='property-create'),  # Changed from 'create-property'
+    path('properties/', LandlordPropertiesView.as_view(), name='property-list'),  # Changed from 'landlord-properties'
+    path('properties/<int:property_id>/update/', UpdatePropertyView.as_view(), name='property-update'),
     path('properties/<int:property_id>/units/', PropertyUnitsView.as_view(), name='property-units'),
     
-    # Endpoint to assign tenant to unit (landlord only)
-    path('units/<int:unit_id>/assign/<int:tenant_id>/', AssignTenantToUnitView.as_view(), name='assign-tenant-to-unit'),
+    # Unit endpoints - FIXED URL NAMES
+    path('units/create/', CreateUnitView.as_view(), name='unit-create'),  # Changed from 'create-unit'
+    path('units/<int:unit_id>/update/', UpdateUnitView.as_view(), name='unit-update'),
+    path('units/tenant/update/', TenantUpdateUnitView.as_view(), name='tenant-unit-update'),
+    path('units/<int:unit_id>/assign/<int:tenant_id>/', AssignTenantToUnitView.as_view(), name='assign-tenant'),  # Changed from 'assign-tenant-to-unit'
     
-    # Endpoint to update tenant reminder preferences
+    # UnitType endpoints
+    path('unit-types/', UnitTypeListCreateView.as_view(), name='unit-types'),  # Changed from 'unittype-list-create'
+    path('unit-types/<int:pk>/', UnitTypeDetailView.as_view(), name='unit-type-detail'),  # Changed from 'unittype-detail'
+    
+    # Subscription endpoints
+    path('subscription-status/', SubscriptionStatusView.as_view(), name='subscription-status'),
+    path('update-till-number/', UpdateTillNumberView.as_view(), name='update-till-number'),
+    path('admin/landlord-subscriptions/', AdminLandlordSubscriptionStatusView.as_view(), name='admin-landlord-subscriptions'),
+    path('dashboard-stats/', LandlordDashboardStatsView.as_view(), name='dashboard-stats'),
+    path('adjust-rent/', AdjustRentView.as_view(), name='adjust-rent'),
+    
+    # Other endpoints
     path('update-reminder-preferences/', UpdateReminderPreferencesView.as_view(), name='update-reminder-preferences'),
-    
-    # Endpoint to list available units for landlords to share with tenants
-    path('available-units/', LandlordAvailableUnitsView.as_view(), name='landlord-available-units'),
+    path('available-units/', LandlordAvailableUnitsView.as_view(), name='available-units'),  # Changed from 'landlord-available-units'
 ]
