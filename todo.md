@@ -1,11 +1,19 @@
-# TODO: Fix Unit Creation API Error
+# TODO: Fix Production Connection Issue
 
-## Tasks
-- [x] Update UnitSerializer in app/accounts/serializers.py to handle 'property' field alias, auto-generate unit_number, set rent/deposit from unit_type, and validate ownership.
-- [x] Update CreateUnitView in app/accounts/views.py to add error handling for invalid property/unit_type IDs. (Handled in serializer validate method)
-- [ ] Test the changes by running the comprehensive test script.
-- [ ] Verify subsequent test steps pass (e.g., update unit).
+## Problem
+- In production on Render, creating a property causes "connection was closed unexpectedly" error.
+- Locally works fine.
 
-## Progress
-- Analyzed error: Missing 'property_obj' and 'unit_number' in request.
-- Plan approved: Modify serializer for flexibility and auto-generation.
+## Root Cause
+- Likely due to Redis cache backend not being available on Render, causing cache operations to fail and close the connection.
+
+## Changes Made
+- [x] Changed CACHES to use LocMemCache instead of Redis.
+- [x] Added logging to CreatePropertyView for debugging.
+- [x] Added logging configuration to settings.py.
+
+## Next Steps
+- Deploy the changes to Render.
+- Test the property creation endpoint.
+- Check Render logs for any errors or the added logs.
+- If still failing, check for DB connection issues or timeouts.

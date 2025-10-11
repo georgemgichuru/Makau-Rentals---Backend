@@ -16,6 +16,9 @@ from django.core.cache import cache
 from .models import Property, Unit, CustomUser, Subscription, UnitType
 from payments.models import Payment
 from .permissions import IsLandlord, IsTenant, require_subscription, IsSuperuser, HasActiveSubscription
+import logging
+
+logger = logging.getLogger(__name__)
 
 from django.http import HttpResponse
 from django.contrib.auth.decorators import login_required
@@ -332,28 +335,35 @@ class CreatePropertyView(APIView):
     permission_classes = [IsAuthenticated, IsLandlord, HasActiveSubscription]
 
     def post(self, request):
+        logger.info(f"CreatePropertyView: User {request.user.id} attempting to create property")
         user = request.user
 
         # Fetch subscription
         try:
             subscription = Subscription.objects.get(user=user)
+            logger.info(f"Subscription found: {subscription.plan}")
         except Subscription.DoesNotExist:
+            logger.error(f"No subscription found for user {user.id}")
             return Response({"error": "No active subscription found."}, status=403)
 
         plan = subscription.plan.lower()
 
         # Check if subscription is active
         if not subscription.is_active():
+            logger.warning(f"Subscription expired for user {user.id}")
             return Response({"error": "Your subscription has expired. Please renew or upgrade."}, status=403)
 
         # Get plan limit
         max_properties = PLAN_LIMITS.get(plan)
         if max_properties is None:
+            logger.error(f"Unknown plan {plan} for user {user.id}")
             return Response({"error": f"Unknown plan type: {plan}"}, status=400)
 
         # Count current properties
         current_count = Property.objects.filter(landlord=user).count()
+        logger.info(f"Current properties count: {current_count}, max: {max_properties}")
         if current_count >= max_properties:
+            logger.warning(f"Property limit reached for user {user.id}")
             return Response({
                 "error": f"Your current plan ({plan}) allows a maximum of {max_properties} properties. Upgrade to add more."
             }, status=403)
@@ -361,10 +371,17 @@ class CreatePropertyView(APIView):
         # Proceed with creation
         serializer = PropertySerializer(data=request.data)
         if serializer.is_valid():
+            logger.info(f"Serializer valid, saving property for user {user.id}")
             property = serializer.save(landlord=user)
-            cache.delete(f"landlord:{user.id}:properties")  # clear cache if you're caching landlord properties
+            try:
+                cache.delete(f"landlord:{user.id}:properties")  # clear cache if you're caching landlord properties
+                logger.info(f"Cache cleared for user {user.id}")
+            except Exception as e:
+                logger.warning(f"Cache delete failed: {e}")
+            logger.info(f"Property created successfully: {property.id}")
             return Response(serializer.data, status=201)
 
+        logger.error(f"Serializer errors: {serializer.errors}")
         return Response(serializer.errors, status=400)
 
 # List landlord properties (cached)
