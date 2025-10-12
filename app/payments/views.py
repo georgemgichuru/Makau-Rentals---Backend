@@ -484,7 +484,7 @@ class PaymentListCreateView(generics.ListCreateAPIView):
     - Only tenants can create a new rent payment
     """
     serializer_class = PaymentSerializer
-    permission_classes = [permissions.IsAuthenticated, HasActiveSubscription]
+    permission_classes = [permissions.IsAuthenticated]
     def get_queryset(self):
        user = self.request.user
        cache_key = f"payments:{user.user_type}:{user.id}"
@@ -528,7 +528,7 @@ class PaymentDetailView(generics.RetrieveAPIView):
     - Landlords: can view payment details for units in their properties (cached)
     """
     serializer_class = PaymentSerializer
-    permission_classes = [permissions.IsAuthenticated, HasActiveSubscription]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
         user = self.request.user
