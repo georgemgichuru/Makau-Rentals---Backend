@@ -17,6 +17,13 @@ import os
 # For scheduling automatic sending messages to tenants every month
 from celery.schedules import crontab
 
+import os
+
+# Auto create superuser on startup
+DJANGO_SUPERUSER_USERNAME = os.environ.get('DJANGO_SUPERUSER_USERNAME')
+DJANGO_SUPERUSER_EMAIL = os.environ.get('DJANGO_SUPERUSER_EMAIL')
+DJANGO_SUPERUSER_PASSWORD = os.environ.get('DJANGO_SUPERUSER_PASSWORD')
+
 CELERY_BEAT_SCHEDULE = {
     # Tenants get notified daily at 9 AM
     "daily-rent-due-check": {
