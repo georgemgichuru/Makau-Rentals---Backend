@@ -33,12 +33,14 @@ def main():
             # Get superuser credentials from environment variables
             superuser_email = os.environ.get('DJANGO_SUPERUSER_EMAIL')
             superuser_password = os.environ.get('DJANGO_SUPERUSER_PASSWORD')
-            
+            superuser_full_name = os.environ.get('DJANGO_SUPERUSER_FULL_NAME', 'GEORGE MWANGI')
+
             # Only create superuser if both environment variables are set
             if superuser_email and superuser_password:
                 if not User.objects.filter(email=superuser_email).exists():
                     User.objects.create_superuser(
                         email=superuser_email,
+                        full_name=superuser_full_name,
                         password=superuser_password
                     )
                     print(f"Superuser created successfully with email: {superuser_email}")
