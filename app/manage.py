@@ -16,10 +16,18 @@ def main():
             "forget to activate a virtual environment?"
         ) from exc
     
-    # Auto-create superuser on startup (only for specific commands)
-    if len(sys.argv) > 1 and sys.argv[1] in ['runserver', 'migrate']:
+    # Check if we should create superuser, but do it AFTER Django setup
+    should_create_superuser = len(sys.argv) > 1 and sys.argv[1] in ['runserver', 'migrate']
+    
+    # Execute Django commands first to ensure apps are loaded
+    execute_from_command_line(sys.argv)
+    
+    # Now create superuser AFTER the command has run
+    if should_create_superuser:
         try:
             from django.contrib.auth import get_user_model
+            from django.core.management import execute_from_command_line
+            
             User = get_user_model()
             
             # Get superuser credentials from environment variables
@@ -40,9 +48,7 @@ def main():
                 print("Note: Superuser environment variables not set, skipping auto-creation")
                 
         except Exception as e:
-            print(f"Note: Could not create superuser. This is normal if databases aren't ready yet. Error: {e}")
-    
-    execute_from_command_line(sys.argv)
+            print(f"Error creating superuser: {e}")
 
 
 if __name__ == '__main__':
