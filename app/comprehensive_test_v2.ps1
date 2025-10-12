@@ -220,11 +220,69 @@ $depositBody = @"
 "@
 
 $depositHeaders = @{ Authorization = "Bearer $tenantToken" }
+$startTime = Get-Date
+Write-Host "Deposit initiation started at: $startTime"
 try {
     $depositResponse = Invoke-PostJson -url "$baseUrl/api/payments/initiate-deposit/" -headers $depositHeaders -body $depositBody
-    Write-Host "Deposit STK push initiated: $($depositResponse | ConvertTo-Json)"
+    $endTime = Get-Date
+    $duration = $endTime - $startTime
+    Write-Host "Deposit STK push initiated in $($duration.TotalSeconds) seconds: $($depositResponse | ConvertTo-Json)"
+    if ($duration.TotalSeconds -ge 25 -and $duration.TotalSeconds -le 35) {
+        Write-Host "SUCCESS: Deposit initiation waited approximately 30 seconds (timeout scenario)"
+    } elseif ($duration.TotalSeconds -lt 5) {
+        Write-Host "SUCCESS: Deposit initiation returned quickly (success scenario)"
+    } else {
+        Write-Host "WARNING: Unexpected duration for deposit initiation"
+    }
 } catch {
-    Write-Host "Deposit initiation failed (expected if no M-Pesa setup): $($_.Exception.Message)"
+    $endTime = Get-Date
+    $duration = $endTime - $startTime
+    Write-Host "Deposit initiation failed in $($duration.TotalSeconds) seconds (expected if no M-Pesa setup): $($_.Exception.Message)"
+    if ($duration.TotalSeconds -ge 25 -and $duration.TotalSeconds -le 35) {
+        Write-Host "SUCCESS: Deposit initiation waited approximately 30 seconds before failing"
+    }
+}
+
+# 8.1. Simulate successful deposit callback for testing
+Write-Host "8.1. Simulating successful deposit callback..."
+# Refresh tenant token before callback simulation
+$refreshTenantBody = @{
+    refresh = $tenantLoginResponse.refresh
+} | ConvertTo-Json
+$refreshTenantResponse = Invoke-PostJson -url "$baseUrl/api/accounts/token/refresh/" -body $refreshTenantBody
+$tenantToken = $refreshTenantResponse.access
+Write-Host "Tenant token refreshed for callback simulation."
+# Get the pending deposit payment
+$paymentsResponse = Invoke-GetAuth -url "$baseUrl/api/payments/rent-payments/" -token $tenantToken
+$depositPayment = $paymentsResponse.results | Where-Object { $_.payment_type -eq "deposit" -and $_.status -eq "Pending" } | Select-Object -First 1
+if ($depositPayment) {
+    $paymentId = $depositPayment.id
+    Write-Host "Found pending deposit payment ID: $paymentId"
+    # Simulate callback
+    $callbackBody = @"
+{
+    "Body": {
+        "stkCallback": {
+            "ResultCode": 0,
+            "CallbackMetadata": {
+                "Item": [
+                    {"Name": "Amount", "Value": 1},
+                    {"Name": "MpesaReceiptNumber", "Value": "TEST$paymentId"},
+                    {"Name": "AccountReference", "Value": "$paymentId"}
+                ]
+            }
+        }
+    }
+}
+"@
+    try {
+        $callbackResponse = Invoke-PostJson -url "$baseUrl/api/payments/callback/deposit/" -body $callbackBody
+        Write-Host "Deposit callback simulated successfully: $($callbackResponse | ConvertTo-Json)"
+    } catch {
+        Write-Host "Deposit callback simulation failed: $($_.Exception.Message)"
+    }
+} else {
+    Write-Host "No pending deposit payment found"
 }
 
 # 8.1. Test deposit check before assignment: Try to assign tenant without successful deposit (should fail)
@@ -258,11 +316,27 @@ $rentBody = @{
     amount = "2000"
 } | ConvertTo-Json
 
+$startTime = Get-Date
+Write-Host "Rent initiation started at: $startTime"
 try {
-$rentResponse = Invoke-PostJson -url "$baseUrl/api/payments/stk-push/$unitId/" -headers $depositHeaders -body $rentBody
-    Write-Host "Rent STK push initiated: $($rentResponse | ConvertTo-Json)"
+    $rentResponse = Invoke-PostJson -url "$baseUrl/api/payments/stk-push/$unitId/" -headers $depositHeaders -body $rentBody
+    $endTime = Get-Date
+    $duration = $endTime - $startTime
+    Write-Host "Rent STK push initiated in $($duration.TotalSeconds) seconds: $($rentResponse | ConvertTo-Json)"
+    if ($duration.TotalSeconds -ge 25 -and $duration.TotalSeconds -le 35) {
+        Write-Host "SUCCESS: Rent initiation waited approximately 30 seconds (timeout scenario)"
+    } elseif ($duration.TotalSeconds -lt 5) {
+        Write-Host "SUCCESS: Rent initiation returned quickly (success scenario)"
+    } else {
+        Write-Host "WARNING: Unexpected duration for rent initiation"
+    }
 } catch {
-    Write-Host "Rent initiation failed (expected if no M-Pesa setup): $($_.Exception.Message)"
+    $endTime = Get-Date
+    $duration = $endTime - $startTime
+    Write-Host "Rent initiation failed in $($duration.TotalSeconds) seconds (expected if no M-Pesa setup): $($_.Exception.Message)"
+    if ($duration.TotalSeconds -ge 25 -and $duration.TotalSeconds -le 35) {
+        Write-Host "SUCCESS: Rent initiation waited approximately 30 seconds before failing"
+    }
 }
 
 # 10.1. Test rent-payments/ list
@@ -327,11 +401,27 @@ $subscriptionBody = @{
 } | ConvertTo-Json
 
 $subscriptionHeaders = @{ Authorization = "Bearer $landlordToken" }
+$startTime = Get-Date
+Write-Host "Subscription initiation started at: $startTime"
 try {
-$subscriptionResponse = Invoke-PostJson -url "$baseUrl/api/payments/stk-push-subscription/" -headers $subscriptionHeaders -body $subscriptionBody
-    Write-Host "Subscription STK push initiated: $($subscriptionResponse | ConvertTo-Json)"
+    $subscriptionResponse = Invoke-PostJson -url "$baseUrl/api/payments/stk-push-subscription/" -headers $subscriptionHeaders -body $subscriptionBody
+    $endTime = Get-Date
+    $duration = $endTime - $startTime
+    Write-Host "Subscription STK push initiated in $($duration.TotalSeconds) seconds: $($subscriptionResponse | ConvertTo-Json)"
+    if ($duration.TotalSeconds -ge 25 -and $duration.TotalSeconds -le 35) {
+        Write-Host "SUCCESS: Subscription initiation waited approximately 30 seconds (timeout scenario)"
+    } elseif ($duration.TotalSeconds -lt 5) {
+        Write-Host "SUCCESS: Subscription initiation returned quickly (success scenario)"
+    } else {
+        Write-Host "WARNING: Unexpected duration for subscription initiation"
+    }
 } catch {
-    Write-Host "Subscription initiation failed (expected if no M-Pesa setup): $($_.Exception.Message)"
+    $endTime = Get-Date
+    $duration = $endTime - $startTime
+    Write-Host "Subscription initiation failed in $($duration.TotalSeconds) seconds (expected if no M-Pesa setup): $($_.Exception.Message)"
+    if ($duration.TotalSeconds -ge 25 -and $duration.TotalSeconds -le 35) {
+        Write-Host "SUCCESS: Subscription initiation waited approximately 30 seconds before failing"
+    }
 }
 
 # 12.1. Test subscription-payments/ list

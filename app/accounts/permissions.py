@@ -25,14 +25,19 @@ class HasActiveSubscription(BasePermission):
                 raise PermissionDenied("You are not subscribed to the service. Please subscribe to access this view.")
             return True
         elif request.user.user_type == "tenant":
+            from .models import Payment
             units = Unit.objects.filter(tenant=request.user)
-            if units.exists():
-                landlord = units.first().property_obj.landlord
+            payments = Payment.objects.filter(tenant=request.user)
+            if units.exists() or payments.exists():
+                if units.exists():
+                    landlord = units.first().property_obj.landlord
+                elif payments.exists():
+                    landlord = payments.first().unit.property_obj.landlord
                 subscription = Subscription.objects.filter(user=landlord).first()
                 if not subscription or not subscription.is_active():
                     raise PermissionDenied("Your landlord's subscription is inactive. Please contact your landlord.")
                 return True
-            raise PermissionDenied("No unit assigned to you.")
+            raise PermissionDenied("No unit assigned or payments found.")
         return False
 
 def require_subscription(view_func):

@@ -3,6 +3,7 @@ import datetime
 import json
 import requests
 import csv
+import time
 from decimal import Decimal, InvalidOperation
 from django.http import HttpResponse
 from datetime import timedelta
@@ -120,7 +121,20 @@ def stk_push(request, unit_id):
      json=payload,
      headers=headers
     )
-    return JsonResponse(response.json())
+    response_data = response.json()
+    if response_data.get("ResponseCode") == "0":
+        # Wait up to 30 seconds for payment to complete
+        for _ in range(30):
+            time.sleep(1)
+            payment.refresh_from_db()
+            if payment.status == "Success":
+                return JsonResponse({"message": "Payment successful", "receipt": payment.mpesa_receipt})
+        # Timeout: set to Failed
+        payment.status = "Failed"
+        payment.save()
+        return JsonResponse({"error": "Payment timed out. Please try again."})
+    else:
+        return JsonResponse(response_data)
    except Unit.DoesNotExist:
     return JsonResponse({"error": "Unit not found or not assigned to you"}, status=404)
    except Exception as e:
@@ -229,7 +243,18 @@ def stk_push_subscription(request):
            json=payload,
            headers=headers
        )
-       return JsonResponse(response.json())
+       response_data = response.json()
+       if response_data.get("ResponseCode") == "0":
+           # Wait up to 30 seconds for payment to complete
+           for _ in range(30):
+               time.sleep(1)
+               subscription_payment.refresh_from_db()
+               if subscription_payment.mpesa_receipt_number:
+                   return JsonResponse({"message": "Subscription payment successful", "receipt": subscription_payment.mpesa_receipt_number})
+           # Timeout: return error
+           return JsonResponse({"error": "Subscription payment timed out. Please try again."})
+       else:
+           return JsonResponse(response_data)
     except Exception as e:
        return JsonResponse({"error": f"Subscription payment initiation failed: {str(e)}"}, status=500)
 # ------------------------------
@@ -244,6 +269,7 @@ def mpesa_rent_callback(request):
     - Updates Unit rent balances
     - Invalidates relevant caches
     """
+    time.sleep(30)  # Await 30 seconds as requested
     try:
        data = json.loads(request.body.decode("utf-8"))
        body = data.get("Body", {}).get("stkCallback", {})
@@ -301,6 +327,7 @@ def mpesa_subscription_callback(request):
     - Updates landlord's Subscription plan and expiry
     - Invalidates subscription caches
     """
+    time.sleep(30)  # Await 30 seconds as requested
     try:
       data = json.loads(request.body.decode("utf-8"))
       body = data.get("Body", {}).get("stkCallback", {})
@@ -739,7 +766,7 @@ class InitiateDepositPaymentView(APIView):
             unit = Unit.objects.get(id=unit_id, is_available=True)
         except Unit.DoesNotExist:
             return Response({'error': 'Invalid unit or not available'}, status=400)
-        amount = 1
+        amount = unit.deposit
         # Rate limiting: Check if user has made too many requests
         rate_limit_key = f"deposit_stk_push_rate_limit:{request.user.id}"
         recent_requests = cache.get(rate_limit_key, 0)
@@ -798,7 +825,20 @@ class InitiateDepositPaymentView(APIView):
             json=payload,
             headers=headers
         )
-        return Response(response.json())
+        response_data = response.json()
+        if response_data.get("ResponseCode") == "0":
+            # Wait up to 30 seconds for payment to complete
+            for _ in range(30):
+                time.sleep(1)
+                payment.refresh_from_db()
+                if payment.status == "Success":
+                    return Response({"message": "Deposit payment successful", "receipt": payment.mpesa_receipt})
+            # Timeout: set to Failed
+            payment.status = "Failed"
+            payment.save()
+            return Response({"error": "Deposit payment timed out. Please try again."})
+        else:
+            return Response(response_data)
 # ------------------------------
 # DEPOSIT PAYMENT CALLBACK
 # ------------------------------
@@ -809,6 +849,7 @@ def mpesa_deposit_callback(request):
     - Updates Payment status
     - Invalidates relevant caches
     """
+    time.sleep(30)  # Await 30 seconds as requested
     try:
         data = json.loads(request.body.decode("utf-8"))
         body = data.get("Body", {}).get("stkCallback", {})
