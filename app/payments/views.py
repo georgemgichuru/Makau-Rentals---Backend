@@ -278,8 +278,8 @@ def mpesa_rent_callback(request):
        if result_code == 0:  # ✅ Transaction successful
            metadata_items = body.get("CallbackMetadata", {}).get("Item", [])
            metadata = {item["Name"]: item.get("Value") for item in metadata_items}
-           # FIXED: Convert float to Decimal properly
-           amount = Decimal(str(metadata.get("Amount")))  # Convert to string first
+           # Convert amount to float
+           amount = float(metadata.get("Amount"))
            receipt = metadata.get("MpesaReceiptNumber")
            payment_id = metadata.get("AccountReference")
            if payment_id:
