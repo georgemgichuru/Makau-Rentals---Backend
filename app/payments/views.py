@@ -798,6 +798,8 @@ class InitiateDepositPaymentView(APIView):
                 return Response({"error": "Deposit amount must be a whole number."}, status=400)
         except (ValueError, TypeError):
             return Response({"error": "Invalid deposit amount format."}, status=400)
+        # Convert to integer for M-Pesa
+        amount = amount_int
         # Rate limiting: Check if user has made too many requests
         rate_limit_key = f"deposit_stk_push_rate_limit:{request.user.id}"
         recent_requests = cache.get(rate_limit_key, 0)
