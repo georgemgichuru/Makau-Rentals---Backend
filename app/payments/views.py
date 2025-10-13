@@ -785,8 +785,8 @@ class InitiateDepositPaymentView(APIView):
             return Response({'error': 'Invalid unit or not available'}, status=400)
         amount = unit.deposit
         # Validate amount
-        if amount <= 0:
-            return Response({"error": "Deposit amount must be positive."}, status=400)
+        if amount is None or amount <= 0:
+            return Response({"error": "Deposit amount is not set or invalid."}, status=400)
         if amount > 500000:
             return Response({"error": "Deposit amount cannot exceed 500,000."}, status=400)
         # Ensure amount is a whole number (M-Pesa requires integer amounts)
@@ -827,8 +827,8 @@ class InitiateDepositPaymentView(APIView):
                 access_token = generate_access_token()
             # Cache access token for 55 minutes (MPESA tokens expire in 1 hour)
             cache.set(access_token_cache_key, access_token, timeout=3300)
-        except ValueError as e:
-            return Response({"error": f"Payment initiation failed: Invalid M-Pesa credentials. {str(e)}"}, status=400)
+        except Exception as e:
+            return Response({"error": f"Payment initiation failed: {str(e)}"}, status=400)
         timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
         password = base64.b64encode(
             (settings.MPESA_SHORTCODE + settings.MPESA_PASSKEY + timestamp).encode("utf-8")
