@@ -787,8 +787,6 @@ class InitiateDepositPaymentView(APIView):
         # Validate amount
         if amount is None or amount <= 0:
             return Response({"error": "Deposit amount is not set or invalid."}, status=400)
-        if amount > 500000:
-            return Response({"error": "Deposit amount cannot exceed 500,000."}, status=400)
         # Ensure amount is a whole number (M-Pesa requires integer amounts)
         try:
             amount_int = int(amount)
