@@ -144,7 +144,7 @@ $propertyId = $propertyResponse.id
 Write-Host "4. Creating unit type with automatic units..."
 $unitTypeBody = @{
     name = "1 Bedroom"
-    deposit = 1000
+    deposit = 1
     rent = 2000
     unit_count = 2
     property_id = $propertyId
@@ -242,8 +242,110 @@ try {
     }
 }
 
-# 8.1. Simulate successful deposit callback for testing
-Write-Host "8.1. Simulating successful deposit callback..."
+# 8.1. Test invalid deposit amounts
+Write-Host "8.1. Testing invalid deposit amounts..."
+
+# Test negative deposit
+$invalidUnitTypeBody1 = @{
+    name = "Invalid Unit Negative"
+    deposit = -1
+    rent = 2000
+    unit_count = 1
+    property_id = $propertyId
+} | ConvertTo-Json
+
+$invalidUnitTypeResponse1 = Invoke-PostJson -url "$baseUrl/api/accounts/unit-types/" -headers $propertyHeaders -body $invalidUnitTypeBody1
+$invalidUnitTypeId1 = $invalidUnitTypeResponse1.id
+
+$invalidUnitsResponse1 = Invoke-GetAuth -url "$baseUrl/api/accounts/properties/$propertyId/units/" -token $landlordToken
+$invalidUnit1 = $invalidUnitsResponse1 | Where-Object { $_.unit_type -eq $invalidUnitTypeId1 } | Select-Object -First 1
+$invalidUnitId1 = $invalidUnit1.id
+
+$invalidDepositBody1 = @"
+{
+    "unit_id": $invalidUnitId1
+}
+"@
+
+try {
+    $invalidDepositResponse1 = Invoke-PostJson -url "$baseUrl/api/payments/initiate-deposit/" -headers $depositHeaders -body $invalidDepositBody1
+    Write-Host "ERROR: Negative deposit initiation succeeded unexpectedly"
+} catch {
+    if ($_.Exception.Response.StatusCode -eq 400) {
+        Write-Host "SUCCESS: Negative deposit correctly rejected: $($_.Exception.Message)"
+    } else {
+        Write-Host "Unexpected error for negative deposit: $($_.Exception.Message)"
+    }
+}
+
+# Test deposit > 500,000
+$invalidUnitTypeBody2 = @{
+    name = "Invalid Unit Large"
+    deposit = 500001
+    rent = 2000
+    unit_count = 1
+    property_id = $propertyId
+} | ConvertTo-Json
+
+$invalidUnitTypeResponse2 = Invoke-PostJson -url "$baseUrl/api/accounts/unit-types/" -headers $propertyHeaders -body $invalidUnitTypeBody2
+$invalidUnitTypeId2 = $invalidUnitTypeResponse2.id
+
+$invalidUnitsResponse2 = Invoke-GetAuth -url "$baseUrl/api/accounts/properties/$propertyId/units/" -token $landlordToken
+$invalidUnit2 = $invalidUnitsResponse2 | Where-Object { $_.unit_type -eq $invalidUnitTypeId2 } | Select-Object -First 1
+$invalidUnitId2 = $invalidUnit2.id
+
+$invalidDepositBody2 = @"
+{
+    "unit_id": $invalidUnitId2
+}
+"@
+
+try {
+    $invalidDepositResponse2 = Invoke-PostJson -url "$baseUrl/api/payments/initiate-deposit/" -headers $depositHeaders -body $invalidDepositBody2
+    Write-Host "ERROR: Large deposit initiation succeeded unexpectedly"
+} catch {
+    if ($_.Exception.Response.StatusCode -eq 400) {
+        Write-Host "SUCCESS: Large deposit correctly rejected: $($_.Exception.Message)"
+    } else {
+        Write-Host "Unexpected error for large deposit: $($_.Exception.Message)"
+    }
+}
+
+# Test non-whole number deposit
+$invalidUnitTypeBody3 = @{
+    name = "Invalid Unit Decimal"
+    deposit = 1.5
+    rent = 2000
+    unit_count = 1
+    property_id = $propertyId
+} | ConvertTo-Json
+
+$invalidUnitTypeResponse3 = Invoke-PostJson -url "$baseUrl/api/accounts/unit-types/" -headers $propertyHeaders -body $invalidUnitTypeBody3
+$invalidUnitTypeId3 = $invalidUnitTypeResponse3.id
+
+$invalidUnitsResponse3 = Invoke-GetAuth -url "$baseUrl/api/accounts/properties/$propertyId/units/" -token $landlordToken
+$invalidUnit3 = $invalidUnitsResponse3 | Where-Object { $_.unit_type -eq $invalidUnitTypeId3 } | Select-Object -First 1
+$invalidUnitId3 = $invalidUnit3.id
+
+$invalidDepositBody3 = @"
+{
+    "unit_id": $invalidUnitId3
+}
+"@
+
+try {
+    $invalidDepositResponse3 = Invoke-PostJson -url "$baseUrl/api/payments/initiate-deposit/" -headers $depositHeaders -body $invalidDepositBody3
+    Write-Host "ERROR: Decimal deposit initiation succeeded unexpectedly"
+} catch {
+    if ($_.Exception.Response.StatusCode -eq 400) {
+        Write-Host "SUCCESS: Decimal deposit correctly rejected: $($_.Exception.Message)"
+    } else {
+        Write-Host "Unexpected error for decimal deposit: $($_.Exception.Message)"
+    }
+}
+
+# 8.2. Simulate successful deposit callback for testing
+Write-Host "8.2. Simulating successful deposit callback..."
 # Refresh tenant token before callback simulation
 $refreshTenantBody = @{
     refresh = $tenantLoginResponse.refresh
