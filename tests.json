@@ -1,0 +1,8 @@
+{
+  "email": "landlord90@example.com",
+  "full_name": "John Doe",
+  "user_type": "landlord",
+  "password": "securepassword123",
+  "mpesa_till_number": "123456",
+  "phone_number": "+254712345678"
+}

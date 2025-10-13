@@ -18,7 +18,7 @@ from accounts.models import CustomUser, Subscription, Property, Unit, UnitType
 from accounts.permissions import require_tenant_subscription, require_subscription
 from accounts.serializers import UnitTypeSerializer
 from .models import Payment, SubscriptionPayment
-from .generate_token import generate_access_token
+from .generate_token import generate_access_token, initiate_b2c_payment
 from rest_framework import generics, permissions
 from .serializers import PaymentSerializer, SubscriptionPaymentSerializer
 from rest_framework.views import APIView
@@ -98,8 +98,8 @@ def stk_push(request, unit_id):
     password = base64.b64encode(
      (settings.MPESA_SHORTCODE + settings.MPESA_PASSKEY + timestamp).encode("utf-8")
     ).decode("utf-8")
-    # Use landlord's till number if set, otherwise central shortcode
-    business_shortcode = unit.property_obj.landlord.mpesa_till_number or settings.MPESA_SHORTCODE
+    # Always use central shortcode for rent payments (no landlord till dependency)
+    business_shortcode = settings.MPESA_SHORTCODE
     # Build payload for Safaricom API
     payload = {
      "BusinessShortCode": business_shortcode,
@@ -802,8 +802,8 @@ class InitiateDepositPaymentView(APIView):
         password = base64.b64encode(
             (settings.MPESA_SHORTCODE + settings.MPESA_PASSKEY + timestamp).encode("utf-8")
         ).decode("utf-8")
-        # Use landlord's till number if set, otherwise central shortcode
-        business_shortcode = unit.property_obj.landlord.mpesa_till_number or settings.MPESA_SHORTCODE
+        # Always use central shortcode for deposit payments (no landlord till dependency)
+        business_shortcode = settings.MPESA_SHORTCODE
         # Build payload for Safaricom API
         payload = {
             "BusinessShortCode": business_shortcode,
