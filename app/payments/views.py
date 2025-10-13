@@ -906,17 +906,20 @@ def mpesa_deposit_callback(request):
     - Updates Payment status
     - Invalidates relevant caches
     """
+    print("🔄 Deposit callback received")
     time.sleep(30)  # Await 30 seconds as requested
     try:
         data = json.loads(request.body.decode("utf-8"))
+        print(f"📥 Deposit callback data: {json.dumps(data, indent=2)}")
         body = data.get("Body", {}).get("stkCallback", {})
         result_code = body.get("ResultCode")
         if result_code == 0:  # ✅ Transaction successful
             metadata_items = body.get("CallbackMetadata", {}).get("Item", [])
             metadata = {item["Name"]: item.get("Value") for item in metadata_items}
-            amount = metadata.get("Amount")
+            amount = float(metadata.get("Amount"))  # Convert to float
             receipt = metadata.get("MpesaReceiptNumber")
             payment_id = metadata.get("AccountReference")
+            print(f"💰 Deposit callback metadata: amount={amount}, receipt={receipt}, payment_id={payment_id}")
             if payment_id:
                 try:
                     payment = Payment.objects.get(
@@ -934,16 +937,14 @@ def mpesa_deposit_callback(request):
                     ])
                     print(f"✅ Deposit payment successful: {receipt} for payment {payment_id}")
                 except Payment.DoesNotExist:
-                    print(f"Payment with id {payment_id} not found or already processed")
+                    print(f"❌ Payment with id {payment_id} not found or already processed")
             else:
-                # Transaction failed
-                error_msg = body.get("ResultDesc", "Unknown error")
-                print(f"❌ Deposit transaction failed: {error_msg}")
+                print("❌ No payment_id in callback metadata")
         else:
             # Transaction failed
             error_msg = body.get("ResultDesc", "Unknown error")
             print(f"❌ Deposit transaction failed: {error_msg}")
     except Exception as e:
-        print("Error processing deposit callback:", e)
+        print("❌ Error processing deposit callback:", e)
     # Always respond with success to Safaricom
     return JsonResponse({"ResultCode": 0, "ResultDesc": "Accepted"})

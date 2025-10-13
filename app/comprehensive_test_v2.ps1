@@ -153,6 +153,7 @@ $unitTypeBody = @{
 $unitTypeResponse = Invoke-PostJson -url "$baseUrl/api/accounts/unit-types/" -headers $propertyHeaders -body $unitTypeBody
 Write-Host "Unit type created. ID: $($unitTypeResponse.id)"
 $unitTypeId = $unitTypeResponse.id
+$unitDeposit = 1  # Deposit amount for the unit type
 
 # 5. List Units to verify automatic creation
 Write-Host "5. Listing units..."
@@ -359,7 +360,7 @@ $depositPayment = $paymentsResponse.results | Where-Object { $_.payment_type -eq
 if ($depositPayment) {
     $paymentId = $depositPayment.id
     Write-Host "Found pending deposit payment ID: $paymentId"
-    # Simulate callback
+    # Simulate callback with correct amount (deposit amount)
     $callbackBody = @"
 {
     "Body": {
@@ -367,7 +368,7 @@ if ($depositPayment) {
             "ResultCode": 0,
             "CallbackMetadata": {
                 "Item": [
-                    {"Name": "Amount", "Value": 1},
+                    {"Name": "Amount", "Value": $unitDeposit},
                     {"Name": "MpesaReceiptNumber", "Value": "TEST$paymentId"},
                     {"Name": "AccountReference", "Value": "$paymentId"}
                 ]
