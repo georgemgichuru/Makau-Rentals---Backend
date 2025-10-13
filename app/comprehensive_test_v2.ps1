@@ -284,6 +284,45 @@ if ($depositPayment) {
     Write-Host "No pending deposit payment found"
 }
 
+# 8.2. Simulate B2C callback for disbursement testing
+Write-Host "8.2. Simulating successful B2C disbursement callback..."
+$b2cCallbackBody = @"
+{
+    "Result": {
+        "ResultCode": 0,
+        "ResultDesc": "The service request is processed successfully.",
+        "OriginatorConversationID": "TEST123",
+        "ConversationID": "TEST456",
+        "TransactionID": "TEST789"
+    }
+}
+"@
+try {
+    $b2cCallbackResponse = Invoke-PostJson -url "$baseUrl/api/payments/callback/b2c/" -body $b2cCallbackBody
+    Write-Host "B2C callback simulated successfully: $($b2cCallbackResponse | ConvertTo-Json)"
+} catch {
+    Write-Host "B2C callback simulation failed: $($_.Exception.Message)"
+}
+
+Write-Host "8.3. Simulating failed B2C disbursement callback..."
+$b2cFailedCallbackBody = @"
+{
+    "Result": {
+        "ResultCode": 1,
+        "ResultDesc": "The service request failed.",
+        "OriginatorConversationID": "TEST123",
+        "ConversationID": "TEST456",
+        "TransactionID": "TEST789"
+    }
+}
+"@
+try {
+    $b2cFailedCallbackResponse = Invoke-PostJson -url "$baseUrl/api/payments/callback/b2c/" -body $b2cFailedCallbackBody
+    Write-Host "Failed B2C callback simulated successfully: $($b2cFailedCallbackResponse | ConvertTo-Json)"
+} catch {
+    Write-Host "Failed B2C callback simulation failed: $($_.Exception.Message)"
+}
+
 # 8.1. Test deposit check before assignment: Try to assign tenant without successful deposit (should fail)
 Write-Host "8.1. Attempting to assign tenant without deposit (should fail)..."
 $assignBody = @{} | ConvertTo-Json

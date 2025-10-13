@@ -1,18 +1,15 @@
-# TODO: Replace M-Pesa Express with B2C for Rent Payments
-
-## Overview
-Replace the current STK Push to landlord's till with a centralized flow: Tenant pays to app's shortcode via STK Push, then app disburses to landlord via B2C. This removes the need for landlords to provide till numbers.
+# TODO: Implement B2C for Rent Payments
 
 ## Tasks
-- [ ] Modify `stk_push` function to always use central shortcode for rent payments
-- [ ] Add B2C disbursement function in `generate_token.py`
-- [ ] Update `mpesa_rent_callback` to initiate B2C after successful payment
-- [ ] Modify `InitiateDepositPaymentView` to use central shortcode
-- [ ] Update `mpesa_deposit_callback` to initiate B2C for deposits
-- [ ] Test the new payment flow
-- [ ] Update documentation if needed
+- [ ] Modify `mpesa_rent_callback` to initiate B2C payment to landlord after successful payment update
+- [ ] Use landlord's `mpesa_till_number` if available, else `phone_number`
+- [ ] Create B2C callback view (`mpesa_b2c_callback`) to handle disbursement confirmations
+- [ ] Update `app/payments/urls.py` to include B2C callback URL
+- [ ] Ensure B2C settings are present in `app/app/settings.py`
+- [ ] Update `initiate_b2c_payment` to handle till numbers if needed
+- [ ] Test the flow
 
 ## Notes
-- Ensure landlord has phone_number set for B2C disbursements
-- B2C requires additional API credentials (if not already present)
-- Remove dependency on `unit.property_obj.landlord.mpesa_till_number` for rent/deposit
+- B2C can use phone number or till number as PartyB
+- Handle B2C failures gracefully
+- Ensure money goes directly to landlord

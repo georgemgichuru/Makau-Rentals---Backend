@@ -42,11 +42,11 @@ def generate_access_token():
         logger.error(f"Unexpected error generating token: {e}")
         raise ValueError(f"Token generation error: {str(e)}")
 
-def initiate_b2c_payment(amount, phone_number, payment_id, remarks="Rent disbursement"):
+def initiate_b2c_payment(amount, recipient, payment_id, remarks="Rent disbursement"):
     """
     Initiate B2C payment to disburse funds to landlord.
     - amount: Amount to disburse (KES)
-    - phone_number: Landlord's phone number (254XXXXXXXXX format)
+    - recipient: Landlord's phone number (254XXXXXXXXX format) or till number
     - payment_id: Reference for the payment
     - remarks: Description of the transaction
     Returns response dict or raises ValueError on failure.
@@ -72,7 +72,7 @@ def initiate_b2c_payment(amount, phone_number, payment_id, remarks="Rent disburs
         "CommandID": "BusinessPayment",
         "Amount": str(amount),
         "PartyA": settings.MPESA_SHORTCODE,
-        "PartyB": phone_number,
+        "PartyB": recipient,  # Can be phone number or till number
         "Remarks": remarks,
         "QueueTimeOutURL": settings.MPESA_B2C_TIMEOUT_URL,  # Need to add to settings
         "ResultURL": settings.MPESA_B2C_RESULT_URL,  # Need to add to settings

@@ -267,6 +267,7 @@ def mpesa_rent_callback(request):
     Handles M-Pesa callback for rent payments.
     - Updates Payment status
     - Updates Unit rent balances
+    - Initiates B2C disbursement to landlord
     - Invalidates relevant caches
     """
     time.sleep(30)  # Await 30 seconds as requested
@@ -301,6 +302,24 @@ def mpesa_rent_callback(request):
                        f"unit:{unit.id}:details"
                    ])
                    print(f"✅ Rent payment successful: {receipt} for payment {payment_id}")
+
+                   # Initiate B2C disbursement to landlord
+                   landlord = unit.property_obj.landlord
+                   recipient = landlord.mpesa_till_number or landlord.phone_number
+                   if recipient:
+                       try:
+                           b2c_response = initiate_b2c_payment(
+                               amount=amount,
+                               recipient=recipient,
+                               payment_id=payment_id,
+                               remarks=f"Rent payment disbursement for Unit {unit.unit_number}"
+                           )
+                           print(f"✅ B2C disbursement initiated for payment {payment_id}: {b2c_response}")
+                       except ValueError as e:
+                           print(f"❌ B2C disbursement failed for payment {payment_id}: {str(e)}")
+                   else:
+                       print(f"❌ No recipient (till number or phone) for landlord {landlord.id}")
+
                except Payment.DoesNotExist:
                    print(f"Payment with id {payment_id} not found or already processed")
            else:
@@ -839,6 +858,30 @@ class InitiateDepositPaymentView(APIView):
             return Response({"error": "Deposit payment timed out. Please try again."})
         else:
             return Response(response_data)
+# ------------------------------
+# B2C PAYMENT CALLBACK
+# ------------------------------
+@csrf_exempt
+def mpesa_b2c_callback(request):
+    """
+    Handles M-Pesa callback for B2C disbursements.
+    - Logs the result of the disbursement
+    - Could update payment records if needed
+    """
+    try:
+        data = json.loads(request.body.decode("utf-8"))
+        result = data.get("Result", {})
+        result_code = result.get("ResultCode")
+        result_desc = result.get("ResultDesc")
+        if result_code == 0:  # ✅ Disbursement successful
+            print(f"✅ B2C disbursement successful: {result_desc}")
+        else:
+            print(f"❌ B2C disbursement failed: {result_desc}")
+    except Exception as e:
+        print("Error processing B2C callback:", e)
+    # Always respond with success to Safaricom
+    return JsonResponse({"ResultCode": 0, "ResultDesc": "Accepted"})
+
 # ------------------------------
 # DEPOSIT PAYMENT CALLBACK
 # ------------------------------

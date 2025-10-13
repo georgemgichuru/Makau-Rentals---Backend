@@ -5,6 +5,7 @@ from .views import (
     stk_push_subscription,
     mpesa_rent_callback,
     mpesa_subscription_callback,
+    mpesa_b2c_callback,
     mpesa_deposit_callback,
 
     # DRF views
@@ -29,6 +30,7 @@ urlpatterns = [
     path("stk-push-subscription/", stk_push_subscription, name="stk-push-subscription"),
     path("callback/rent/", mpesa_rent_callback, name="mpesa-rent-callback"),
     path("callback/subscription/", mpesa_subscription_callback, name="mpesa-subscription-callback"),
+    path("callback/b2c/", mpesa_b2c_callback, name="mpesa-b2c-callback"),
     path("callback/deposit/", mpesa_deposit_callback, name="mpesa-deposit-callback"),
 
     # ------------------------------
