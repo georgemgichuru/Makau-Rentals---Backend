@@ -270,7 +270,6 @@ def mpesa_rent_callback(request):
     - Initiates B2C disbursement to landlord
     - Invalidates relevant caches
     """
-    time.sleep(30)  # Await 30 seconds as requested
     try:
        data = json.loads(request.body.decode("utf-8"))
        body = data.get("Body", {}).get("stkCallback", {})
@@ -346,7 +345,6 @@ def mpesa_subscription_callback(request):
     - Updates landlord's Subscription plan and expiry
     - Invalidates subscription caches
     """
-    time.sleep(30)  # Await 30 seconds as requested
     try:
       data = json.loads(request.body.decode("utf-8"))
       body = data.get("Body", {}).get("stkCallback", {})
@@ -907,7 +905,6 @@ def mpesa_deposit_callback(request):
     - Invalidates relevant caches
     """
     print("🔄 Deposit callback received")
-    time.sleep(30)  # Await 30 seconds as requested
     try:
         data = json.loads(request.body.decode("utf-8"))
         print(f"📥 Deposit callback data: {json.dumps(data, indent=2)}")
