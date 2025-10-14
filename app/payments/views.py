@@ -865,16 +865,7 @@ class InitiateDepositPaymentView(APIView):
         )
         response_data = response.json()
         if response_data.get("ResponseCode") == "0":
-            # Wait up to 30 seconds for payment to complete
-            for _ in range(30):
-                time.sleep(1)
-                payment.refresh_from_db()
-                if payment.status == "Success":
-                    return Response({"message": "Deposit payment successful", "receipt": payment.mpesa_receipt})
-            # Timeout: set to Failed
-            payment.status = "Failed"
-            payment.save()
-            return Response({"error": "Deposit payment timed out. Please try again."})
+            return Response({"message": "Deposit payment initiated. Please wait for confirmation via callback."})
         else:
             return Response(response_data)
 # ------------------------------
@@ -943,7 +934,61 @@ def mpesa_deposit_callback(request):
                 except Payment.DoesNotExist:
                     print(f"❌ Payment with id {payment_id} not found or already processed")
             else:
-                print("❌ No payment_id in callback metadata")
+                # Fallback: Find pending deposit payment by phone number
+                phone = metadata.get("PhoneNumber")
+                if phone:
+                    # Normalize phone number variants
+                    phone_variants = [phone]
+                    if phone.startswith('+254'):
+                        phone_variants.extend([
+                            phone[4:],  # 722714334
+                            '0' + phone[4:],  # 0722714334
+                            phone[1:],  # 254722714334
+                        ])
+                    elif phone.startswith('254'):
+                        phone_variants.extend([
+                            '+' + phone,  # +254722714334
+                            '0' + phone[3:],  # 0722714334
+                            phone[3:],  # 722714334
+                        ])
+                    elif phone.startswith('0'):
+                        phone_variants.extend([
+                            '+254' + phone[1:],  # +254722714334
+                            '254' + phone[1:],  # 254722714334
+                            phone[1:],  # 722714334
+                        ])
+                    else:
+                        # Assume it's local without 0, add variants
+                        phone_variants.extend([
+                            '+254' + phone,  # +254722714334
+                            '254' + phone,  # 254722714334
+                            '0' + phone,  # 0722714334
+                        ])
+                    try:
+                        payment = Payment.objects.get(
+                            tenant__phone_number__in=phone_variants,
+                            status="Pending",
+                            payment_type="deposit",
+                            amount=amount
+                        )
+                        payment.status = "Success"
+                        payment.mpesa_receipt = receipt
+                        payment.save()
+                        # Invalidate relevant caches
+                        cache.delete_many([
+                            f"pending_deposit_payment:{payment.tenant.id}:{payment.unit.id}",
+                            f"payments:tenant:{payment.tenant.id}",
+                            f"payments:landlord:{payment.unit.property_obj.landlord.id}",
+                            f"rent_summary:{payment.unit.property_obj.landlord.id}",
+                            f"unit:{payment.unit.id}:details"
+                        ])
+                        print(f"✅ Deposit payment successful (fallback): {receipt} for payment {payment.id}")
+                    except Payment.DoesNotExist:
+                        print(f"❌ No matching pending deposit payment found for phone {phone} and amount {amount}")
+                    except Payment.MultipleObjectsReturned:
+                        print(f"❌ Multiple pending deposit payments found for phone {phone} and amount {amount}")
+                else:
+                    print("❌ No payment_id or phone number in callback metadata")
         else:
             # Transaction failed
             error_msg = body.get("ResultDesc", "Unknown error")

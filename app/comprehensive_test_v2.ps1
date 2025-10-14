@@ -387,6 +387,82 @@ if ($depositPayment) {
     Write-Host "No pending deposit payment found"
 }
 
+# 8.3. Simulate deposit callback without payment_id (fallback to phone number)
+Write-Host "8.3. Simulating deposit callback without payment_id (fallback logic)..."
+# Create another pending deposit payment for fallback testing
+$anotherDepositBody = @"
+{
+    "unit_id": $unitId
+}
+"@
+try {
+    $anotherDepositResponse = Invoke-PostJson -url "$baseUrl/api/payments/initiate-deposit/" -headers $depositHeaders -body $anotherDepositBody
+    Write-Host "Another deposit initiated for fallback test."
+} catch {
+    Write-Host "Another deposit initiation failed: $($_.Exception.Message)"
+}
+
+# Refresh payments list
+$paymentsResponse = Invoke-GetAuth -url "$baseUrl/api/payments/rent-payments/" -token $tenantToken
+$fallbackDepositPayment = $paymentsResponse.results | Where-Object { $_.payment_type -eq "deposit" -and $_.status -eq "Pending" } | Select-Object -Last 1
+if ($fallbackDepositPayment) {
+    $fallbackPaymentId = $fallbackDepositPayment.id
+    Write-Host "Found another pending deposit payment ID: $fallbackPaymentId for fallback test"
+    # Simulate callback without AccountReference but with PhoneNumber
+    $fallbackCallbackBody = @"
+{
+    "Body": {
+        "stkCallback": {
+            "ResultCode": 0,
+            "CallbackMetadata": {
+                "Item": [
+                    {"Name": "Amount", "Value": $unitDeposit},
+                    {"Name": "MpesaReceiptNumber", "Value": "FALLBACK$fallbackPaymentId"},
+                    {"Name": "PhoneNumber", "Value": "$tenantPhone"}
+                ]
+            }
+        }
+    }
+}
+"@
+    try {
+        $fallbackCallbackResponse = Invoke-PostJson -url "$baseUrl/api/payments/callback/deposit/" -body $fallbackCallbackBody
+        Write-Host "Deposit callback fallback simulated successfully: $($fallbackCallbackResponse | ConvertTo-Json)"
+    } catch {
+        Write-Host "Deposit callback fallback simulation failed: $($_.Exception.Message)"
+    }
+
+    # Test different phone number formats for fallback
+    $phoneFormats = @("254722714334", "0722714334", "722714334", "+254722714334")
+    foreach ($phoneFormat in $phoneFormats) {
+        Write-Host "Testing phone format: $phoneFormat"
+        $formatCallbackBody = @"
+{
+    "Body": {
+        "stkCallback": {
+            "ResultCode": 0,
+            "CallbackMetadata": {
+                "Item": [
+                    {"Name": "Amount", "Value": $unitDeposit},
+                    {"Name": "MpesaReceiptNumber", "Value": "FORMAT$fallbackPaymentId$phoneFormat"},
+                    {"Name": "PhoneNumber", "Value": "$phoneFormat"}
+                ]
+            }
+        }
+    }
+}
+"@
+        try {
+            $formatCallbackResponse = Invoke-PostJson -url "$baseUrl/api/payments/callback/deposit/" -body $formatCallbackBody
+            Write-Host "Phone format $phoneFormat callback simulated successfully: $($formatCallbackResponse | ConvertTo-Json)"
+        } catch {
+            Write-Host "Phone format $phoneFormat callback simulation failed: $($_.Exception.Message)"
+        }
+    }
+} else {
+    Write-Host "No additional pending deposit payment found for fallback test"
+}
+
 # 8.2. Simulate B2C callback for disbursement testing
 Write-Host "8.2. Simulating successful B2C disbursement callback..."
 $b2cCallbackBody = @"
