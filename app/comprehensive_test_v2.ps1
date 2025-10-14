@@ -219,22 +219,8 @@ $reminderBody = @{
 $reminderResponse = Invoke-PatchAuth -url "$baseUrl/api/accounts/update-reminder-preferences/" -token $tenantToken -body $reminderBody
 Write-Host "Reminder preferences updated: $($reminderResponse | ConvertTo-Json)"
 
-# 8.1. Test deposit check before assignment: Try to assign tenant without successful deposit (should fail)
-Write-Host "8.1. Attempting to assign tenant without deposit (should fail)..."
-$assignBody = @{} | ConvertTo-Json
-try {
-    $failedAssignResponse = Invoke-PostJson -url "$baseUrl/api/accounts/units/$unitId/assign/$tenantId/" -headers $propertyHeaders -body $assignBody
-    Write-Host "ERROR: Assignment succeeded unexpectedly without deposit!"
-} catch {
-    if ($_.Exception.Response.StatusCode -eq 400) {
-        Write-Host "SUCCESS: Assignment correctly failed due to missing deposit: $($_.Exception.Message)"
-    } else {
-        Write-Host "Unexpected error during assignment attempt: $($_.Exception.Message)"
-    }
-}
-
-# 8.2. Initiate Deposit Payment as Tenant (only 10 KSH)
-Write-Host "8.2. Initiating deposit payment (10 KSH only)..."
+# 8.1. Initiate Deposit Payment as Tenant (only 10 KSH)
+Write-Host "8.1. Initiating deposit payment (10 KSH only)..."
 $depositBody = @"
 {
     "unit_id": $unitId

@@ -10,7 +10,8 @@ from datetime import timedelta
 from django.conf import settings
 from django.http import JsonResponse
 from django.contrib.auth.decorators import login_required
-from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie
+import logging
 from django.utils import timezone
 from django.core.cache import cache
 from django.shortcuts import get_object_or_404
@@ -29,6 +30,7 @@ from accounts.permissions import IsLandlord, HasActiveSubscription
 # ------------------------------
 # STK PUSH INITIATION (Tenant Rent Payment) - UPDATED
 # ------------------------------
+@csrf_exempt
 @login_required
 @require_tenant_subscription
 def stk_push(request, unit_id):
@@ -37,15 +39,22 @@ def stk_push(request, unit_id):
     - Uses minimal amounts for testing
     - Better error handling
     """
+    logger = logging.getLogger(__name__)
     try:
         if request.method != 'POST':
             return JsonResponse({"error": "POST method required."}, status=405)
-        
-        # Get amount from POST data
-        amount_str = request.POST.get('amount')
+
+        # Parse JSON body
+        try:
+            body = json.loads(request.body.decode('utf-8'))
+        except json.JSONDecodeError:
+            return JsonResponse({"error": "Invalid JSON body."}, status=400)
+
+        # Get amount from JSON data
+        amount_str = body.get('amount')
         if not amount_str:
             return JsonResponse({"error": "Amount is required."}, status=400)
-        
+
         try:
             amount = Decimal(amount_str)
         except InvalidOperation:
