@@ -975,6 +975,67 @@ class InitiateDepositPaymentView(APIView):
         else:
             return Response(response_data)
 # ------------------------------
+# TRIGGER DEPOSIT CALLBACK (FOR TESTING)
+# ------------------------------
+class TriggerDepositCallbackView(APIView):
+    """
+    Manual endpoint to trigger deposit callback for testing.
+    Accepts payment_id as query parameter.
+    """
+    permission_classes = [IsAuthenticated]  # Allow authenticated users for testing
+
+    def post(self, request):
+        from django.http import HttpRequest
+        import json
+        import logging
+
+        logger = logging.getLogger(__name__)
+
+        payment_id = request.query_params.get('payment_id')
+        if not payment_id:
+            return Response({"error": "payment_id query parameter required"}, status=400)
+
+        try:
+            payment = Payment.objects.get(id=payment_id, payment_type='deposit')
+        except Payment.DoesNotExist:
+            return Response({"error": f"Deposit payment with id {payment_id} not found"}, status=404)
+
+        # Create mock callback data
+        mock_callback_data = {
+            "Body": {
+                "stkCallback": {
+                    "MerchantRequestID": "mock-request-id",
+                    "CheckoutRequestID": "mock-checkout-id",
+                    "ResultCode": 0,
+                    "ResultDesc": "The service request is processed successfully.",
+                    "CallbackMetadata": {
+                        "Item": [
+                            {"Name": "Amount", "Value": str(payment.amount)},
+                            {"Name": "MpesaReceiptNumber", "Value": f"TEST{payment_id}"},
+                            {"Name": "TransactionDate", "Value": "20231201120000"},
+                            {"Name": "PhoneNumber", "Value": payment.tenant.phone_number},
+                            {"Name": "AccountReference", "Value": str(payment.id)}
+                        ]
+                    }
+                }
+            }
+        }
+
+        # Simulate the callback by calling the actual callback function
+        mock_request = HttpRequest()
+        mock_request.method = 'POST'
+        mock_request._body = json.dumps(mock_callback_data).encode('utf-8')
+
+        logger.info(f"🔧 Manually triggering deposit callback for payment {payment_id}")
+        response = mpesa_deposit_callback(mock_request)
+
+        return Response({
+            "message": f"Deposit callback triggered for payment {payment_id}",
+            "mock_data": mock_callback_data,
+            "callback_response": response.content.decode('utf-8')
+        })
+
+# ------------------------------
 # B2C PAYMENT CALLBACK
 # ------------------------------
 @csrf_exempt

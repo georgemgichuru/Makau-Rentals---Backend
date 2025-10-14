@@ -16,75 +16,13 @@ from .views import (
     RentSummaryView,
     UnitTypeListView,
     InitiateDepositPaymentView,
+    TriggerDepositCallbackView,
 
     # CSV reports
     LandLordCSVView as landlord_csv,
     TenantCSVView as tenant_csv,
 )
 from django.views.decorators.csrf import csrf_exempt
-# ------------------------------
-# MANUAL CALLBACK TRIGGER FOR TESTING
-# ------------------------------
-@csrf_exempt
-def trigger_deposit_callback(request):
-    """
-    Manual endpoint to trigger deposit callback for testing.
-    Accepts payment_id as query parameter.
-    """
-    from django.http import JsonResponse
-    from .models import Payment
-    import json
-    import logging
-
-    logger = logging.getLogger(__name__)
-
-    if request.method != 'POST':
-        return JsonResponse({"error": "POST method required"}, status=405)
-
-    payment_id = request.GET.get('payment_id')
-    if not payment_id:
-        return JsonResponse({"error": "payment_id query parameter required"}, status=400)
-
-    try:
-        payment = Payment.objects.get(id=payment_id, payment_type='deposit')
-    except Payment.DoesNotExist:
-        return JsonResponse({"error": f"Deposit payment with id {payment_id} not found"}, status=404)
-
-    # Create mock callback data
-    mock_callback_data = {
-        "Body": {
-            "stkCallback": {
-                "MerchantRequestID": "mock-request-id",
-                "CheckoutRequestID": "mock-checkout-id",
-                "ResultCode": 0,
-                "ResultDesc": "The service request is processed successfully.",
-                "CallbackMetadata": {
-                    "Item": [
-                        {"Name": "Amount", "Value": str(payment.amount)},
-                        {"Name": "MpesaReceiptNumber", "Value": f"TEST{payment_id}"},
-                        {"Name": "TransactionDate", "Value": "20231201120000"},
-                        {"Name": "PhoneNumber", "Value": payment.tenant.phone_number},
-                        {"Name": "AccountReference", "Value": str(payment.id)}
-                    ]
-                }
-            }
-        }
-    }
-
-    # Simulate the callback by calling the actual callback function
-    from django.http import HttpRequest
-    mock_request = HttpRequest()
-    mock_request.method = 'POST'
-    mock_request._body = json.dumps(mock_callback_data).encode('utf-8')
-
-    logger.info(f"🔧 Manually triggering deposit callback for payment {payment_id}")
-    response = mpesa_deposit_callback(mock_request)
-
-    return JsonResponse({
-        "message": f"Deposit callback triggered for payment {payment_id}",
-        "mock_data": mock_callback_data,
-        "callback_response": response.content.decode('utf-8')
-    })
 
 urlpatterns = [
     # ------------------------------
@@ -100,7 +38,7 @@ urlpatterns = [
     # ------------------------------
     # MANUAL CALLBACK TRIGGER (FOR TESTING)
     # ------------------------------
-    path("trigger-deposit-callback/", trigger_deposit_callback, name="trigger-deposit-callback"),
+    path("trigger-deposit-callback/", TriggerDepositCallbackView.as_view(), name="trigger-deposit-callback"),
 
     # ------------------------------
     # RENT PAYMENTS (DRF)
