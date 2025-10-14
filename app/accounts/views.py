@@ -447,17 +447,33 @@ class AssignTenantToUnitView(APIView):
             unit = Unit.objects.get(id=unit_id, property_obj__landlord=request.user)
             tenant = CustomUser.objects.get(id=tenant_id, user_type="tenant")
 
-            # Check for any deposit payments (pending or successful)
-            existing_deposit = Payment.objects.filter(
+            # Check if unit is already assigned
+            if unit.tenant:
+                return Response({'error': 'Unit is already assigned to a tenant'}, status=400)
+
+            # Check for successful deposit payment
+            successful_deposit = Payment.objects.filter(
                 tenant=tenant,
                 unit=unit,
-                payment_type='deposit'
+                payment_type='deposit',
+                status='Success'
             ).exists()
-            if existing_deposit:
-                return Response({'error': 'Tenant has an existing deposit payment for this unit. Assignment will occur automatically upon successful payment.'}, status=400)
 
-            # If no deposit payment exists, require deposit first
-            return Response({'error': 'Tenant must initiate deposit payment for this unit first'}, status=400)
+            if not successful_deposit:
+                return Response({'error': 'Tenant must have a successful deposit payment for this unit before assignment'}, status=400)
+
+            # Assign tenant to unit
+            unit.tenant = tenant
+            unit.is_available = False
+            unit.save()
+
+            # Invalidate relevant caches
+            cache.delete(f"property:{unit.property_obj.id}:units")
+            cache.delete(f"landlord:{request.user.id}:properties")
+            cache.delete(f"tenant_has_unit:{tenant.id}")
+
+            return Response({'message': f'Tenant {tenant.full_name} assigned to unit {unit.unit_number} successfully'}, status=200)
+
         except Unit.DoesNotExist:
             return Response({"error": "Unit not found or you do not have permission"}, status=404)
         except CustomUser.DoesNotExist:

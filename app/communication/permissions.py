@@ -15,8 +15,8 @@ class IsTenantWithUnit(permissions.BasePermission):
         has_unit = cache.get(cache_key)
         
         if has_unit is None:
-            # Check if tenant has any units assigned
-            has_unit = request.user.unit_set.exists()
+            # Check if tenant has any units assigned (OneToOneField so use hasattr)
+            has_unit = hasattr(request.user, 'unit') and request.user.unit is not None
             cache.set(cache_key, has_unit, timeout=300)  # Cache for 5 minutes
         
         return has_unit
