@@ -1001,33 +1001,34 @@ def mpesa_deposit_callback(request):
                         ])
                     logger.info(f"📞 Phone variants to search: {phone_variants}")
                     try:
-                        payment = Payment.objects.get(
+                        # Get the most recent pending deposit payment matching the criteria
+                        payment = Payment.objects.filter(
                             tenant__phone_number__in=phone_variants,
                             status="Pending",
                             payment_type="deposit",
                             amount=amount
-                        )
-                        logger.info(f"✅ Found payment via fallback: {payment.id} for tenant {payment.tenant.email}")
-                        payment.status = "Success"
-                        payment.mpesa_receipt = receipt
-                        payment.save()
-                        logger.info(f"✅ Payment {payment.id} status updated to Success (fallback)")
+                        ).order_by('-transaction_date').first()
 
-                        # Invalidate relevant caches
-                        cache.delete_many([
-                            f"pending_deposit_payment:{payment.tenant.id}:{payment.unit.id}",
-                            f"payments:tenant:{payment.tenant.id}",
-                            f"payments:landlord:{payment.unit.property_obj.landlord.id}",
-                            f"rent_summary:{payment.unit.property_obj.landlord.id}",
-                            f"unit:{payment.unit.id}:details"
-                        ])
-                        logger.info(f"🗑️ Cache invalidated for payment {payment.id} (fallback)")
-                        logger.info(f"✅ Deposit payment successful (fallback): {receipt} for payment {payment.id}")
+                        if payment:
+                            logger.info(f"✅ Found payment via fallback: {payment.id} for tenant {payment.tenant.email}")
+                            payment.status = "Success"
+                            payment.mpesa_receipt = receipt
+                            payment.save()
+                            logger.info(f"✅ Payment {payment.id} status updated to Success (fallback)")
 
-                    except Payment.DoesNotExist:
-                        logger.error(f"❌ No matching pending deposit payment found for phone variants {phone_variants} and amount {amount}")
-                    except Payment.MultipleObjectsReturned:
-                        logger.error(f"❌ Multiple pending deposit payments found for phone variants {phone_variants} and amount {amount}")
+                            # Invalidate relevant caches
+                            cache.delete_many([
+                                f"pending_deposit_payment:{payment.tenant.id}:{payment.unit.id}",
+                                f"payments:tenant:{payment.tenant.id}",
+                                f"payments:landlord:{payment.unit.property_obj.landlord.id}",
+                                f"rent_summary:{payment.unit.property_obj.landlord.id}",
+                                f"unit:{payment.unit.id}:details"
+                            ])
+                            logger.info(f"🗑️ Cache invalidated for payment {payment.id} (fallback)")
+                            logger.info(f"✅ Deposit payment successful (fallback): {receipt} for payment {payment.id}")
+                        else:
+                            logger.error(f"❌ No matching pending deposit payment found for phone variants {phone_variants} and amount {amount}")
+
                     except Exception as e:
                         logger.error(f"❌ Error in fallback payment update: {e}")
                 else:
