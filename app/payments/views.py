@@ -795,14 +795,10 @@ class InitiateDepositPaymentView(APIView):
         if amount is None or amount <= 0:
             return Response({"error": "Deposit amount is not set or invalid."}, status=400)
         # Ensure amount is a whole number (M-Pesa requires integer amounts)
-        try:
-            amount_int = int(amount)
-            if amount != amount_int:
-                return Response({"error": "Deposit amount must be a whole number."}, status=400)
-        except (ValueError, TypeError):
-            return Response({"error": "Invalid deposit amount format."}, status=400)
+        if not amount.is_integer():
+            return Response({"error": "Deposit amount must be a whole number."}, status=400)
         # Convert to integer for M-Pesa
-        amount = amount_int
+        amount = int(amount)
         # Rate limiting: Check if user has made too many requests
         rate_limit_key = f"deposit_stk_push_rate_limit:{request.user.id}"
         recent_requests = cache.get(rate_limit_key, 0)
@@ -863,7 +859,14 @@ class InitiateDepositPaymentView(APIView):
         )
         response_data = response.json()
         if response_data.get("ResponseCode") == "0":
-            return Response({"message": "Deposit payment initiated. Please wait for confirmation via callback."})
+            # Wait up to 30 seconds for payment to complete
+            for _ in range(30):
+                time.sleep(1)
+                payment.refresh_from_db()
+                if payment.status == "Success":
+                    return JsonResponse({"message": "Deposit payment successful", "receipt": payment.mpesa_receipt})
+            # Timeout: return error but keep payment pending for potential callback
+            return JsonResponse({"error": "Deposit payment timed out. Please try again."})
         else:
             return Response(response_data)
 # ------------------------------
