@@ -929,14 +929,12 @@ class InitiateDepositPaymentView(APIView):
         )
         response_data = response.json()
         if response_data.get("ResponseCode") == "0":
-            # Wait up to 30 seconds for payment to complete
-            for _ in range(30):
-                time.sleep(1)
-                payment.refresh_from_db()
-                if payment.status == "Success":
-                    return JsonResponse({"message": "Deposit payment successful", "receipt": payment.mpesa_receipt})
-            # Timeout: return error but keep payment pending for potential callback
-            return JsonResponse({"error": "Deposit payment timed out. Please try again."})
+            # Return success immediately without waiting - callback will handle completion
+            return JsonResponse({
+                "message": "Deposit payment initiated successfully. Please check your phone to complete payment.",
+                "checkout_request_id": response_data.get("CheckoutRequestID"),
+                "payment_id": payment.id
+            })
         else:
             return Response(response_data)
 # ------------------------------
