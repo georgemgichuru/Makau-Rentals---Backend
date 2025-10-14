@@ -16,7 +16,7 @@ from django.utils import timezone
 from django.core.cache import cache
 from django.shortcuts import get_object_or_404
 from accounts.models import CustomUser, Subscription, Property, Unit, UnitType
-from accounts.permissions import require_tenant_subscription, require_subscription
+from accounts.permissions import require_subscription
 from accounts.serializers import UnitTypeSerializer
 from .models import Payment, SubscriptionPayment
 from .generate_token import generate_access_token, initiate_b2c_payment
@@ -31,8 +31,6 @@ from accounts.permissions import IsLandlord, HasActiveSubscription
 # STK PUSH INITIATION (Tenant Rent Payment) - UPDATED
 # ------------------------------
 @csrf_exempt
-@login_required
-@require_tenant_subscription
 def stk_push(request, unit_id):
     """
     Initiates an M-Pesa STK Push for a tenant's rent payment.

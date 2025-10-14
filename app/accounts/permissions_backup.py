@@ -52,28 +52,7 @@ def require_subscription(view_func):
     return wrapper
 
 # Decorator to check if tenant's landlord has an active subscription
-def require_tenant_subscription(view_func):
-    def wrapper(request, *args, **kwargs):
-        if not request.user.is_authenticated:
-            raise PermissionDenied("Authentication required.")
-        if request.user.user_type == 'tenant':
-            # Find tenant's unit and landlord
-            from .models import Unit
-            units = Unit.objects.filter(tenant=request.user)
-            if units.exists():
-                # FIXED: Use property_obj instead of property
-                landlord = units.first().property_obj.landlord
-                subscription = Subscription.objects.filter(user=landlord).first()
-                # FIXED: Call is_active() as a method
-                if subscription and subscription.is_active():
-                    return view_func(request, *args, **kwargs)
-                else:
-                    raise PermissionDenied("Your landlord's subscription is inactive. Please contact your landlord.")
-            else:
-                raise PermissionDenied("No unit assigned to you.")
-        else:
-            return view_func(request, *args, **kwargs)  # For non-tenants, allow
-    return wrapper
+
 
 # Permission to access reports: tenants can access their own, landlords can access reports on their properties
 class CanAccessReport(BasePermission):
