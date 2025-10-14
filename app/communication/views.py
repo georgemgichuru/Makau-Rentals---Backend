@@ -4,14 +4,15 @@ from rest_framework.response import Response
 from rest_framework import status
 from .models import Report
 from .serializers import ReportSerializer, UpdateReportStatusSerializer, SendEmailSerializer
-from accounts.permissions import CanAccessReport, IsTenant, IsLandlord, HasActiveSubscription
+from .permissions import IsTenantWithUnit, IsLandlordWithActiveSubscription
+from accounts.permissions import CanAccessReport
 from accounts.models import CustomUser, Unit
 from .messaging import send_landlord_email
 
 class CreateReportView(generics.CreateAPIView):
     queryset = Report.objects.all()
     serializer_class = ReportSerializer
-    permission_classes = [permissions.IsAuthenticated, HasActiveSubscription]
+    permission_classes = [permissions.IsAuthenticated, IsTenantWithUnit]
 
     def perform_create(self, serializer):
         report = serializer.save()
@@ -19,33 +20,22 @@ class CreateReportView(generics.CreateAPIView):
         from app.tasks import send_report_email_task
         send_report_email_task.delay(report.id)
 
-# In your communication/views.py, add this import and modify permission classes temporarily
-# TODO: Remove logging after debugging
-
-import logging
-logger = logging.getLogger(__name__)
-
 class OpenReportsView(generics.ListAPIView):
     serializer_class = ReportSerializer
-    permission_classes = [permissions.IsAuthenticated, HasActiveSubscription] # Temporarily remove HasActiveSubscription for debugging
+    permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
         user = self.request.user
-        logger.info(f"OpenReportsView - User: {user.email}, Type: {user.user_type}")
-        
+
         if user.user_type == 'tenant':
-            queryset = Report.objects.filter(tenant=user, status='open')
+            return Report.objects.filter(tenant=user, status='open')
         elif user.user_type == 'landlord':
-            queryset = Report.objects.filter(unit__property_obj__landlord=user, status='open')
-        else:
-            queryset = Report.objects.none()
-        
-        logger.info(f"OpenReportsView - Found {queryset.count()} reports")
-        return queryset
+            return Report.objects.filter(unit__property_obj__landlord=user, status='open')
+        return Report.objects.none()
 
 class UrgentReportsView(generics.ListAPIView):
     serializer_class = ReportSerializer
-    permission_classes = [permissions.IsAuthenticated, HasActiveSubscription]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
         user = self.request.user
@@ -57,7 +47,7 @@ class UrgentReportsView(generics.ListAPIView):
 
 class InProgressReportsView(generics.ListAPIView):
     serializer_class = ReportSerializer
-    permission_classes = [permissions.IsAuthenticated, HasActiveSubscription]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
         user = self.request.user
@@ -69,7 +59,7 @@ class InProgressReportsView(generics.ListAPIView):
 
 class ResolvedReportsView(generics.ListAPIView):
     serializer_class = ReportSerializer
-    permission_classes = [permissions.IsAuthenticated, HasActiveSubscription]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
         user = self.request.user
@@ -82,10 +72,10 @@ class ResolvedReportsView(generics.ListAPIView):
 class UpdateReportStatusView(generics.UpdateAPIView):
     queryset = Report.objects.all()
     serializer_class = UpdateReportStatusSerializer
-    permission_classes = [permissions.IsAuthenticated, CanAccessReport, HasActiveSubscription]
+    permission_classes = [permissions.IsAuthenticated, CanAccessReport]
 
 class SendEmailView(APIView):
-    permission_classes = [permissions.IsAuthenticated, IsLandlord, HasActiveSubscription]
+    permission_classes = [permissions.IsAuthenticated, IsLandlordWithActiveSubscription]
 
     def post(self, request):
         serializer = SendEmailSerializer(data=request.data, context={'request': request})

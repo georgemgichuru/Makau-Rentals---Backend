@@ -34,10 +34,18 @@ from accounts.permissions import IsLandlord, HasActiveSubscription
 def stk_push(request, unit_id):
     """
     Initiates an M-Pesa STK Push for a tenant's rent payment.
-    - Uses minimal amounts for testing
+    - Fixed authentication handling
     - Better error handling
     """
     logger = logging.getLogger(__name__)
+    
+    # Check authentication first
+    if not request.user.is_authenticated:
+        return JsonResponse({"error": "Authentication required"}, status=401)
+    
+    if request.user.user_type != 'tenant':
+        return JsonResponse({"error": "Only tenants can make rent payments"}, status=403)
+
     try:
         if request.method != 'POST':
             return JsonResponse({"error": "POST method required."}, status=405)
@@ -73,7 +81,7 @@ def stk_push(request, unit_id):
         except Unit.DoesNotExist:
             return JsonResponse({"error": "Unit not found or not assigned to you"}, status=404)
         except Exception as e:
-            print(f"Unexpected error in unit lookup: {str(e)}")
+            logger.error(f"Unit lookup error: {str(e)}")
             return JsonResponse({"error": "Payment service temporarily unavailable. Please try again later."}, status=503)
         
         # Validate amount - RELAXED FOR TESTING
@@ -124,7 +132,7 @@ def stk_push(request, unit_id):
                 try:
                     access_token = generate_access_token()
                 except Exception as e:
-                    print(f"Access token generation failed, retrying: {str(e)}")
+                    logger.error(f"Access token generation failed, retrying: {str(e)}")
                     # Retry once after a short delay
                     import time
                     time.sleep(1)
@@ -132,8 +140,8 @@ def stk_push(request, unit_id):
             # Cache access token for 55 minutes (MPESA tokens expire in 1 hour)
             cache.set(access_token_cache_key, access_token, timeout=3300)
         except Exception as e:
-            print(f"Access token generation failed after retry: {str(e)}")
-            return JsonResponse({"error": f"Payment service temporarily unavailable. Please try again later."}, status=503)
+            logger.error(f"Access token generation failed after retry: {str(e)}")
+            return JsonResponse({"error": "Payment service temporarily unavailable. Please try again later."}, status=503)
         
         timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
         password = base64.b64encode(
@@ -171,13 +179,13 @@ def stk_push(request, unit_id):
             response_data = response.json()
         except requests.exceptions.RequestException as e:
             # Don't fail the payment - mark it as pending for manual processing
-            print(f"M-Pesa API request failed: {str(e)}")
+            logger.error(f"M-Pesa API request failed: {str(e)}")
             return JsonResponse({
                 "message": "Payment initiation received. Please check your phone to complete payment.",
                 "payment_id": payment.id
             })
         except json.JSONDecodeError as e:
-            print(f"Invalid response from M-Pesa API: {str(e)}")
+            logger.error(f"Invalid response from M-Pesa API: {str(e)}")
             return JsonResponse({
                 "message": "Payment initiation received. Please check your phone to complete payment.",
                 "payment_id": payment.id
@@ -193,7 +201,7 @@ def stk_push(request, unit_id):
         else:
             # M-Pesa returned an error but we don't fail the payment
             error_msg = response_data.get("ResponseDescription", "Unknown error")
-            print(f"M-Pesa STK push error: {error_msg}")
+            logger.error(f"M-Pesa STK push error: {error_msg}")
             return JsonResponse({
                 "message": "Payment initiation received. Please check your phone to complete payment.",
                 "payment_id": payment.id,
@@ -201,7 +209,7 @@ def stk_push(request, unit_id):
             })
             
     except Exception as e:
-        print(f"Unexpected error in stk_push: {str(e)}")
+        logger.error(f"Unexpected error in stk_push: {str(e)}")
         return JsonResponse({"error": "Payment service temporarily unavailable. Please try again later."}, status=503)
 # ------------------------------
 # STK PUSH INITIATION (Landlord Subscription Payment) - UPDATED
