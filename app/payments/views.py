@@ -931,7 +931,7 @@ def mpesa_deposit_callback(request):
 
             receipt = metadata.get("MpesaReceiptNumber")
             payment_id = metadata.get("AccountReference")
-            phone = metadata.get("PhoneNumber")
+            phone = str(metadata.get("PhoneNumber")) if metadata.get("PhoneNumber") else None
 
             logger.info(f"💰 Deposit callback metadata: amount={amount}, receipt={receipt}, payment_id={payment_id}, phone={phone}")
 
