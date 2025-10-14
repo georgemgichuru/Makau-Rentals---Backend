@@ -1,25 +1,27 @@
 # TODO: Fix Deposit Payment Callback Registration
 
 ## Information Gathered
-- Deposit STK push initiation succeeds and creates a pending Payment record with payment_type='deposit'.
-- The callback (mpesa_deposit_callback) should update the Payment status to 'Success' upon receiving M-Pesa confirmation.
-- Tenant assignment to unit requires a successful deposit payment.
-- In the test script, deposit initiation fails with 500 (expected without M-Pesa setup), so no payment is created, leading to assignment failure.
-- In production, STK push succeeds, but the callback may not be reaching the server or processing correctly due to misconfigured callback URL or server issues.
+- Deposit STK push creates pending Payment records with payment_type='deposit'
+- Callback function exists with logging and float conversion
+- URL registered as "callback/deposit/" in urls.py
+- Settings.py has MPESA_DEPOSIT_CALLBACK_URL configured
+- Test script simulates callbacks but may need updates
 
 ## Plan
-1. **Verify Callback URL Configuration**: Ensure MPESA_DEPOSIT_CALLBACK_URL is correctly set in settings.py (defaults to MPESA_CALLBACK_URL).
-2. **Add Detailed Logging to Callback**: Enhance mpesa_deposit_callback with logging at entry, success, and failure points to debug callback reception and processing.
-3. **Fix Amount Conversion**: Convert amount to float in callback, similar to rent callback.
-4. **Test Callback Simulation**: Update the test script to properly simulate the deposit callback and verify payment status update.
-5. **Add Manual Callback Trigger**: Create a test endpoint to manually trigger callback for debugging.
+1. **Verify Callback URL Configuration**: Ensure MPESA_DEPOSIT_CALLBACK_URL is properly set in settings.py and matches the deployed URL
+2. **Enhance Callback Logging**: Add more detailed logging at entry, metadata parsing, and success/failure points
+3. **Fix Amount Handling**: Ensure amount is converted to Decimal for database consistency
+4. **Update Test Script**: Improve callback simulation to handle deposit payments correctly
+5. **Add Manual Callback Trigger**: Create a test endpoint for manual callback triggering
 
 ## Dependent Files to be Edited
-- `app/app/settings.py`: Verify MPESA_DEPOSIT_CALLBACK_URL.
-- `app/payments/views.py`: Add logging and fix amount conversion in mpesa_deposit_callback.
-- `app/comprehensive_test_v2.ps1`: Update callback simulation to handle deposit payments correctly.
+- `app/app/settings.py`: Verify callback URL configuration
+- `app/payments/views.py`: Enhance logging and fix amount handling in mpesa_deposit_callback
+- `app/comprehensive_test_v2.ps1`: Update callback simulation logic
+- `app/payments/urls.py`: Add manual callback trigger endpoint
 
 ## Followup Steps
-- Deploy changes and test deposit payment flow in production.
-- Monitor logs for callback reception.
-- If issues persist, check server logs and M-Pesa dashboard for callback delivery.
+- Deploy changes and test deposit payment flow
+- Monitor server logs for callback reception
+- Use manual trigger endpoint for debugging
+- Verify tenant assignment works after successful deposit callback

@@ -241,6 +241,49 @@ MPESA_DEPOSIT_CALLBACK_URL = config('MPESA_DEPOSIT_CALLBACK_URL', default=MPESA_
 # B2C callback URLs
 MPESA_B2C_RESULT_URL = config('MPESA_B2C_RESULT_URL', default=MPESA_CALLBACK_URL)
 MPESA_B2C_TIMEOUT_URL = config('MPESA_B2C_TIMEOUT_URL', default=MPESA_CALLBACK_URL)
+
+# Logging Configuration - Enhanced for payment callbacks
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{levelname} {asctime} {module} {process:d} {thread:d} {message}',
+            'style': '{',
+        },
+        'simple': {
+            'format': '{levelname} {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+        },
+        'file': {
+            'class': 'logging.FileHandler',
+            'filename': os.path.join(BASE_DIR, 'logs', 'payments.log'),
+            'formatter': 'verbose',
+        },
+    },
+    'root': {
+        'handlers': ['console', 'file'],
+        'level': 'INFO',
+    },
+    'loggers': {
+        'accounts.views': {
+            'handlers': ['console', 'file'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'payments.views': {
+            'handlers': ['console', 'file'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+    },
+}
 # Celery configuration
 CELERY_BROKER_URL = "redis://redis:6379/0"   # adjust if your docker-compose uses another host
 CELERY_RESULT_BACKEND = "redis://redis:6379/0"

@@ -908,20 +908,45 @@ def mpesa_deposit_callback(request):
         logger.info(f"📥 Deposit callback data: {json.dumps(data, indent=2)}")
         body = data.get("Body", {}).get("stkCallback", {})
         result_code = body.get("ResultCode")
+        logger.info(f"🔍 Deposit callback result code: {result_code}")
+
         if result_code == 0:  # ✅ Transaction successful
             metadata_items = body.get("CallbackMetadata", {}).get("Item", [])
+            logger.info(f"📋 Deposit callback metadata items: {len(metadata_items)}")
             metadata = {item["Name"]: item.get("Value") for item in metadata_items}
-            amount = float(metadata.get("Amount"))  # Convert to float
+            logger.info(f"🔧 Raw metadata: {metadata}")
+
+            # Convert amount to Decimal for consistency
+            amount_str = metadata.get("Amount")
+            if amount_str:
+                try:
+                    amount = Decimal(amount_str)
+                    logger.info(f"💰 Deposit callback amount: {amount} (Decimal)")
+                except (ValueError, TypeError) as e:
+                    logger.error(f"❌ Invalid amount format: {amount_str}, error: {e}")
+                    amount = None
+            else:
+                logger.error("❌ No amount in callback metadata")
+                amount = None
+
             receipt = metadata.get("MpesaReceiptNumber")
             payment_id = metadata.get("AccountReference")
-            logger.info(f"💰 Deposit callback metadata: amount={amount}, receipt={receipt}, payment_id={payment_id}")
+            phone = metadata.get("PhoneNumber")
+
+            logger.info(f"💰 Deposit callback metadata: amount={amount}, receipt={receipt}, payment_id={payment_id}, phone={phone}")
+
             if payment_id:
+                logger.info(f"🔍 Looking for payment with ID: {payment_id}")
                 try:
                     payment = Payment.objects.get(
                         id=payment_id, status="Pending", payment_type="deposit")
+                    logger.info(f"✅ Found pending deposit payment: {payment.id} for tenant {payment.tenant.email}")
+
                     payment.status = "Success"
                     payment.mpesa_receipt = receipt
                     payment.save()
+                    logger.info(f"✅ Payment {payment.id} status updated to Success")
+
                     # Invalidate relevant caches
                     cache.delete_many([
                         f"pending_deposit_payment:{payment.tenant.id}:{payment.unit.id}",
@@ -930,13 +955,17 @@ def mpesa_deposit_callback(request):
                         f"rent_summary:{payment.unit.property_obj.landlord.id}",
                         f"unit:{payment.unit.id}:details"
                     ])
+                    logger.info(f"🗑️ Cache invalidated for payment {payment.id}")
                     logger.info(f"✅ Deposit payment successful: {receipt} for payment {payment_id}")
                 except Payment.DoesNotExist:
                     logger.error(f"❌ Payment with id {payment_id} not found or already processed")
+                except Exception as e:
+                    logger.error(f"❌ Error updating payment {payment_id}: {e}")
             else:
-                # Fallback: Find pending deposit payment by phone number
-                phone = metadata.get("PhoneNumber")
-                if phone:
+                logger.warning("⚠️ No payment_id in callback, attempting fallback lookup")
+                # Fallback: Find pending deposit payment by phone number and amount
+                if phone and amount:
+                    logger.info(f"🔍 Fallback lookup for phone: {phone}, amount: {amount}")
                     # Normalize phone number variants
                     phone_variants = [phone]
                     if phone.startswith('+254'):
@@ -964,6 +993,7 @@ def mpesa_deposit_callback(request):
                             '254' + phone,  # 254722714334
                             '0' + phone,  # 0722714334
                         ])
+                    logger.info(f"📞 Phone variants to search: {phone_variants}")
                     try:
                         payment = Payment.objects.get(
                             tenant__phone_number__in=phone_variants,
@@ -971,9 +1001,12 @@ def mpesa_deposit_callback(request):
                             payment_type="deposit",
                             amount=amount
                         )
+                        logger.info(f"✅ Found payment via fallback: {payment.id} for tenant {payment.tenant.email}")
                         payment.status = "Success"
                         payment.mpesa_receipt = receipt
                         payment.save()
+                        logger.info(f"✅ Payment {payment.id} status updated to Success (fallback)")
+
                         # Invalidate relevant caches
                         cache.delete_many([
                             f"pending_deposit_payment:{payment.tenant.id}:{payment.unit.id}",
@@ -982,17 +1015,22 @@ def mpesa_deposit_callback(request):
                             f"rent_summary:{payment.unit.property_obj.landlord.id}",
                             f"unit:{payment.unit.id}:details"
                         ])
+                        logger.info(f"🗑️ Cache invalidated for payment {payment.id} (fallback)")
                         logger.info(f"✅ Deposit payment successful (fallback): {receipt} for payment {payment.id}")
                     except Payment.DoesNotExist:
-                        logger.error(f"❌ No matching pending deposit payment found for phone {phone} and amount {amount}")
+                        logger.error(f"❌ No matching pending deposit payment found for phone variants {phone_variants} and amount {amount}")
                     except Payment.MultipleObjectsReturned:
-                        logger.error(f"❌ Multiple pending deposit payments found for phone {phone} and amount {amount}")
+                        logger.error(f"❌ Multiple pending deposit payments found for phone variants {phone_variants} and amount {amount}")
+                    except Exception as e:
+                        logger.error(f"❌ Error in fallback payment update: {e}")
                 else:
-                    logger.error("❌ No payment_id or phone number in callback metadata")
+                    logger.error(f"❌ No payment_id, phone, or amount in callback metadata (phone: {phone}, amount: {amount})")
         else:
             # Transaction failed
             error_msg = body.get("ResultDesc", "Unknown error")
-            logger.error(f"❌ Deposit transaction failed: {error_msg}")
+            logger.error(f"❌ Deposit transaction failed: {error_msg} (ResultCode: {result_code})")
+    except json.JSONDecodeError as e:
+        logger.error(f"❌ Invalid JSON in deposit callback: {e}")
     except Exception as e:
         logger.error("❌ Error processing deposit callback:", exc_info=True)
     # Always respond with success to Safaricom

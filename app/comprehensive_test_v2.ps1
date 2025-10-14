@@ -510,6 +510,24 @@ try {
     Write-Host "Failed B2C callback simulation failed: $($_.Exception.Message)"
 }
 
+# 8.4. Test Manual Deposit Callback Trigger
+Write-Host "8.4. Testing manual deposit callback trigger..."
+# Get a pending deposit payment for testing
+$paymentsResponse = Invoke-GetAuth -url "$baseUrl/api/payments/rent-payments/" -token $tenantToken
+$manualTriggerPayment = $paymentsResponse.results | Where-Object { $_.payment_type -eq "deposit" -and $_.status -eq "Pending" } | Select-Object -First 1
+if ($manualTriggerPayment) {
+    $manualPaymentId = $manualTriggerPayment.id
+    Write-Host "Found pending deposit payment ID: $manualPaymentId for manual trigger test"
+    try {
+        $manualTriggerResponse = Invoke-PostJson -url "$baseUrl/api/payments/trigger-deposit-callback/?payment_id=$manualPaymentId" -body "{}"
+        Write-Host "Manual callback trigger successful: $($manualTriggerResponse | ConvertTo-Json)"
+    } catch {
+        Write-Host "Manual callback trigger failed: $($_.Exception.Message)"
+    }
+} else {
+    Write-Host "No pending deposit payment found for manual trigger test"
+}
+
 # 8.1. Test deposit check before assignment: Try to assign tenant without successful deposit (should fail)
 Write-Host "8.1. Attempting to assign tenant without deposit (should fail)..."
 $assignBody = @{} | ConvertTo-Json
