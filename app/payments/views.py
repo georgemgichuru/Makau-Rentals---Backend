@@ -368,82 +368,123 @@ def mpesa_rent_callback(request):
     - Initiates B2C disbursement to landlord
     - Invalidates relevant caches
     """
+    logger = logging.getLogger(__name__)
+    logger.info("🔄 Rent callback received")
+
     try:
-       data = json.loads(request.body.decode("utf-8"))
-       body = data.get("Body", {}).get("stkCallback", {})
-       result_code = body.get("ResultCode")
-       if result_code == 0:  # ✅ Transaction successful
-           metadata_items = body.get("CallbackMetadata", {}).get("Item", [])
-           metadata = {item["Name"]: item.get("Value") for item in metadata_items}
-           # Convert amount to float
-           amount = float(metadata.get("Amount"))
-           receipt = metadata.get("MpesaReceiptNumber")
-           payment_id = metadata.get("AccountReference")
-           if payment_id:
-               try:
-                   payment = Payment.objects.get(id=payment_id, status="Pending")
-                   payment.status = "Success"
-                   payment.mpesa_receipt = receipt
-                   payment.save()
-                   # Update unit balances - FIXED: Use Decimal amount
-                   unit = payment.unit
-                   unit.rent_paid += amount  # Now both are Decimal
-                   unit.rent_remaining = max(unit.rent - unit.rent_paid, Decimal('0'))
-                   unit.save()
-                   # Invalidate relevant caches
-                   cache.delete_many([
-                       f"pending_payment:{payment.tenant.id}:{unit.id}",
-                       f"payments:tenant:{payment.tenant.id}",
-                       f"payments:landlord:{payment.unit.property_obj.landlord.id}",
-                       f"rent_summary:{unit.property_obj.landlord.id}",
-                       f"unit:{unit.id}:details"
-                   ])
-                   print(f"✅ Rent payment successful: {receipt} for payment {payment_id}")
+        data = json.loads(request.body.decode("utf-8"))
+        logger.info(f"📥 Rent callback data: {json.dumps(data, indent=2)}")
 
-                   # Initiate B2C disbursement to landlord
-                   landlord = unit.property_obj.landlord
-                   recipient = landlord.mpesa_till_number or landlord.phone_number
-                   if recipient:
-                       try:
-                           b2c_response = initiate_b2c_payment(
-                               amount=amount,
-                               recipient=recipient,
-                               payment_id=payment_id,
-                               remarks=f"Rent payment disbursement for Unit {unit.unit_number}"
-                           )
-                           print(f"✅ B2C disbursement initiated for payment {payment_id}: {b2c_response}")
-                       except ValueError as e:
-                           print(f"❌ B2C disbursement failed for payment {payment_id}: {str(e)}")
-                   else:
-                       print(f"❌ No recipient (till number or phone) for landlord {landlord.id}")
+        body = data.get("Body", {}).get("stkCallback", {})
+        result_code = body.get("ResultCode")
+        logger.info(f"🔍 Rent callback result code: {result_code}")
 
-               except Payment.DoesNotExist:
-                   print(f"Payment with id {payment_id} not found or already processed")
-       else:
-           # ❌ Transaction failed - UPDATE PAYMENT STATUS TO FAILED
-           error_msg = body.get("ResultDesc", "Unknown error")
-           print(f"❌ Rent transaction failed: {error_msg}")
-           # Try to find and update the payment to Failed
-           try:
-               payment_id = body.get("AccountReference")
-               if payment_id:
-                   payment = Payment.objects.get(id=payment_id, status="Pending")
-                   payment.status = "Failed"
-                   payment.save()
-                   # Invalidate caches
-                   cache.delete_many([
-                       f"pending_payment:{payment.tenant.id}:{payment.unit.id}",
-                       f"payments:tenant:{payment.tenant.id}",
-                       f"payments:landlord:{payment.unit.property_obj.landlord.id}",
-                   ])
-                   print(f"✅ Rent payment {payment_id} marked as Failed")
-           except Payment.DoesNotExist:
-               print(f"Payment with id {payment_id} not found for failure update")
-           except Exception as e:
-               print(f"Error updating failed payment: {e}")
+        if result_code == 0:  # ✅ Transaction successful
+            metadata_items = body.get("CallbackMetadata", {}).get("Item", [])
+            logger.info(f"📋 Rent callback metadata items: {len(metadata_items)}")
+            metadata = {item["Name"]: item.get("Value") for item in metadata_items}
+            logger.info(f"🔧 Raw metadata: {metadata}")
+
+            # Convert amount to Decimal for consistency
+            amount_str = metadata.get("Amount")
+            amount = None
+            if amount_str:
+                try:
+                    amount = Decimal(amount_str)
+                    logger.info(f"💰 Rent callback amount: {amount} (Decimal)")
+                except (ValueError, TypeError) as e:
+                    logger.error(f"❌ Invalid amount format: {amount_str}, error: {e}")
+
+            receipt = metadata.get("MpesaReceiptNumber")
+            payment_id = metadata.get("AccountReference")
+            phone = str(metadata.get("PhoneNumber")) if metadata.get("PhoneNumber") else None
+
+            logger.info(f"💰 Rent callback metadata: amount={amount}, receipt={receipt}, payment_id={payment_id}, phone={phone}")
+
+            if payment_id:
+                logger.info(f"🔍 Looking for payment with ID: {payment_id}")
+                try:
+                    payment = Payment.objects.get(id=payment_id, status="Pending")
+                    logger.info(f"✅ Found pending rent payment: {payment.id} for tenant {payment.tenant.email}")
+
+                    payment.status = "Success"
+                    payment.mpesa_receipt = receipt
+                    payment.save()
+                    logger.info(f"✅ Payment {payment.id} status updated to Success")
+
+                    # Update unit balances - FIXED: Use Decimal amount
+                    unit = payment.unit
+                    unit.rent_paid += amount  # Now both are Decimal
+                    unit.rent_remaining = max(unit.rent - unit.rent_paid, Decimal('0'))
+                    unit.save()
+                    logger.info(f"✅ Unit {unit.unit_number} balances updated: paid={unit.rent_paid}, remaining={unit.rent_remaining}")
+
+                    # Invalidate relevant caches
+                    cache.delete_many([
+                        f"pending_payment:{payment.tenant.id}:{unit.id}",
+                        f"payments:tenant:{payment.tenant.id}",
+                        f"payments:landlord:{payment.unit.property_obj.landlord.id}",
+                        f"rent_summary:{unit.property_obj.landlord.id}",
+                        f"unit:{unit.id}:details"
+                    ])
+                    logger.info(f"🗑️ Cache invalidated for payment {payment.id}")
+                    logger.info(f"✅ Rent payment successful: {receipt} for payment {payment_id}")
+
+                    # Initiate B2C disbursement to landlord
+                    landlord = unit.property_obj.landlord
+                    recipient = landlord.mpesa_till_number or landlord.phone_number
+                    logger.info(f"🏦 Initiating B2C disbursement to landlord {landlord.email}, recipient: {recipient}")
+                    if recipient:
+                        try:
+                            b2c_response = initiate_b2c_payment(
+                                amount=amount,
+                                recipient=recipient,
+                                payment_id=payment_id,
+                                remarks=f"Rent payment disbursement for Unit {unit.unit_number}"
+                            )
+                            logger.info(f"✅ B2C disbursement initiated for payment {payment_id}: {b2c_response}")
+                        except ValueError as e:
+                            logger.error(f"❌ B2C disbursement failed for payment {payment_id}: {str(e)}")
+                    else:
+                        logger.error(f"❌ No recipient (till number or phone) for landlord {landlord.id}")
+
+                except Payment.DoesNotExist:
+                    logger.error(f"❌ Payment with id {payment_id} not found or already processed")
+                except Exception as e:
+                    logger.error(f"❌ Error updating payment {payment_id}: {e}")
+            else:
+                logger.warning("⚠️ No payment_id in rent callback, cannot process payment")
+        else:
+            # ❌ Transaction failed - UPDATE PAYMENT STATUS TO FAILED
+            error_msg = body.get("ResultDesc", "Unknown error")
+            logger.error(f"❌ Rent transaction failed: {error_msg} (ResultCode: {result_code})")
+            # Try to find and update the payment to Failed
+            try:
+                payment_id = body.get("AccountReference")
+                if payment_id:
+                    payment = Payment.objects.get(id=payment_id, status="Pending")
+                    payment.status = "Failed"
+                    payment.save()
+                    logger.info(f"✅ Rent payment {payment_id} marked as Failed")
+                    # Invalidate caches
+                    cache.delete_many([
+                        f"pending_payment:{payment.tenant.id}:{payment.unit.id}",
+                        f"payments:tenant:{payment.tenant.id}",
+                        f"payments:landlord:{payment.unit.property_obj.landlord.id}",
+                    ])
+                    logger.info(f"🗑️ Cache invalidated for failed payment {payment_id}")
+            except Payment.DoesNotExist:
+                logger.error(f"Payment with id {payment_id} not found for failure update")
+            except Exception as e:
+                logger.error(f"Error updating failed payment: {e}")
+
+    except json.JSONDecodeError as e:
+        logger.error(f"❌ Invalid JSON in rent callback: {e}")
     except Exception as e:
-       print("Error processing rent callback:", e)
-    # Always respond with success to Safaricom
+        logger.error("❌ Unexpected error processing rent callback:", exc_info=True)
+
+    # CRITICAL: Always respond with success to Safaricom to acknowledge callback receipt
+    logger.info("✅ Responding with success to M-Pesa rent callback")
     return JsonResponse({"ResultCode": 0, "ResultDesc": "Accepted"})
 # ------------------------------
 # SUBSCRIPTION PAYMENT CALLBACK

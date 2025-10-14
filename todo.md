@@ -1,16 +1,19 @@
-# Task: Modify AssignTenantToUnitView to Initiate Deposit Payment and Wait for Confirmation
+# TODO List
 
-## Completed Tasks
-- [x] Modified AssignTenantToUnitView in app/accounts/views.py
-  - Removed check for existing successful deposit payment
-  - Added STK push initiation for deposit payment
-  - Implemented polling logic to wait up to 30 seconds for payment confirmation
-  - Assign tenant only when payment status becomes 'Success'
-  - Return appropriate error messages for failed payments or timeouts
-  - Added rate limiting and duplicate payment prevention
-  - Invalidated relevant caches on success
+## STK Push Payment Callback and Tenant Assignment Fix
 
-## Followup Steps
-- [ ] Test the endpoint to ensure payment initiation and assignment work correctly
-- [ ] Verify callback handling updates payment status properly
-- [ ] Check error handling for various scenarios (payment failure, timeout, etc.)
+### Completed Tasks
+- [x] Remove polling logic from AssignTenantToUnitView in accounts/views.py
+- [x] Update view to return success immediately after payment initiation
+- [x] Ensure mpesa_deposit_callback handles tenant assignment upon successful payment
+
+### Pending Tasks
+- [x] Add more detailed logging to callback for debugging payment flow
+- [ ] Test the callback functionality to ensure it waits for actual payment completion
+- [ ] Verify callback URL configuration in settings
+- [ ] Test end-to-end payment flow with real M-Pesa simulation
+
+### Notes
+- Tenant assignment now handled solely by callback to avoid race conditions
+- View initiates payment and informs user that assignment occurs upon successful payment
+- Callback includes fallback logic for payment matching

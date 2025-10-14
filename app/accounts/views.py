@@ -543,33 +543,13 @@ class AssignTenantToUnitView(APIView):
             if response_data.get("ResponseCode") != "0":
                 return Response({"error": "Failed to initiate payment. Please try again."}, status=400)
 
-            # Wait for payment confirmation (up to 30 seconds)
-            import time
-            timeout = 30
-            start_time = time.time()
-            while time.time() - start_time < timeout:
-                payment.refresh_from_db()
-                if payment.status == "Success":
-                    # Assign tenant to unit
-                    unit.tenant = tenant
-                    unit.is_available = False
-                    unit.save()
-
-                    # Invalidate relevant caches
-                    cache.delete(f"property:{unit.property_obj.id}:units")
-                    cache.delete(f"landlord:{request.user.id}:properties")
-                    cache.delete(f"tenant_has_unit:{tenant.id}")
-                    cache.delete(duplicate_key)
-
-                    return Response({'message': f'Tenant {tenant.full_name} assigned to unit {unit.unit_number} successfully after deposit payment.'}, status=200)
-                elif payment.status == "Failed":
-                    cache.delete(duplicate_key)
-                    return Response({'error': 'Deposit payment failed. Please try again later.'}, status=400)
-                time.sleep(2)  # Check every 2 seconds
-
-            # Timeout
-            cache.delete(duplicate_key)
-            return Response({'error': 'Payment confirmation timeout. Please check your phone and try again.'}, status=408)
+            # Return success immediately - assignment will be handled by callback upon successful payment
+            return Response({
+                'message': f'Deposit payment initiated for tenant {tenant.full_name} on unit {unit.unit_number}. '
+                          f'Tenant will be assigned to the unit upon successful payment confirmation.',
+                'payment_id': payment.id,
+                'checkout_request_id': response_data.get("CheckoutRequestID")
+            }, status=200)
 
         except Unit.DoesNotExist:
             return Response({"error": "Unit not found or you do not have permission"}, status=404)
