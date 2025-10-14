@@ -116,12 +116,19 @@ def stk_push(request, unit_id):
      "TransactionDesc": f"Rent for Unit {unit.unit_number}"
     }
     headers = {"Authorization": f"Bearer {access_token}"}
-    response = requests.post(
-     "https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest",
-     json=payload,
-     headers=headers
-    )
-    response_data = response.json()
+    try:
+        response = requests.post(
+            "https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest",
+            json=payload,
+            headers=headers,
+            timeout=30
+        )
+        response.raise_for_status()  # Raise for bad status codes
+        response_data = response.json()
+    except requests.exceptions.RequestException as e:
+        return Response({"error": f"M-Pesa API request failed: {str(e)}"}, status=500)
+    except json.JSONDecodeError as e:
+        return Response({"error": f"Invalid response from M-Pesa API: {str(e)}"}, status=500)
     if response_data.get("ResponseCode") == "0":
         # Wait up to 30 seconds for payment to complete
         for _ in range(30):
@@ -779,6 +786,8 @@ class InitiateDepositPaymentView(APIView):
 
     def post(self, request):
         unit_id = request.data.get('unit_id')
+        if not unit_id:
+            return Response({'error': 'unit_id is required'}, status=400)
         try:
             unit = Unit.objects.get(id=unit_id, is_available=True)
         except Unit.DoesNotExist:
