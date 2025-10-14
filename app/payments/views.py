@@ -64,8 +64,6 @@ def stk_push(request, unit_id):
     # Validate amount
     if amount <= 0:
      return JsonResponse({"error": "Amount must be positive."}, status=400)
-    if amount > 500000:
-     return JsonResponse({"error": "Amount cannot exceed 500,000."}, status=400)
     if amount % unit.rent != 0:
      return JsonResponse({"error": "Amount must be a multiple of the monthly rent."}, status=400)
     max_amount = unit.rent * 12
@@ -902,10 +900,12 @@ def mpesa_deposit_callback(request):
     - Updates Payment status
     - Invalidates relevant caches
     """
-    print("🔄 Deposit callback received")
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info("🔄 Deposit callback received")
     try:
         data = json.loads(request.body.decode("utf-8"))
-        print(f"📥 Deposit callback data: {json.dumps(data, indent=2)}")
+        logger.info(f"📥 Deposit callback data: {json.dumps(data, indent=2)}")
         body = data.get("Body", {}).get("stkCallback", {})
         result_code = body.get("ResultCode")
         if result_code == 0:  # ✅ Transaction successful
@@ -914,7 +914,7 @@ def mpesa_deposit_callback(request):
             amount = float(metadata.get("Amount"))  # Convert to float
             receipt = metadata.get("MpesaReceiptNumber")
             payment_id = metadata.get("AccountReference")
-            print(f"💰 Deposit callback metadata: amount={amount}, receipt={receipt}, payment_id={payment_id}")
+            logger.info(f"💰 Deposit callback metadata: amount={amount}, receipt={receipt}, payment_id={payment_id}")
             if payment_id:
                 try:
                     payment = Payment.objects.get(
@@ -930,9 +930,9 @@ def mpesa_deposit_callback(request):
                         f"rent_summary:{payment.unit.property_obj.landlord.id}",
                         f"unit:{payment.unit.id}:details"
                     ])
-                    print(f"✅ Deposit payment successful: {receipt} for payment {payment_id}")
+                    logger.info(f"✅ Deposit payment successful: {receipt} for payment {payment_id}")
                 except Payment.DoesNotExist:
-                    print(f"❌ Payment with id {payment_id} not found or already processed")
+                    logger.error(f"❌ Payment with id {payment_id} not found or already processed")
             else:
                 # Fallback: Find pending deposit payment by phone number
                 phone = metadata.get("PhoneNumber")
@@ -982,18 +982,18 @@ def mpesa_deposit_callback(request):
                             f"rent_summary:{payment.unit.property_obj.landlord.id}",
                             f"unit:{payment.unit.id}:details"
                         ])
-                        print(f"✅ Deposit payment successful (fallback): {receipt} for payment {payment.id}")
+                        logger.info(f"✅ Deposit payment successful (fallback): {receipt} for payment {payment.id}")
                     except Payment.DoesNotExist:
-                        print(f"❌ No matching pending deposit payment found for phone {phone} and amount {amount}")
+                        logger.error(f"❌ No matching pending deposit payment found for phone {phone} and amount {amount}")
                     except Payment.MultipleObjectsReturned:
-                        print(f"❌ Multiple pending deposit payments found for phone {phone} and amount {amount}")
+                        logger.error(f"❌ Multiple pending deposit payments found for phone {phone} and amount {amount}")
                 else:
-                    print("❌ No payment_id or phone number in callback metadata")
+                    logger.error("❌ No payment_id or phone number in callback metadata")
         else:
             # Transaction failed
             error_msg = body.get("ResultDesc", "Unknown error")
-            print(f"❌ Deposit transaction failed: {error_msg}")
+            logger.error(f"❌ Deposit transaction failed: {error_msg}")
     except Exception as e:
-        print("❌ Error processing deposit callback:", e)
+        logger.error("❌ Error processing deposit callback:", exc_info=True)
     # Always respond with success to Safaricom
     return JsonResponse({"ResultCode": 0, "ResultDesc": "Accepted"})

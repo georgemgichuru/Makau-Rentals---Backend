@@ -380,6 +380,14 @@ if ($depositPayment) {
     try {
         $callbackResponse = Invoke-PostJson -url "$baseUrl/api/payments/callback/deposit/" -body $callbackBody
         Write-Host "Deposit callback simulated successfully: $($callbackResponse | ConvertTo-Json)"
+        # Verify payment status update
+        $updatedPaymentsResponse = Invoke-GetAuth -url "$baseUrl/api/payments/rent-payments/" -token $tenantToken
+        $updatedDepositPayment = $updatedPaymentsResponse.results | Where-Object { $_.id -eq $paymentId } | Select-Object -First 1
+        if ($updatedDepositPayment.status -eq "Success") {
+            Write-Host "SUCCESS: Deposit payment status updated to Success"
+        } else {
+            Write-Host "ERROR: Deposit payment status not updated to Success"
+        }
     } catch {
         Write-Host "Deposit callback simulation failed: $($_.Exception.Message)"
     }
