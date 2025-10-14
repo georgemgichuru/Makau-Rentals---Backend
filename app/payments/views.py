@@ -9,14 +9,13 @@ from django.http import HttpResponse
 from datetime import timedelta
 from django.conf import settings
 from django.http import JsonResponse
-from django.contrib.auth.decorators import login_required
-from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie
+from django.views.decorators.csrf import csrf_exempt
 import logging
 from django.utils import timezone
 from django.core.cache import cache
 from django.shortcuts import get_object_or_404
 from accounts.models import CustomUser, Subscription, Property, Unit, UnitType
-from accounts.permissions import require_subscription
+# Removed require_subscription import as it's no longer used
 from accounts.serializers import UnitTypeSerializer
 from .models import Payment, SubscriptionPayment
 from .generate_token import generate_access_token, initiate_b2c_payment

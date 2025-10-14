@@ -15,7 +15,7 @@ from rest_framework.permissions import IsAuthenticated
 from django.core.cache import cache
 from .models import Property, Unit, CustomUser, Subscription, UnitType
 from payments.models import Payment
-from .permissions import IsLandlord, IsTenant, require_subscription, IsSuperuser, HasActiveSubscription
+from .permissions import IsLandlord, IsTenant, IsSuperuser, HasActiveSubscription
 import logging
 
 logger = logging.getLogger(__name__)
