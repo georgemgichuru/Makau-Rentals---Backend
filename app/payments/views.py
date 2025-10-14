@@ -1057,13 +1057,24 @@ def mpesa_deposit_callback(request):
                     payment.save()
                     logger.info(f"✅ Payment {payment.id} status updated to Success")
 
+                    # Auto-assign tenant to unit upon successful deposit payment
+                    unit = payment.unit
+                    if unit.is_available and not unit.tenant:
+                        unit.tenant = payment.tenant
+                        unit.is_available = False
+                        unit.save()
+                        logger.info(f"✅ Tenant {payment.tenant.email} auto-assigned to unit {unit.unit_number} after successful deposit")
+                    else:
+                        logger.warning(f"⚠️ Unit {unit.unit_number} not available or already assigned, skipping auto-assignment")
+
                     # Invalidate relevant caches
                     cache.delete_many([
                         f"pending_deposit_payment:{payment.tenant.id}:{payment.unit.id}",
                         f"payments:tenant:{payment.tenant.id}",
                         f"payments:landlord:{payment.unit.property_obj.landlord.id}",
                         f"rent_summary:{payment.unit.property_obj.landlord.id}",
-                        f"unit:{payment.unit.id}:details"
+                        f"unit:{payment.unit.id}:details",
+                        f"property:{unit.property_obj.id}:units"  # Invalidate unit list cache
                     ])
                     logger.info(f"🗑️ Cache invalidated for payment {payment.id}")
                     logger.info(f"✅ Deposit payment successful: {receipt} for payment {payment_id}")

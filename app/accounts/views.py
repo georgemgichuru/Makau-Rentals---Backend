@@ -447,33 +447,17 @@ class AssignTenantToUnitView(APIView):
             unit = Unit.objects.get(id=unit_id, property_obj__landlord=request.user)
             tenant = CustomUser.objects.get(id=tenant_id, user_type="tenant")
 
-            # Check for pending deposit payments
-            pending_deposit = Payment.objects.filter(
+            # Check for any deposit payments (pending or successful)
+            existing_deposit = Payment.objects.filter(
                 tenant=tenant,
                 unit=unit,
-                payment_type='deposit',
-                status='Pending'
+                payment_type='deposit'
             ).exists()
-            if pending_deposit:
-                return Response({'error': 'Tenant has a pending deposit payment for this unit. Please wait for it to complete.'}, status=400)
+            if existing_deposit:
+                return Response({'error': 'Tenant has an existing deposit payment for this unit. Assignment will occur automatically upon successful payment.'}, status=400)
 
-            deposit_payment = Payment.objects.filter(
-                tenant=tenant,
-                unit=unit,
-                payment_type='deposit',
-                status='Success',
-                amount__gte=unit.deposit
-            ).exists()
-            if not deposit_payment:
-                return Response({'error': 'Tenant must have paid the deposit for this unit'}, status=400)
-            if not unit.is_available:
-                return Response({'error': 'Unit is not available'}, status=400)
-            unit.tenant = tenant
-            unit.is_available = False
-            unit.save()
-            # Invalidate property units cache
-            cache.delete(f"property:{unit.property_obj.id}:units")
-            return Response({"message": "Tenant assigned to unit successfully"})
+            # If no deposit payment exists, require deposit first
+            return Response({'error': 'Tenant must initiate deposit payment for this unit first'}, status=400)
         except Unit.DoesNotExist:
             return Response({"error": "Unit not found or you do not have permission"}, status=404)
         except CustomUser.DoesNotExist:
