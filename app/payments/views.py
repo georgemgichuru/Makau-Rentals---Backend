@@ -1116,9 +1116,27 @@ def mpesa_deposit_callback(request):
                 else:
                     logger.error(f"❌ No payment_id, phone, or amount in callback metadata (phone: {phone}, amount: {amount})")
         else:
-            # Transaction failed
+            # Transaction failed - UPDATE PAYMENT STATUS TO FAILED
             error_msg = body.get("ResultDesc", "Unknown error")
             logger.error(f"❌ Deposit transaction failed: {error_msg} (ResultCode: {result_code})")
+            # Try to find and update the payment to Failed
+            try:
+                payment_id = body.get("AccountReference")
+                if payment_id:
+                    payment = Payment.objects.get(id=payment_id, status="Pending", payment_type="deposit")
+                    payment.status = "Failed"
+                    payment.save()
+                    # Invalidate caches
+                    cache.delete_many([
+                        f"pending_deposit_payment:{payment.tenant.id}:{payment.unit.id}",
+                        f"payments:tenant:{payment.tenant.id}",
+                        f"payments:landlord:{payment.unit.property_obj.landlord.id}",
+                    ])
+                    logger.info(f"✅ Deposit payment {payment_id} marked as Failed")
+            except Payment.DoesNotExist:
+                logger.error(f"Payment with id {payment_id} not found for failure update")
+            except Exception as e:
+                logger.error(f"Error updating failed deposit payment: {e}")
 
     except json.JSONDecodeError as e:
         logger.error(f"❌ Invalid JSON in deposit callback: {e}")
