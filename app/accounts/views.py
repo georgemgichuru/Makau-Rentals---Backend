@@ -446,6 +446,17 @@ class AssignTenantToUnitView(APIView):
         try:
             unit = Unit.objects.get(id=unit_id, property_obj__landlord=request.user)
             tenant = CustomUser.objects.get(id=tenant_id, user_type="tenant")
+
+            # Check for pending deposit payments
+            pending_deposit = Payment.objects.filter(
+                tenant=tenant,
+                unit=unit,
+                payment_type='deposit',
+                status='Pending'
+            ).exists()
+            if pending_deposit:
+                return Response({'error': 'Tenant has a pending deposit payment for this unit. Please wait for it to complete.'}, status=400)
+
             deposit_payment = Payment.objects.filter(
                 tenant=tenant,
                 unit=unit,

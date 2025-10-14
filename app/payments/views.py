@@ -102,22 +102,35 @@ def stk_push(request, unit_id):
         # Mark payment as pending in Redis (5-minute expiry)
         cache.set(duplicate_key, payment.id, timeout=300)
         
+        # Check if tenant has paid deposit for this unit
+        deposit_paid = Payment.objects.filter(
+            tenant=request.user,
+            unit=unit,
+            payment_type='deposit',
+            status='Success',
+            amount__gte=unit.deposit
+        ).exists()
+        if not deposit_paid:
+            return JsonResponse({"error": "You must pay the deposit for this unit before making rent payments."}, status=400)
+
         try:
-            # Generate access token (with Redis caching)
+            # Generate access token (with Redis caching and retry)
             access_token_cache_key = "mpesa_access_token"
             access_token = cache.get(access_token_cache_key)
             if not access_token:
-                access_token = generate_access_token()
+                try:
+                    access_token = generate_access_token()
+                except Exception as e:
+                    print(f"Access token generation failed, retrying: {str(e)}")
+                    # Retry once after a short delay
+                    import time
+                    time.sleep(1)
+                    access_token = generate_access_token()
             # Cache access token for 55 minutes (MPESA tokens expire in 1 hour)
             cache.set(access_token_cache_key, access_token, timeout=3300)
-        except ValueError as e:
-            # Don't fail hard - log and continue
-            print(f"Access token generation warning: {str(e)}")
-            # Try to generate without caching
-            try:
-                access_token = generate_access_token()
-            except Exception as token_error:
-                return JsonResponse({"error": f"Payment service temporarily unavailable. Please try again later."}, status=503)
+        except Exception as e:
+            print(f"Access token generation failed after retry: {str(e)}")
+            return JsonResponse({"error": f"Payment service temporarily unavailable. Please try again later."}, status=503)
         
         timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
         password = base64.b64encode(
