@@ -902,13 +902,17 @@ def mpesa_deposit_callback(request):
     Handles M-Pesa callback for deposit payments.
     - Updates Payment status
     - Invalidates relevant caches
+    - ALWAYS returns success to acknowledge callback receipt
     """
     import logging
     logger = logging.getLogger(__name__)
     logger.info("🔄 Deposit callback received")
+
     try:
+        # Parse request data
         data = json.loads(request.body.decode("utf-8"))
         logger.info(f"📥 Deposit callback data: {json.dumps(data, indent=2)}")
+
         body = data.get("Body", {}).get("stkCallback", {})
         result_code = body.get("ResultCode")
         logger.info(f"🔍 Deposit callback result code: {result_code}")
@@ -921,16 +925,13 @@ def mpesa_deposit_callback(request):
 
             # Convert amount to Decimal for consistency
             amount_str = metadata.get("Amount")
+            amount = None
             if amount_str:
                 try:
                     amount = Decimal(amount_str)
                     logger.info(f"💰 Deposit callback amount: {amount} (Decimal)")
                 except (ValueError, TypeError) as e:
                     logger.error(f"❌ Invalid amount format: {amount_str}, error: {e}")
-                    amount = None
-            else:
-                logger.error("❌ No amount in callback metadata")
-                amount = None
 
             receipt = metadata.get("MpesaReceiptNumber")
             payment_id = metadata.get("AccountReference")
@@ -938,6 +939,7 @@ def mpesa_deposit_callback(request):
 
             logger.info(f"💰 Deposit callback metadata: amount={amount}, receipt={receipt}, payment_id={payment_id}, phone={phone}")
 
+            # Process payment update
             if payment_id:
                 logger.info(f"🔍 Looking for payment with ID: {payment_id}")
                 try:
@@ -960,6 +962,7 @@ def mpesa_deposit_callback(request):
                     ])
                     logger.info(f"🗑️ Cache invalidated for payment {payment.id}")
                     logger.info(f"✅ Deposit payment successful: {receipt} for payment {payment_id}")
+
                 except Payment.DoesNotExist:
                     logger.error(f"❌ Payment with id {payment_id} not found or already processed")
                 except Exception as e:
@@ -1020,6 +1023,7 @@ def mpesa_deposit_callback(request):
                         ])
                         logger.info(f"🗑️ Cache invalidated for payment {payment.id} (fallback)")
                         logger.info(f"✅ Deposit payment successful (fallback): {receipt} for payment {payment.id}")
+
                     except Payment.DoesNotExist:
                         logger.error(f"❌ No matching pending deposit payment found for phone variants {phone_variants} and amount {amount}")
                     except Payment.MultipleObjectsReturned:
@@ -1032,9 +1036,12 @@ def mpesa_deposit_callback(request):
             # Transaction failed
             error_msg = body.get("ResultDesc", "Unknown error")
             logger.error(f"❌ Deposit transaction failed: {error_msg} (ResultCode: {result_code})")
+
     except json.JSONDecodeError as e:
         logger.error(f"❌ Invalid JSON in deposit callback: {e}")
     except Exception as e:
-        logger.error("❌ Error processing deposit callback:", exc_info=True)
-    # Always respond with success to Safaricom
+        logger.error("❌ Unexpected error processing deposit callback:", exc_info=True)
+
+    # CRITICAL: Always respond with success to Safaricom to acknowledge callback receipt
+    logger.info("✅ Responding with success to M-Pesa callback")
     return JsonResponse({"ResultCode": 0, "ResultDesc": "Accepted"})
