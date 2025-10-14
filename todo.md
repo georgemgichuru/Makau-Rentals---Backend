@@ -1,13 +1,12 @@
-# Deposit Payment Callback Fix - TODO
+# TODO: Fix Rent Payment Initiation and Assignment Issues
 
-## Completed ✅
-- [x] Wrapped callback processing in try-except to ensure always returns success
-- [x] Added detailed logging for debugging
-- [x] Updated docstring to clarify always returns success
+## Issues to Fix
+1. Rent payment initiation fails with 503 error due to access token generation issues.
+2. Assignment of tenant to unit occurs even when payment is canceled, as failed payments aren't properly handled in callbacks.
 
-## Remaining Tasks
-- [x] Fixed fallback logic to handle multiple pending deposit payments by selecting the most recent one
-- [ ] Test deposit callback manually using trigger endpoint
-- [ ] Run comprehensive test to verify deposit payment succeeds
-- [ ] Monitor logs for callback processing
-- [ ] Verify payment status updates correctly in database
+## Steps
+- [ ] Update mpesa_rent_callback to handle failed payments (set status to "Failed" if ResultCode != 0)
+- [ ] Update mpesa_deposit_callback to handle failed payments (set status to "Failed" if ResultCode != 0)
+- [ ] Improve error handling in stk_push (rent payment) to retry access token generation once before failing
+- [ ] Modify AssignTenantToUnitView to check for no pending payments before assigning tenant to unit
+- [ ] Test the fixes using the comprehensive test script

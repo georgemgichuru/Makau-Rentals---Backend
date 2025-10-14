@@ -396,14 +396,28 @@ def mpesa_rent_callback(request):
 
                except Payment.DoesNotExist:
                    print(f"Payment with id {payment_id} not found or already processed")
-           else:
-               # ❌ Transaction failed
-               error_msg = body.get("ResultDesc", "Unknown error")
-               print(f"❌ Rent transaction failed: {error_msg}")
        else:
-           # ❌ Transaction failed
+           # ❌ Transaction failed - UPDATE PAYMENT STATUS TO FAILED
            error_msg = body.get("ResultDesc", "Unknown error")
            print(f"❌ Rent transaction failed: {error_msg}")
+           # Try to find and update the payment to Failed
+           try:
+               payment_id = body.get("AccountReference")
+               if payment_id:
+                   payment = Payment.objects.get(id=payment_id, status="Pending")
+                   payment.status = "Failed"
+                   payment.save()
+                   # Invalidate caches
+                   cache.delete_many([
+                       f"pending_payment:{payment.tenant.id}:{payment.unit.id}",
+                       f"payments:tenant:{payment.tenant.id}",
+                       f"payments:landlord:{payment.unit.property_obj.landlord.id}",
+                   ])
+                   print(f"✅ Rent payment {payment_id} marked as Failed")
+           except Payment.DoesNotExist:
+               print(f"Payment with id {payment_id} not found for failure update")
+           except Exception as e:
+               print(f"Error updating failed payment: {e}")
     except Exception as e:
        print("Error processing rent callback:", e)
     # Always respond with success to Safaricom
