@@ -36,3 +36,13 @@ class HasActiveSubscription(permissions.BasePermission):
 
 # Remove the problematic IsTenantWithActivePayment permission if it exists
 # as it causes circular imports with Payment model
+
+class CanAccessReport(permissions.BasePermission):
+    def has_object_permission(self, request, view, obj):
+        if not request.user.is_authenticated:
+            return False
+        if request.user.user_type == 'tenant':
+            return obj.tenant == request.user
+        elif request.user.user_type == 'landlord':
+            return obj.unit.property_obj.landlord == request.user
+        return False
