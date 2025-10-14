@@ -451,28 +451,125 @@ class AssignTenantToUnitView(APIView):
             if unit.tenant:
                 return Response({'error': 'Unit is already assigned to a tenant'}, status=400)
 
-            # Check for successful deposit payment
-            successful_deposit = Payment.objects.filter(
+            # Initiate deposit payment STK push
+            amount = unit.deposit
+            if amount is None or amount <= 0:
+                return Response({"error": "Deposit amount is not set or invalid."}, status=400)
+
+            # Ensure amount is a whole number (M-Pesa requires integer amounts)
+            if not (amount % 1 == 0):
+                return Response({"error": "Deposit amount must be a whole number."}, status=400)
+
+            # Convert to integer for M-Pesa
+            amount = int(amount)
+
+            # Rate limiting: Check if user has made too many requests
+            rate_limit_key = f"assign_stk_push_rate_limit:{request.user.id}"
+            recent_requests = cache.get(rate_limit_key, 0)
+            if recent_requests >= 5:  # Max 5 requests per minute
+                return Response({"error": "Too many requests. Please try again later."}, status=429)
+
+            # Update rate limit counter
+            cache.set(rate_limit_key, recent_requests + 1, timeout=60)
+
+            # Check for duplicate pending payment
+            duplicate_key = f"pending_assign_deposit_payment:{tenant.id}:{unit_id}"
+            if cache.get(duplicate_key):
+                return Response({"error": "A deposit payment request is already pending for this tenant and unit."}, status=400)
+
+            # Create a pending payment record
+            payment = Payment.objects.create(
                 tenant=tenant,
                 unit=unit,
                 payment_type='deposit',
-                status='Success'
-            ).exists()
+                amount=amount,
+                status="Pending"
+            )
 
-            if not successful_deposit:
-                return Response({'error': 'Tenant must have a successful deposit payment for this unit before assignment'}, status=400)
+            # Mark payment as pending in Redis (5-minute expiry)
+            cache.set(duplicate_key, payment.id, timeout=300)
 
-            # Assign tenant to unit
-            unit.tenant = tenant
-            unit.is_available = False
-            unit.save()
+            # Generate access token
+            from payments.generate_token import generate_access_token
+            import requests
+            import base64
+            import datetime
+            from django.conf import settings
 
-            # Invalidate relevant caches
-            cache.delete(f"property:{unit.property_obj.id}:units")
-            cache.delete(f"landlord:{request.user.id}:properties")
-            cache.delete(f"tenant_has_unit:{tenant.id}")
+            try:
+                access_token_cache_key = "mpesa_access_token"
+                access_token = cache.get(access_token_cache_key)
+                if not access_token:
+                    access_token = generate_access_token()
+                cache.set(access_token_cache_key, access_token, timeout=3300)
+            except Exception as e:
+                return Response({"error": f"Payment initiation failed: {str(e)}"}, status=400)
 
-            return Response({'message': f'Tenant {tenant.full_name} assigned to unit {unit.unit_number} successfully'}, status=200)
+            timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+            password = base64.b64encode(
+                (settings.MPESA_SHORTCODE + settings.MPESA_PASSKEY + timestamp).encode("utf-8")
+            ).decode("utf-8")
+
+            business_shortcode = settings.MPESA_SHORTCODE
+
+            payload = {
+                "BusinessShortCode": business_shortcode,
+                "Password": password,
+                "Timestamp": timestamp,
+                "TransactionType": "CustomerPayBillOnline",
+                "Amount": str(amount),
+                "PartyA": tenant.phone_number,
+                "PartyB": business_shortcode,
+                "PhoneNumber": tenant.phone_number,
+                "CallBackURL": settings.MPESA_DEPOSIT_CALLBACK_URL,
+                "AccountReference": str(payment.id),
+                "TransactionDesc": f"Deposit for Unit {unit.unit_number}"
+            }
+
+            headers = {"Authorization": f"Bearer {access_token}"}
+
+            try:
+                response = requests.post(
+                    "https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest",
+                    json=payload,
+                    headers=headers,
+                    timeout=30
+                )
+                response.raise_for_status()
+                response_data = response.json()
+            except requests.exceptions.RequestException as e:
+                return Response({"error": f"Payment initiation failed: {str(e)}"}, status=400)
+
+            if response_data.get("ResponseCode") != "0":
+                return Response({"error": "Failed to initiate payment. Please try again."}, status=400)
+
+            # Wait for payment confirmation (up to 30 seconds)
+            import time
+            timeout = 30
+            start_time = time.time()
+            while time.time() - start_time < timeout:
+                payment.refresh_from_db()
+                if payment.status == "Success":
+                    # Assign tenant to unit
+                    unit.tenant = tenant
+                    unit.is_available = False
+                    unit.save()
+
+                    # Invalidate relevant caches
+                    cache.delete(f"property:{unit.property_obj.id}:units")
+                    cache.delete(f"landlord:{request.user.id}:properties")
+                    cache.delete(f"tenant_has_unit:{tenant.id}")
+                    cache.delete(duplicate_key)
+
+                    return Response({'message': f'Tenant {tenant.full_name} assigned to unit {unit.unit_number} successfully after deposit payment.'}, status=200)
+                elif payment.status == "Failed":
+                    cache.delete(duplicate_key)
+                    return Response({'error': 'Deposit payment failed. Please try again later.'}, status=400)
+                time.sleep(2)  # Check every 2 seconds
+
+            # Timeout
+            cache.delete(duplicate_key)
+            return Response({'error': 'Payment confirmation timeout. Please check your phone and try again.'}, status=408)
 
         except Unit.DoesNotExist:
             return Response({"error": "Unit not found or you do not have permission"}, status=404)

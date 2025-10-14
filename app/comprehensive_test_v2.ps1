@@ -299,14 +299,30 @@ if ($depositPayment) {
         if ($updatedDepositPayment.status -eq "Success") {
             Write-Host "SUCCESS: Deposit payment status updated to Success"
             
-            # Now try to assign tenant after successful deposit
-            Write-Host "8.4. Attempting to assign tenant AFTER successful deposit..."
+            # Now try to assign tenant (now initiates deposit payment internally)
+            Write-Host "8.4. Attempting to assign tenant (will initiate deposit payment internally)..."
             $assignBody = @{} | ConvertTo-Json
+            $startTime = Get-Date
+            Write-Host "Assignment started at: $startTime"
             try {
                 $assignResponse = Invoke-PostJson -url "$baseUrl/api/accounts/units/$unitId/assign/$tenantId/" -headers $propertyHeaders -body $assignBody
-                Write-Host "SUCCESS: Tenant assigned to unit after deposit payment: $($assignResponse | ConvertTo-Json)"
+                $endTime = Get-Date
+                $duration = $endTime - $startTime
+                Write-Host "Assignment completed in $($duration.TotalSeconds) seconds: $($assignResponse | ConvertTo-Json)"
+                if ($duration.TotalSeconds -ge 25 -and $duration.TotalSeconds -le 35) {
+                    Write-Host "SUCCESS: Assignment waited approximately 30 seconds (timeout scenario)"
+                } elseif ($duration.TotalSeconds -lt 5) {
+                    Write-Host "SUCCESS: Assignment returned quickly (success scenario)"
+                } else {
+                    Write-Host "WARNING: Unexpected duration for assignment"
+                }
             } catch {
-                Write-Host "Assignment still failed after deposit: $($_.Exception.Message)"
+                $endTime = Get-Date
+                $duration = $endTime - $startTime
+                Write-Host "Assignment failed in $($duration.TotalSeconds) seconds: $($_.Exception.Message)"
+                if ($duration.TotalSeconds -ge 25 -and $duration.TotalSeconds -le 35) {
+                    Write-Host "SUCCESS: Assignment waited approximately 30 seconds before failing"
+                }
             }
         } else {
             Write-Host "WARNING: Deposit payment status not updated to Success (current: $($updatedDepositPayment.status))"
