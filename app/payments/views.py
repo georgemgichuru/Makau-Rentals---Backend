@@ -934,87 +934,123 @@ class InitiateDepositPaymentView(APIView):
         unit_id = request.data.get('unit_id')
         if not unit_id:
             return Response({'error': 'unit_id is required'}, status=400)
+        
         try:
             unit = Unit.objects.get(id=unit_id, is_available=True)
         except Unit.DoesNotExist:
             return Response({'error': 'Invalid unit or not available'}, status=400)
+
+        # Check if unit already has a tenant
+        if unit.tenant:
+            return Response({'error': 'Unit is already occupied'}, status=400)
+
         amount = unit.deposit
+        
         # Validate amount
         if amount is None or amount <= 0:
             return Response({"error": "Deposit amount is not set or invalid."}, status=400)
+        
         # Ensure amount is a whole number (M-Pesa requires integer amounts)
         if not (amount % 1 == 0):
             return Response({"error": "Deposit amount must be a whole number."}, status=400)
+        
         # Convert to integer for M-Pesa
         amount = int(amount)
-        # Rate limiting: Check if user has made too many requests
+        
+        # Rate limiting
         rate_limit_key = f"deposit_stk_push_rate_limit:{request.user.id}"
         recent_requests = cache.get(rate_limit_key, 0)
-        if recent_requests >= 5:  # Max 5 requests per minute
+        if recent_requests >= 5:
             return Response({"error": "Too many requests. Please try again later."}, status=429)
-        # Update rate limit counter
+        
         cache.set(rate_limit_key, recent_requests + 1, timeout=60)
+        
         # Check for duplicate pending payment
         duplicate_key = f"pending_deposit_payment:{request.user.id}:{unit_id}"
         if cache.get(duplicate_key):
             return Response({"error": "A deposit payment request is already pending for this unit."}, status=400)
-        # Create a pending payment record
+        
+        # Create a pending payment record - DO NOT ASSIGN TENANT YET
         payment = Payment.objects.create(
             tenant=request.user,
             unit=unit,
             payment_type='deposit',
             amount=amount,
-            status="Pending"
+            status="Pending"  # Keep as Pending until callback confirms
         )
+        
         # Mark payment as pending in Redis (5-minute expiry)
         cache.set(duplicate_key, payment.id, timeout=300)
+        
         try:
-            # Generate access token (with Redis caching)
+            # Generate access token
             access_token_cache_key = "mpesa_access_token"
             access_token = cache.get(access_token_cache_key)
             if not access_token:
                 access_token = generate_access_token()
-            # Cache access token for 55 minutes (MPESA tokens expire in 1 hour)
             cache.set(access_token_cache_key, access_token, timeout=3300)
         except Exception as e:
             return Response({"error": f"Payment initiation failed: {str(e)}"}, status=400)
+        
         timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
         password = base64.b64encode(
             (settings.MPESA_SHORTCODE + settings.MPESA_PASSKEY + timestamp).encode("utf-8")
         ).decode("utf-8")
-        # Always use central shortcode for deposit payments (no landlord till dependency)
+        
         business_shortcode = settings.MPESA_SHORTCODE
+        
         # Build payload for Safaricom API
         payload = {
             "BusinessShortCode": business_shortcode,
             "Password": password,
             "Timestamp": timestamp,
             "TransactionType": "CustomerPayBillOnline",
-            "Amount": str(payment.amount),  # Deposit due
-            # Tenant phone number (must be in 2547XXXXXXX format)
+            "Amount": str(payment.amount),
             "PartyA": request.user.phone_number,
             "PartyB": business_shortcode,
             "PhoneNumber": request.user.phone_number,
-            "CallBackURL": settings.MPESA_DEPOSIT_CALLBACK_URL,  # Deposit callback endpoint
-            "AccountReference": str(payment.id),  # Unique reference for reconciliation
+            "CallBackURL": settings.MPESA_DEPOSIT_CALLBACK_URL,
+            "AccountReference": str(payment.id),
             "TransactionDesc": f"Deposit for Unit {unit.unit_number}"
         }
+        
         headers = {"Authorization": f"Bearer {access_token}"}
-        response = requests.post(
-            "https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest",
-            json=payload,
-            headers=headers
-        )
-        response_data = response.json()
-        if response_data.get("ResponseCode") == "0":
-            # Return success immediately without waiting - callback will handle completion
-            return JsonResponse({
-                "message": "Deposit payment initiated successfully. Please check your phone to complete payment.",
-                "checkout_request_id": response_data.get("CheckoutRequestID"),
-                "payment_id": payment.id
-            })
-        else:
-            return Response(response_data)
+        
+        try:
+            response = requests.post(
+                "https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest",
+                json=payload,
+                headers=headers,
+                timeout=30
+            )
+            response_data = response.json()
+            
+            if response_data.get("ResponseCode") == "0":
+                # Return success but DO NOT assign tenant - wait for callback
+                return JsonResponse({
+                    "message": "Deposit payment initiated for tenant {} on unit {}. Tenant will be assigned to the unit upon successful payment confirmation.".format(
+                        request.user.full_name, unit.unit_number
+                    ),
+                    "checkout_request_id": response_data.get("CheckoutRequestID"),
+                    "payment_id": payment.id
+                })
+            else:
+                # STK push failed - mark payment as failed immediately
+                payment.status = "Failed"
+                payment.save()
+                cache.delete(duplicate_key)
+                return Response({
+                    "error": "Payment initiation failed: {}".format(
+                        response_data.get("ResponseDescription", "Unknown error")
+                    )
+                }, status=400)
+                
+        except requests.exceptions.RequestException as e:
+            # Network error - mark payment as failed
+            payment.status = "Failed"
+            payment.save()
+            cache.delete(duplicate_key)
+            return Response({"error": "Payment service temporarily unavailable. Please try again later."}, status=503)
 # ------------------------------
 # TRIGGER DEPOSIT CALLBACK (FOR TESTING)
 # ------------------------------
@@ -1107,7 +1143,8 @@ def mpesa_b2c_callback(request):
 def mpesa_deposit_callback(request):
     """
     Handles M-Pesa callback for deposit payments.
-    - Updates Payment status
+    - Updates Payment status to Success only if callback arrives within timeout
+    - Assigns tenant to unit upon successful payment
     - Invalidates relevant caches
     - ALWAYS returns success to acknowledge callback receipt
     """
@@ -1154,103 +1191,54 @@ def mpesa_deposit_callback(request):
                         id=payment_id, status="Pending", payment_type="deposit")
                     logger.info(f"✅ Found pending deposit payment: {payment.id} for tenant {payment.tenant.email}")
 
-                    payment.status = "Success"
-                    payment.mpesa_receipt = receipt
-                    payment.save()
-                    logger.info(f"✅ Payment {payment.id} status updated to Success")
-
-                    # Auto-assign tenant to unit upon successful deposit payment
-                    unit = payment.unit
-                    if unit.is_available and not unit.tenant:
-                        unit.tenant = payment.tenant
-                        unit.is_available = False
-                        unit.save()
-                        logger.info(f"✅ Tenant {payment.tenant.email} auto-assigned to unit {unit.unit_number} after successful deposit")
+                    # Check if callback arrived within 30 seconds of payment initiation
+                    time_elapsed = timezone.now() - payment.transaction_date
+                    if time_elapsed.total_seconds() > 30:
+                        logger.warning(f"⚠️ Deposit callback for payment {payment.id} arrived after 30 seconds ({time_elapsed.total_seconds()}s), marking as Failed")
+                        payment.status = "Failed"
+                        payment.save()
+                        # Invalidate caches for failed payment
+                        cache.delete_many([
+                            f"pending_deposit_payment:{payment.tenant.id}:{payment.unit.id}",
+                            f"payments:tenant:{payment.tenant.id}",
+                            f"payments:landlord:{payment.unit.property_obj.landlord.id}",
+                        ])
+                        logger.info(f"🗑️ Cache invalidated for timed-out payment {payment.id}")
+                        logger.info(f"❌ Deposit payment {payment_id} marked as Failed due to timeout")
                     else:
-                        logger.warning(f"⚠️ Unit {unit.unit_number} not available or already assigned, skipping auto-assignment")
+                        payment.status = "Success"
+                        payment.mpesa_receipt = receipt
+                        payment.save()
+                        logger.info(f"✅ Payment {payment.id} status updated to Success")
 
-                    # Invalidate relevant caches
-                    cache.delete_many([
-                        f"pending_deposit_payment:{payment.tenant.id}:{payment.unit.id}",
-                        f"payments:tenant:{payment.tenant.id}",
-                        f"payments:landlord:{payment.unit.property_obj.landlord.id}",
-                        f"rent_summary:{payment.unit.property_obj.landlord.id}",
-                        f"unit:{payment.unit.id}:details",
-                        f"property:{unit.property_obj.id}:units"  # Invalidate unit list cache
-                    ])
-                    logger.info(f"🗑️ Cache invalidated for payment {payment.id}")
-                    logger.info(f"✅ Deposit payment successful: {receipt} for payment {payment_id}")
+                        # Assign tenant to unit upon successful deposit payment
+                        unit = payment.unit
+                        if unit.is_available and not unit.tenant:
+                            unit.tenant = payment.tenant
+                            unit.is_available = False
+                            unit.save()
+                            logger.info(f"✅ Tenant {payment.tenant.email} assigned to unit {unit.unit_number} after successful deposit")
+                        else:
+                            logger.warning(f"⚠️ Unit {unit.unit_number} not available or already assigned, skipping assignment")
+
+                        # Invalidate relevant caches
+                        cache.delete_many([
+                            f"pending_deposit_payment:{payment.tenant.id}:{payment.unit.id}",
+                            f"payments:tenant:{payment.tenant.id}",
+                            f"payments:landlord:{payment.unit.property_obj.landlord.id}",
+                            f"rent_summary:{payment.unit.property_obj.landlord.id}",
+                            f"unit:{payment.unit.id}:details",
+                            f"property:{unit.property_obj.id}:units"  # Invalidate unit list cache
+                        ])
+                        logger.info(f"🗑️ Cache invalidated for payment {payment.id}")
+                        logger.info(f"✅ Deposit payment successful: {receipt} for payment {payment_id}")
 
                 except Payment.DoesNotExist:
                     logger.error(f"❌ Payment with id {payment_id} not found or already processed")
                 except Exception as e:
                     logger.error(f"❌ Error updating payment {payment_id}: {e}")
             else:
-                logger.warning("⚠️ No payment_id in callback, attempting fallback lookup")
-                # Fallback: Find pending deposit payment by phone number and amount
-                if phone and amount:
-                    logger.info(f"🔍 Fallback lookup for phone: {phone}, amount: {amount}")
-                    # Normalize phone number variants
-                    phone_variants = [phone]
-                    if phone.startswith('+254'):
-                        phone_variants.extend([
-                            phone[4:],  # 722714334
-                            '0' + phone[4:],  # 0722714334
-                            phone[1:],  # 254722714334
-                        ])
-                    elif phone.startswith('254'):
-                        phone_variants.extend([
-                            '+' + phone,  # +254722714334
-                            '0' + phone[3:],  # 0722714334
-                            phone[3:],  # 722714334
-                        ])
-                    elif phone.startswith('0'):
-                        phone_variants.extend([
-                            '+254' + phone[1:],  # +254722714334
-                            '254' + phone[1:],  # 254722714334
-                            phone[1:],  # 722714334
-                        ])
-                    else:
-                        # Assume it's local without 0, add variants
-                        phone_variants.extend([
-                            '+254' + phone,  # +254722714334
-                            '254' + phone,  # 254722714334
-                            '0' + phone,  # 0722714334
-                        ])
-                    logger.info(f"📞 Phone variants to search: {phone_variants}")
-                    try:
-                        # Get the most recent pending deposit payment matching the criteria
-                        payment = Payment.objects.filter(
-                            tenant__phone_number__in=phone_variants,
-                            status="Pending",
-                            payment_type="deposit",
-                            amount=amount
-                        ).order_by('-transaction_date').first()
-
-                        if payment:
-                            logger.info(f"✅ Found payment via fallback: {payment.id} for tenant {payment.tenant.email}")
-                            payment.status = "Success"
-                            payment.mpesa_receipt = receipt
-                            payment.save()
-                            logger.info(f"✅ Payment {payment.id} status updated to Success (fallback)")
-
-                            # Invalidate relevant caches
-                            cache.delete_many([
-                                f"pending_deposit_payment:{payment.tenant.id}:{payment.unit.id}",
-                                f"payments:tenant:{payment.tenant.id}",
-                                f"payments:landlord:{payment.unit.property_obj.landlord.id}",
-                                f"rent_summary:{payment.unit.property_obj.landlord.id}",
-                                f"unit:{payment.unit.id}:details"
-                            ])
-                            logger.info(f"🗑️ Cache invalidated for payment {payment.id} (fallback)")
-                            logger.info(f"✅ Deposit payment successful (fallback): {receipt} for payment {payment.id}")
-                        else:
-                            logger.error(f"❌ No matching pending deposit payment found for phone variants {phone_variants} and amount {amount}")
-
-                    except Exception as e:
-                        logger.error(f"❌ Error in fallback payment update: {e}")
-                else:
-                    logger.error(f"❌ No payment_id, phone, or amount in callback metadata (phone: {phone}, amount: {amount})")
+                logger.warning("⚠️ No payment_id in callback, cannot process payment")
         else:
             # Transaction failed - UPDATE PAYMENT STATUS TO FAILED
             error_msg = body.get("ResultDesc", "Unknown error")
@@ -1282,3 +1270,31 @@ def mpesa_deposit_callback(request):
     # CRITICAL: Always respond with success to Safaricom to acknowledge callback receipt
     logger.info("✅ Responding with success to M-Pesa callback")
     return JsonResponse({"ResultCode": 0, "ResultDesc": "Accepted"})
+
+# ------------------------------
+# DEPOSIT PAYMENT STATUS VIEW
+# ------------------------------
+class DepositPaymentStatusView(APIView):
+    """
+    Allows tenants to check the status of their deposit payment.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, payment_id):
+        try:
+            payment = Payment.objects.get(
+                id=payment_id,
+                tenant=request.user,
+                payment_type='deposit'
+            )
+        except Payment.DoesNotExist:
+            return Response({"error": "Deposit payment not found"}, status=404)
+
+        return Response({
+            "payment_id": payment.id,
+            "status": payment.status,
+            "amount": payment.amount,
+            "unit_number": payment.unit.unit_number,
+            "transaction_date": payment.transaction_date,
+            "mpesa_receipt": payment.mpesa_receipt
+        })

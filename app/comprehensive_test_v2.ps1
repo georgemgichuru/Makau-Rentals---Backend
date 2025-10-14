@@ -1,6 +1,7 @@
-# Comprehensive test script v2 for Makau Rentals backend flows - MINIMAL AMOUNTS
+# Comprehensive test script v3 for Makau Rentals backend flows - MINIMAL AMOUNTS
 # Tests all endpoints in accounts, payments, and communication
 # Uses 10 KSH deposit, 100 KSH rent, 50 KSH subscription for testing
+# UPDATED: Now properly handles deposit payment flow with callback confirmation
 
 $baseUrl = "https://makau-rentals-backend.onrender.com"
 
@@ -70,6 +71,34 @@ function Invoke-PatchAuth {
         Write-Host "Error in PATCH to $url`: $($_.Exception.Message)"
         throw
     }
+}
+
+# Function to poll payment status
+function Invoke-PollPaymentStatus {
+    param (
+        [string]$paymentId,
+        [string]$token,
+        [int]$maxAttempts = 6,
+        [int]$delaySeconds = 5
+    )
+    
+    for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+        Write-Host "Polling payment status (attempt $attempt of $maxAttempts)..."
+        Start-Sleep -Seconds $delaySeconds
+        
+        try {
+            $statusResponse = Invoke-GetAuth -url "$baseUrl/api/payments/deposit-status/$paymentId/" -token $token
+            Write-Host "Payment status: $($statusResponse.status)"
+            
+            if ($statusResponse.status -ne "pending") {
+                return $statusResponse
+            }
+        } catch {
+            Write-Host "Error polling payment status: $($_.Exception.Message)"
+        }
+    }
+    
+    return @{ status = "timeout"; message = "Payment status polling timed out" }
 }
 
 # Test data
@@ -219,54 +248,34 @@ $reminderBody = @{
 $reminderResponse = Invoke-PatchAuth -url "$baseUrl/api/accounts/update-reminder-preferences/" -token $tenantToken -body $reminderBody
 Write-Host "Reminder preferences updated: $($reminderResponse | ConvertTo-Json)"
 
-# 8.1. Initiate Deposit Payment as Tenant (only 10 KSH)
-Write-Host "8.1. Initiating deposit payment (10 KSH only)..."
-$depositBody = @"
-{
-    "unit_id": $unitId
-}
-"@
+# 8. NEW FLOW: Initiate Deposit Payment (10 KSH) - Tenant pays deposit first
+Write-Host "8. NEW FLOW: Initiating deposit payment (10 KSH)..."
+$depositBody = @{
+    unit_id = $unitId
+} | ConvertTo-Json
 
-$depositHeaders = @{ Authorization = "Bearer $tenantToken" }
 $startTime = Get-Date
 Write-Host "Deposit initiation started at: $startTime"
 try {
-    $depositResponse = Invoke-PostJson -url "$baseUrl/api/payments/initiate-deposit/" -headers $depositHeaders -body $depositBody
+    $depositResponse = Invoke-PostJson -url "$baseUrl/api/payments/initiate-deposit/" -headers $tenantHeaders -body $depositBody
     $endTime = Get-Date
     $duration = $endTime - $startTime
-    Write-Host "Deposit STK push initiated in $($duration.TotalSeconds) seconds: $($depositResponse | ConvertTo-Json)"
-    if ($duration.TotalSeconds -ge 25 -and $duration.TotalSeconds -le 35) {
-        Write-Host "SUCCESS: Deposit initiation waited approximately 30 seconds (timeout scenario)"
-    } elseif ($duration.TotalSeconds -lt 5) {
-        Write-Host "SUCCESS: Deposit initiation returned quickly (success scenario)"
-    } else {
-        Write-Host "WARNING: Unexpected duration for deposit initiation"
-    }
-} catch {
-    $endTime = Get-Date
-    $duration = $endTime - $startTime
-    Write-Host "Deposit initiation failed in $($duration.TotalSeconds) seconds: $($_.Exception.Message)"
-    if ($duration.TotalSeconds -ge 25 -and $duration.TotalSeconds -le 35) {
-        Write-Host "SUCCESS: Deposit initiation waited approximately 30 seconds before failing"
-    }
-}
-
-# 8.3. Simulate successful deposit callback for testing (10 KSH)
-Write-Host "8.3. Simulating successful deposit callback (10 KSH)..."
-# Get the pending deposit payment
-Start-Sleep -Seconds 2  # Wait for payment to be created
-$paymentsResponse = Invoke-GetAuth -url "$baseUrl/api/payments/rent-payments/" -token $tenantToken
-if ($paymentsResponse.results) {
-    $depositPayment = $paymentsResponse.results | Where-Object { $_.payment_type -eq "deposit" -and $_.status -eq "Pending" } | Select-Object -First 1
-} else {
-    $depositPayment = $paymentsResponse | Where-Object { $_.payment_type -eq "deposit" -and $_.status -eq "Pending" } | Select-Object -First 1
-}
-
-if ($depositPayment) {
-    $paymentId = $depositPayment.id
-    Write-Host "Found pending deposit payment ID: $paymentId"
-    # Simulate callback with correct amount (10 KSH deposit)
-    $callbackBody = @"
+    Write-Host "Deposit initiation completed in $($duration.TotalSeconds) seconds: $($depositResponse | ConvertTo-Json)"
+    
+    if ($depositResponse.payment_id) {
+        $paymentId = $depositResponse.payment_id
+        Write-Host "Payment ID: $paymentId"
+        
+        # NEW: Poll for payment status instead of assuming success
+        Write-Host "8.1. Polling for payment status..."
+        $statusResult = Invoke-PollPaymentStatus -paymentId $paymentId -token $tenantToken -maxAttempts 6 -delaySeconds 5
+        
+        if ($statusResult.status -eq "pending") {
+            Write-Host "Payment still pending after polling - simulating successful callback..."
+            
+            # Simulate successful deposit callback
+            Write-Host "8.2. Simulating successful deposit callback for payment ID: $paymentId"
+            $callbackBody = @"
 {
     "Body": {
         "stkCallback": {
@@ -283,59 +292,95 @@ if ($depositPayment) {
     }
 }
 "@
-    try {
-        $callbackResponse = Invoke-PostJson -url "$baseUrl/api/payments/callback/deposit/" -body $callbackBody
-        Write-Host "Deposit callback simulated successfully: $($callbackResponse | ConvertTo-Json)"
-        
-        # Verify payment status update
-        Start-Sleep -Seconds 2  # Wait for callback processing
-        $updatedPaymentsResponse = Invoke-GetAuth -url "$baseUrl/api/payments/rent-payments/" -token $tenantToken
-        if ($updatedPaymentsResponse.results) {
-            $updatedDepositPayment = $updatedPaymentsResponse.results | Where-Object { $_.id -eq $paymentId } | Select-Object -First 1
-        } else {
-            $updatedDepositPayment = $updatedPaymentsResponse | Where-Object { $_.id -eq $paymentId } | Select-Object -First 1
-        }
-        
-        if ($updatedDepositPayment.status -eq "Success") {
-            Write-Host "SUCCESS: Deposit payment status updated to Success"
-            
-            # Now try to assign tenant (now initiates deposit payment internally)
-            Write-Host "8.4. Attempting to assign tenant (will initiate deposit payment internally)..."
-            $assignBody = @{} | ConvertTo-Json
-            $startTime = Get-Date
-            Write-Host "Assignment started at: $startTime"
             try {
-                $assignResponse = Invoke-PostJson -url "$baseUrl/api/accounts/units/$unitId/assign/$tenantId/" -headers $propertyHeaders -body $assignBody
-                $endTime = Get-Date
-                $duration = $endTime - $startTime
-                Write-Host "Assignment completed in $($duration.TotalSeconds) seconds: $($assignResponse | ConvertTo-Json)"
-                if ($duration.TotalSeconds -ge 25 -and $duration.TotalSeconds -le 35) {
-                    Write-Host "SUCCESS: Assignment waited approximately 30 seconds (timeout scenario)"
-                } elseif ($duration.TotalSeconds -lt 5) {
-                    Write-Host "SUCCESS: Assignment returned quickly (success scenario)"
+                $callbackResponse = Invoke-PostJson -url "$baseUrl/api/payments/callback/deposit/" -body $callbackBody
+                Write-Host "Deposit callback simulated successfully: $($callbackResponse | ConvertTo-Json)"
+                
+                # Check final status after callback
+                Start-Sleep -Seconds 2
+                $finalStatus = Invoke-GetAuth -url "$baseUrl/api/payments/deposit-status/$paymentId/" -token $tenantToken
+                Write-Host "Final payment status after callback: $($finalStatus.status)"
+                
+                if ($finalStatus.status -eq "success") {
+                    Write-Host "SUCCESS: Deposit payment completed and tenant assigned to unit"
                 } else {
-                    Write-Host "WARNING: Unexpected duration for assignment"
+                    Write-Host "WARNING: Deposit payment status is $($finalStatus.status) after callback"
                 }
             } catch {
-                $endTime = Get-Date
-                $duration = $endTime - $startTime
-                Write-Host "Assignment failed in $($duration.TotalSeconds) seconds: $($_.Exception.Message)"
-                if ($duration.TotalSeconds -ge 25 -and $duration.TotalSeconds -le 35) {
-                    Write-Host "SUCCESS: Assignment waited approximately 30 seconds before failing"
-                }
+                Write-Host "Deposit callback simulation failed: $($_.Exception.Message)"
             }
+        } elseif ($statusResult.status -eq "success") {
+            Write-Host "SUCCESS: Deposit payment already completed via callback"
         } else {
-            Write-Host "WARNING: Deposit payment status not updated to Success (current: $($updatedDepositPayment.status))"
+            Write-Host "Payment failed with status: $($statusResult.status)"
         }
-    } catch {
-        Write-Host "Deposit callback simulation failed: $($_.Exception.Message)"
     }
-} else {
-    Write-Host "No pending deposit payment found for callback simulation"
+} catch {
+    $endTime = Get-Date
+    $duration = $endTime - $startTime
+    Write-Host "Deposit initiation failed in $($duration.TotalSeconds) seconds: $($_.Exception.Message)"
 }
 
-# 9. Initiate Rent Payment as Tenant (100 KSH)
-Write-Host "9. Initiating rent payment (100 KSH)..."
+# 8.3. Test failed payment scenario
+Write-Host "8.3. Testing failed payment scenario..."
+try {
+    $failedDepositBody = @{
+        unit_id = $unitId
+    } | ConvertTo-Json
+    
+    $failedDepositResponse = Invoke-PostJson -url "$baseUrl/api/payments/initiate-deposit/" -headers $tenantHeaders -body $failedDepositBody
+    
+    if ($failedDepositResponse.payment_id) {
+        $failedPaymentId = $failedDepositResponse.payment_id
+        Write-Host "Created payment for failure test: $failedPaymentId"
+        
+        # Simulate failed callback
+        Write-Host "Simulating failed deposit callback..."
+        $failedCallbackBody = @"
+{
+    "Body": {
+        "stkCallback": {
+            "MerchantRequestID": "test-failed-request",
+            "CheckoutRequestID": "ws_CO_test_failed",
+            "ResultCode": 1032,
+            "ResultDesc": "Request Cancelled by user."
+        }
+    }
+}
+"@
+        $failedCallbackResponse = Invoke-PostJson -url "$baseUrl/api/payments/callback/deposit/" -body $failedCallbackBody
+        Write-Host "Failed callback response: $($failedCallbackResponse | ConvertTo-Json)"
+        
+        # Check status of failed payment
+        Start-Sleep -Seconds 2
+        $failedStatus = Invoke-GetAuth -url "$baseUrl/api/payments/deposit-status/$failedPaymentId/" -token $tenantToken
+        Write-Host "Failed payment status: $($failedStatus.status)"
+        
+        if ($failedStatus.status -eq "failed") {
+            Write-Host "SUCCESS: Failed payment properly handled - tenant not assigned"
+        }
+    }
+} catch {
+    Write-Host "Failed payment test error: $($_.Exception.Message)"
+}
+
+# 9. Verify tenant assignment by checking unit status
+Write-Host "9. Verifying unit assignment status..."
+try {
+    $updatedUnitsResponse = Invoke-GetAuth -url "$baseUrl/api/accounts/properties/$propertyId/units/" -token $landlordToken
+    $assignedUnit = $updatedUnitsResponse | Where-Object { $_.id -eq $unitId } | Select-Object -First 1
+    
+    if ($assignedUnit.tenant -eq $tenantId) {
+        Write-Host "SUCCESS: Tenant $tenantId is properly assigned to unit $unitId"
+    } else {
+        Write-Host "UNIT STATUS: Unit $unitId tenant: $($assignedUnit.tenant), available: $($assignedUnit.is_available)"
+    }
+} catch {
+    Write-Host "Error checking unit assignment: $($_.Exception.Message)"
+}
+
+# 10. Initiate Rent Payment as Tenant (100 KSH) - Only if deposit was successful
+Write-Host "10. Initiating rent payment (100 KSH)..."
 $rentBody = @{
     amount = "100"
 } | ConvertTo-Json
@@ -343,33 +388,48 @@ $rentBody = @{
 $startTime = Get-Date
 Write-Host "Rent initiation started at: $startTime"
 try {
-    $rentResponse = Invoke-PostJson -url "$baseUrl/api/payments/stk-push/$unitId/" -headers $depositHeaders -body $rentBody
+    $rentResponse = Invoke-PostJson -url "$baseUrl/api/payments/stk-push/$unitId/" -headers $tenantHeaders -body $rentBody
     $endTime = Get-Date
     $duration = $endTime - $startTime
     Write-Host "Rent STK push initiated in $($duration.TotalSeconds) seconds: $($rentResponse | ConvertTo-Json)"
-    if ($duration.TotalSeconds -ge 25 -and $duration.TotalSeconds -le 35) {
-        Write-Host "SUCCESS: Rent initiation waited approximately 30 seconds (timeout scenario)"
-    } elseif ($duration.TotalSeconds -lt 5) {
-        Write-Host "SUCCESS: Rent initiation returned quickly (success scenario)"
-    } else {
-        Write-Host "WARNING: Unexpected duration for rent initiation"
+    
+    # Simulate successful rent callback
+    if ($rentResponse.payment_id) {
+        $rentPaymentId = $rentResponse.payment_id
+        Write-Host "Simulating successful rent callback for payment ID: $rentPaymentId"
+        $rentCallbackBody = @"
+{
+    "Body": {
+        "stkCallback": {
+            "ResultCode": 0,
+            "CallbackMetadata": {
+                "Item": [
+                    {"Name": "Amount", "Value": 100},
+                    {"Name": "MpesaReceiptNumber", "Value": "RENT$rentPaymentId"},
+                    {"Name": "AccountReference", "Value": "$rentPaymentId"},
+                    {"Name": "PhoneNumber", "Value": "$tenantPhone"}
+                ]
+            }
+        }
+    }
+}
+"@
+        $rentCallbackResponse = Invoke-PostJson -url "$baseUrl/api/payments/callback/rent/" -body $rentCallbackBody
+        Write-Host "Rent callback simulated: $($rentCallbackResponse | ConvertTo-Json)"
     }
 } catch {
     $endTime = Get-Date
     $duration = $endTime - $startTime
     Write-Host "Rent initiation failed in $($duration.TotalSeconds) seconds: $($_.Exception.Message)"
-    if ($duration.TotalSeconds -ge 25 -and $duration.TotalSeconds -le 35) {
-        Write-Host "SUCCESS: Rent initiation waited approximately 30 seconds before failing"
-    }
 }
 
-# 9.1. Test rent-payments/ list
-Write-Host "9.1. Listing rent payments..."
+# 10.1. Test rent-payments/ list
+Write-Host "10.1. Listing rent payments..."
 $rentPaymentsResponse = Invoke-GetAuth -url "$baseUrl/api/payments/rent-payments/" -token $tenantToken
 Write-Host "Rent payments: $($rentPaymentsResponse | ConvertTo-Json)"
 
-# 10. Create Report as Tenant
-Write-Host "10. Creating report as tenant..."
+# 11. Create Report as Tenant
+Write-Host "11. Creating report as tenant..."
 $reportBody = @{
     unit = $unitId
     issue_title = "Test Report"
@@ -378,12 +438,16 @@ $reportBody = @{
     priority_level = "low"
 } | ConvertTo-Json
 
-$reportResponse = Invoke-PostJson -url "$baseUrl/api/communication/reports/create/" -headers $depositHeaders -body $reportBody
-Write-Host "Report created. ID: $($reportResponse.id)"
-$reportId = $reportResponse.id
+try {
+    $reportResponse = Invoke-PostJson -url "$baseUrl/api/communication/reports/create/" -headers $tenantHeaders -body $reportBody
+    Write-Host "Report created. ID: $($reportResponse.id)"
+    $reportId = $reportResponse.id
+} catch {
+    Write-Host "Report creation failed: $($_.Exception.Message)"
+}
 
-# 11. Initiate Subscription Payment as Landlord (50 KSH test plan)
-Write-Host "11. Initiating subscription payment (50 KSH test plan)..."
+# 12. Initiate Subscription Payment as Landlord (50 KSH test plan)
+Write-Host "12. Initiating subscription payment (50 KSH test plan)..."
 $subscriptionBody = @{
     plan = "starter"
     phone_number = $landlordPhone
@@ -397,25 +461,58 @@ try {
     $endTime = Get-Date
     $duration = $endTime - $startTime
     Write-Host "Subscription STK push initiated in $($duration.TotalSeconds) seconds: $($subscriptionResponse | ConvertTo-Json)"
-    if ($duration.TotalSeconds -ge 25 -and $duration.TotalSeconds -le 35) {
-        Write-Host "SUCCESS: Subscription initiation waited approximately 30 seconds (timeout scenario)"
-    } elseif ($duration.TotalSeconds -lt 5) {
-        Write-Host "SUCCESS: Subscription initiation returned quickly (success scenario)"
-    } else {
-        Write-Host "WARNING: Unexpected duration for subscription initiation"
+    
+    # Simulate successful subscription callback
+    if ($subscriptionResponse.payment_id) {
+        $subPaymentId = $subscriptionResponse.payment_id
+        Write-Host "Simulating successful subscription callback for payment ID: $subPaymentId"
+        $subCallbackBody = @"
+{
+    "Body": {
+        "stkCallback": {
+            "ResultCode": 0,
+            "CallbackMetadata": {
+                "Item": [
+                    {"Name": "Amount", "Value": 50},
+                    {"Name": "MpesaReceiptNumber", "Value": "SUB$subPaymentId"},
+                    {"Name": "AccountReference", "Value": "$subPaymentId"},
+                    {"Name": "PhoneNumber", "Value": "$landlordPhone"}
+                ]
+            }
+        }
+    }
+}
+"@
+        $subCallbackResponse = Invoke-PostJson -url "$baseUrl/api/payments/callback/subscription/" -body $subCallbackBody
+        Write-Host "Subscription callback simulated: $($subCallbackResponse | ConvertTo-Json)"
     }
 } catch {
     $endTime = Get-Date
     $duration = $endTime - $startTime
     Write-Host "Subscription initiation failed in $($duration.TotalSeconds) seconds: $($_.Exception.Message)"
-    if ($duration.TotalSeconds -ge 25 -and $duration.TotalSeconds -le 35) {
-        Write-Host "SUCCESS: Subscription initiation waited approximately 30 seconds before failing"
-    }
 }
 
-# 11.1. Test subscription-payments/ list
-Write-Host "11.1. Listing subscription payments..."
-$subscriptionPaymentsResponse = Invoke-GetAuth -url "$baseUrl/api/payments/subscription-payments/" -token $landlordToken
-Write-Host "Subscription payments: $($subscriptionPaymentsResponse | ConvertTo-Json)"
+# 12.1. Test subscription-payments/ list
+Write-Host "12.1. Listing subscription payments..."
+try {
+    $subscriptionPaymentsResponse = Invoke-GetAuth -url "$baseUrl/api/payments/subscription-payments/" -token $landlordToken
+    Write-Host "Subscription payments: $($subscriptionPaymentsResponse | ConvertTo-Json)"
+} catch {
+    Write-Host "Subscription payments list failed: $($_.Exception.Message)"
+}
 
-Write-Host "All tests completed with minimal amounts (10 KSH deposit, 100 KSH rent, 50 KSH subscription)!"
+# 13. Test rent summary for landlord
+Write-Host "13. Testing rent summary..."
+try {
+    $rentSummaryResponse = Invoke-GetAuth -url "$baseUrl/api/payments/rent-summary/" -token $landlordToken
+    Write-Host "Rent summary: $($rentSummaryResponse | ConvertTo-Json)"
+} catch {
+    Write-Host "Rent summary failed: $($_.Exception.Message)"
+}
+
+Write-Host "All tests completed with new payment flow!"
+Write-Host "Key improvements:"
+Write-Host "- Deposit payments now wait for callback confirmation"
+Write-Host "- Tenant assignment happens ONLY after successful payment"
+Write-Host "- Payment status polling replaces immediate success assumption"
+Write-Host "- Proper handling of both success and failure scenarios"

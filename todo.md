@@ -1,19 +1,17 @@
-# TODO List
+# TODO: Fix Tenant Assignment Logic for Deposit Payments
 
-## STK Push Payment Callback and Tenant Assignment Fix
+## Completed Tasks
+- [x] Modify deposit callback to check 30-second timeout
+- [x] Ensure tenant assignment only on successful payments within 30 seconds
+- [x] Mark cancelled payments (ResultCode != 0) as Failed without assignment
+- [x] Add logging for timeout scenarios
 
-### Completed Tasks
-- [x] Remove polling logic from AssignTenantToUnitView in accounts/views.py
-- [x] Update view to return success immediately after payment initiation
-- [x] Ensure mpesa_deposit_callback handles tenant assignment upon successful payment
+## Pending Tasks
+- [ ] Implement periodic cleanup task for old pending payments (requires Celery fix)
+- [ ] Test the timeout logic with manual callback triggering
+- [ ] Verify cache invalidation works correctly for failed payments
 
-### Pending Tasks
-- [x] Add more detailed logging to callback for debugging payment flow
-- [ ] Test the callback functionality to ensure it waits for actual payment completion
-- [ ] Verify callback URL configuration in settings
-- [ ] Test end-to-end payment flow with real M-Pesa simulation
-
-### Notes
-- Tenant assignment now handled solely by callback to avoid race conditions
-- View initiates payment and informs user that assignment occurs upon successful payment
-- Callback includes fallback logic for payment matching
+## Notes
+- Celery is currently broken, so periodic cleanup cannot be implemented yet
+- All changes are in `app/payments/views.py` in the `mpesa_deposit_callback` function
+- The system now prevents "fake" payments by enforcing the 30-second window
