@@ -795,7 +795,7 @@ class InitiateDepositPaymentView(APIView):
         if amount is None or amount <= 0:
             return Response({"error": "Deposit amount is not set or invalid."}, status=400)
         # Ensure amount is a whole number (M-Pesa requires integer amounts)
-        if not amount.is_integer():
+        if not (amount % 1 == 0):
             return Response({"error": "Deposit amount must be a whole number."}, status=400)
         # Convert to integer for M-Pesa
         amount = int(amount)

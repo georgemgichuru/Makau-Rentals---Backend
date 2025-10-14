@@ -370,7 +370,8 @@ if ($depositPayment) {
                 "Item": [
                     {"Name": "Amount", "Value": $unitDeposit},
                     {"Name": "MpesaReceiptNumber", "Value": "TEST$paymentId"},
-                    {"Name": "AccountReference", "Value": "$paymentId"}
+                    {"Name": "AccountReference", "Value": "$paymentId"},
+                    {"Name": "PhoneNumber", "Value": "$tenantPhone"}
                 ]
             }
         }
