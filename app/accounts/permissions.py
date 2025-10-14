@@ -25,7 +25,7 @@ class HasActiveSubscription(BasePermission):
                 raise PermissionDenied("You are not subscribed to the service. Please subscribe to access this view.")
             return True
         elif request.user.user_type == "tenant":
-            from .models import Payment
+            from payments.models import Payment
             units = Unit.objects.filter(tenant=request.user)
             payments = Payment.objects.filter(tenant=request.user)
             if units.exists() or payments.exists():

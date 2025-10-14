@@ -72,6 +72,9 @@ def stk_push(request, unit_id):
             unit = Unit.objects.get(id=unit_id, tenant=request.user)
         except Unit.DoesNotExist:
             return JsonResponse({"error": "Unit not found or not assigned to you"}, status=404)
+        except Exception as e:
+            print(f"Unexpected error in unit lookup: {str(e)}")
+            return JsonResponse({"error": "Payment service temporarily unavailable. Please try again later."}, status=503)
         
         # Validate amount - RELAXED FOR TESTING
         if amount <= 0:
