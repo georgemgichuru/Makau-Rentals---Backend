@@ -47,6 +47,10 @@ CELERY_BEAT_SCHEDULE = {
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# Ensure logs directory exists
+logs_dir = BASE_DIR / 'logs'
+logs_dir.mkdir(parents=True, exist_ok=True)
+
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
@@ -227,13 +231,13 @@ EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 # Mpesa Configuration
 # TODO: Update these settings with your actual Mpesa credentials
 MPESA_ENV = "sandbox"  # or "production"
-MPESA_CONSUMER_KEY = config('MPESA_CONSUMER_KEY')
-MPESA_CONSUMER_SECRET = config('MPESA_CONSUMER_SECRET')
-MPESA_SHORTCODE = config('MPESA_SHORTCODE')
-MPESA_PASSKEY = config('MPESA_PASSKEY')
-MPESA_INITIATOR_NAME = config('MPESA_INITIATOR_NAME')  # For B2C payments
-MPESA_SECURITY_CREDENTIAL = config('MPESA_SECURITY_CREDENTIAL')  # For B2C payments
-MPESA_CALLBACK_URL = config('MPESA_CALLBACK_URL')
+MPESA_CONSUMER_KEY = config('MPESA_CONSUMER_KEY', default='')
+MPESA_CONSUMER_SECRET = config('MPESA_CONSUMER_SECRET', default='')
+MPESA_SHORTCODE = config('MPESA_SHORTCODE', default='')
+MPESA_PASSKEY = config('MPESA_PASSKEY', default='')
+MPESA_INITIATOR_NAME = config('MPESA_INITIATOR_NAME', default='')  # For B2C payments
+MPESA_SECURITY_CREDENTIAL = config('MPESA_SECURITY_CREDENTIAL', default='')  # For B2C payments
+MPESA_CALLBACK_URL = config('MPESA_CALLBACK_URL', default='')
 # Provide explicit callback URLs expected by payment views. If not set, fall back to MPESA_CALLBACK_URL
 MPESA_RENT_CALLBACK_URL = config('MPESA_RENT_CALLBACK_URL', default=MPESA_CALLBACK_URL)
 MPESA_SUBSCRIPTION_CALLBACK_URL = config('MPESA_SUBSCRIPTION_CALLBACK_URL', default=MPESA_CALLBACK_URL)
