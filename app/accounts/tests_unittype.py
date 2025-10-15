@@ -82,12 +82,12 @@ class TenantSignupAssignTests(TestCase):
 
         # Simulate assignment by calling AssignTenantToUnitView directly via APIRequestFactory
         from rest_framework.test import APIRequestFactory
-        from .views import AssignTenantToUnitView
+        from .views import AssignTenantView
         factory = APIRequestFactory()
         request = factory.post('/')
         # attach user to request and authenticate as landlord
         request.user = self.landlord
-        view = AssignTenantToUnitView.as_view()
+        view = AssignTenantView.as_view()
         resp = view(request, unit_id=self.unit.id, tenant_id=tenant.id)
         # Refresh unit and assert assigned
         self.unit.refresh_from_db()

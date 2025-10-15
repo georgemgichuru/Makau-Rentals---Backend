@@ -11,7 +11,7 @@ from .views import (UserDetailView, UserListView, UserCreateView, PasswordResetV
                     UpdateTillNumberView, MyTokenObtainPairView, AdminLandlordSubscriptionStatusView,
                     MeView, PasswordResetConfirmView, UnitTypeListCreateView, UnitTypeDetailView,
                     LandlordDashboardStatsView, TenantUpdateUnitView, AdjustRentView,
-                    PropertyUnitsView, AssignTenantToUnitView, UpdateReminderPreferencesView,
+                    PropertyUnitsView, AssignTenantView, UpdateReminderPreferencesView,
                     LandlordAvailableUnitsView,
 )
 
@@ -47,7 +47,7 @@ urlpatterns = [
     path('units/create/', CreateUnitView.as_view(), name='unit-create'),  # Changed from 'create-unit'
     path('units/<int:unit_id>/update/', UpdateUnitView.as_view(), name='unit-update'),
     path('units/tenant/update/', TenantUpdateUnitView.as_view(), name='tenant-unit-update'),
-    path('units/<int:unit_id>/assign/<int:tenant_id>/', AssignTenantToUnitView.as_view(), name='assign-tenant'),  # Changed from 'assign-tenant-to-unit'
+    path('units/<int:unit_id>/assign/<int:tenant_id>/', AssignTenantView.as_view(), name='assign-tenant'),  # Changed from 'assign-tenant-to-unit'
     
     # UnitType endpoints
     path('unit-types/', UnitTypeListCreateView.as_view(), name='unit-types'),  # Changed from 'unittype-list-create'

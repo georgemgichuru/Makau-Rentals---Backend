@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 from django.http import HttpResponse
 from django.contrib.auth.decorators import login_required
 from django.utils.decorators import method_decorator
+from django.views.decorators.csrf import csrf_exempt
 from django.db.models import Count, Sum, Q
 from django.utils import timezone
 from datetime import timedelta
@@ -439,43 +440,92 @@ class PropertyUnitsView(APIView):
 
 
 # Assign tenant to unit (invalidate cache)
-class AssignTenantToUnitView(APIView):
+class AssignTenantView(APIView):
     permission_classes = [IsAuthenticated, IsLandlord, HasActiveSubscription]
 
+    @method_decorator(csrf_exempt)
+    def dispatch(self, *args, **kwargs):
+        return super().dispatch(*args, **kwargs)
+
     def post(self, request, unit_id, tenant_id):
+        logger.info(f"AssignTenantView: Landlord {request.user.id} attempting to assign tenant {tenant_id} to unit {unit_id}")
+
         try:
+            # Validate unit exists and belongs to landlord
             unit = Unit.objects.get(id=unit_id, property_obj__landlord=request.user)
+            logger.info(f"Unit found: {unit.unit_code}, available: {unit.is_available}")
+
+            # Validate unit is available
+            if not unit.is_available:
+                logger.warning(f"Unit {unit_id} is not available for assignment")
+                return Response({
+                    "error": "Unit is not available for assignment",
+                    "status": "failed"
+                }, status=400)
+
+            # Validate tenant exists and is a tenant
             tenant = CustomUser.objects.get(id=tenant_id, user_type="tenant")
+            logger.info(f"Tenant found: {tenant.full_name} (ID: {tenant.id})")
 
-            # Check if unit is already assigned
-            if unit.tenant:
-                return Response({'error': 'Unit is already assigned to a tenant'}, status=400)
+            # Check if tenant already has a unit assigned
+            existing_unit = Unit.objects.filter(tenant=tenant).first()
+            if existing_unit:
+                logger.warning(f"Tenant {tenant_id} already has unit {existing_unit.id} assigned")
+                return Response({
+                    "error": f"Tenant already has unit {existing_unit.unit_number} assigned",
+                    "status": "failed"
+                }, status=400)
 
-            # Initiate deposit payment STK push
+            # Validate tenant phone number
+            if not tenant.phone_number:
+                logger.error(f"Tenant {tenant_id} has no phone number")
+                return Response({
+                    "error": "Tenant phone number is required for payment initiation",
+                    "status": "failed"
+                }, status=400)
+
+            # Validate deposit amount
             amount = unit.deposit
             if amount is None or amount <= 0:
-                return Response({"error": "Deposit amount is not set or invalid."}, status=400)
+                logger.error(f"Invalid deposit amount for unit {unit_id}: {amount}")
+                return Response({
+                    "error": "Deposit amount is not set or invalid",
+                    "status": "failed"
+                }, status=400)
 
             # Ensure amount is a whole number (M-Pesa requires integer amounts)
             if not (amount % 1 == 0):
-                return Response({"error": "Deposit amount must be a whole number."}, status=400)
+                logger.error(f"Deposit amount {amount} is not a whole number")
+                return Response({
+                    "error": "Deposit amount must be a whole number",
+                    "status": "failed"
+                }, status=400)
 
-            # Convert to integer for M-Pesa
             amount = int(amount)
+            logger.info(f"Deposit amount validated: {amount}")
 
             # Rate limiting: Check if user has made too many requests
             rate_limit_key = f"assign_stk_push_rate_limit:{request.user.id}"
             recent_requests = cache.get(rate_limit_key, 0)
             if recent_requests >= 5:  # Max 5 requests per minute
-                return Response({"error": "Too many requests. Please try again later."}, status=429)
+                logger.warning(f"Rate limit exceeded for landlord {request.user.id}")
+                return Response({
+                    "error": "Too many requests. Please try again later",
+                    "status": "failed"
+                }, status=429)
 
             # Update rate limit counter
             cache.set(rate_limit_key, recent_requests + 1, timeout=60)
+            logger.info(f"Rate limit updated for landlord {request.user.id}")
 
             # Check for duplicate pending payment
             duplicate_key = f"pending_assign_deposit_payment:{tenant.id}:{unit_id}"
             if cache.get(duplicate_key):
-                return Response({"error": "A deposit payment request is already pending for this tenant and unit."}, status=400)
+                logger.warning(f"Duplicate payment request for tenant {tenant_id} and unit {unit_id}")
+                return Response({
+                    "error": "A deposit payment request is already pending for this tenant and unit",
+                    "status": "failed"
+                }, status=400)
 
             # Create a pending payment record
             payment = Payment.objects.create(
@@ -485,6 +535,7 @@ class AssignTenantToUnitView(APIView):
                 amount=amount,
                 status="Pending"
             )
+            logger.info(f"Payment record created: ID {payment.id}")
 
             # Mark payment as pending in Redis (5-minute expiry)
             cache.set(duplicate_key, payment.id, timeout=300)
@@ -501,9 +552,14 @@ class AssignTenantToUnitView(APIView):
                 access_token = cache.get(access_token_cache_key)
                 if not access_token:
                     access_token = generate_access_token()
-                cache.set(access_token_cache_key, access_token, timeout=3300)
+                    cache.set(access_token_cache_key, access_token, timeout=3300)
+                logger.info("M-Pesa access token obtained")
             except Exception as e:
-                return Response({"error": f"Payment initiation failed: {str(e)}"}, status=400)
+                logger.error(f"Failed to generate access token: {str(e)}")
+                return Response({
+                    "error": f"Payment initiation failed: {str(e)}",
+                    "status": "failed"
+                }, status=400)
 
             timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
             password = base64.b64encode(
@@ -529,6 +585,7 @@ class AssignTenantToUnitView(APIView):
             headers = {"Authorization": f"Bearer {access_token}"}
 
             try:
+                logger.info(f"Initiating STK push for tenant {tenant.phone_number}")
                 response = requests.post(
                     "https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest",
                     json=payload,
@@ -537,26 +594,49 @@ class AssignTenantToUnitView(APIView):
                 )
                 response.raise_for_status()
                 response_data = response.json()
+                logger.info(f"STK push response: {response_data}")
             except requests.exceptions.RequestException as e:
-                return Response({"error": f"Payment initiation failed: {str(e)}"}, status=400)
+                logger.error(f"STK push request failed: {str(e)}")
+                return Response({
+                    "error": f"Payment initiation failed: {str(e)}",
+                    "status": "failed"
+                }, status=400)
 
             if response_data.get("ResponseCode") != "0":
-                return Response({"error": "Failed to initiate payment. Please try again."}, status=400)
+                logger.error(f"STK push failed with response code: {response_data.get('ResponseCode')}")
+                return Response({
+                    "error": "Failed to initiate payment. Please try again",
+                    "status": "failed"
+                }, status=400)
 
             # Return success immediately - assignment will be handled by callback upon successful payment
+            logger.info(f"Deposit payment initiated successfully for tenant {tenant.full_name} on unit {unit.unit_number}")
             return Response({
                 'message': f'Deposit payment initiated for tenant {tenant.full_name} on unit {unit.unit_number}. '
                           f'Tenant will be assigned to the unit upon successful payment confirmation.',
                 'payment_id': payment.id,
-                'checkout_request_id': response_data.get("CheckoutRequestID")
+                'checkout_request_id': response_data.get("CheckoutRequestID"),
+                'status': 'pending'
             }, status=200)
 
         except Unit.DoesNotExist:
-            return Response({"error": "Unit not found or you do not have permission"}, status=404)
+            logger.error(f"Unit {unit_id} not found or not owned by landlord {request.user.id}")
+            return Response({
+                "error": "Unit not found or you do not have permission",
+                "status": "failed"
+            }, status=404)
         except CustomUser.DoesNotExist:
-            return Response(
-                {"error": "Tenant not found or invalid user type"}, status=404
-            )
+            logger.error(f"Tenant {tenant_id} not found or invalid user type")
+            return Response({
+                "error": "Tenant not found or invalid user type",
+                "status": "failed"
+            }, status=404)
+        except Exception as e:
+            logger.error(f"Unexpected error in AssignTenantView: {str(e)}")
+            return Response({
+                "error": "An unexpected error occurred",
+                "status": "failed"
+            }, status=500)
 
 
 # Password reset
