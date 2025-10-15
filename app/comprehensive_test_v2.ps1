@@ -73,6 +73,22 @@ function Invoke-PatchAuth {
     }
 }
 
+# Function to perform POST request with Authorization header
+function Invoke-PostAuth {
+    param (
+        [string]$url,
+        [string]$token,
+        [string]$body
+    )
+    $headers = @{ Authorization = "Bearer $token" }
+    try {
+        return Invoke-RestMethod -Uri $url -Method POST -Headers $headers -Body $body -ContentType "application/json"
+    } catch {
+        Write-Host "Error in POST to $url`: $($_.Exception.Message)"
+        throw
+    }
+}
+
 # Function to poll payment status
 function Invoke-PollPaymentStatus {
     param (
@@ -510,9 +526,42 @@ try {
     Write-Host "Rent summary failed: $($_.Exception.Message)"
 }
 
-Write-Host "All tests completed with new payment flow!"
+# ------------------------------
+# TEST CLEANUP AND SIMULATION ENDPOINTS
+# ------------------------------
+Write-Host "14. Testing cleanup pending payments endpoint..."
+try {
+    $cleanupResponse = Invoke-PostAuth -url "$baseUrl/api/payments/cleanup-pending-payments/" -token $landlordToken -body "{}"
+    Write-Host "Cleanup response: $($cleanupResponse | ConvertTo-Json)"
+} catch {
+    Write-Host "Cleanup test failed: $($_.Exception.Message)"
+}
+
+Write-Host "15. Testing simulate deposit callback endpoint..."
+try {
+    # First create a pending deposit payment to simulate
+    $simulateDepositBody = @{
+        unit_id = $unitId
+    } | ConvertTo-Json
+
+    $simulateDepositResponse = Invoke-PostJson -url "$baseUrl/api/payments/initiate-deposit/" -headers $tenantHeaders -body $simulateDepositBody
+    if ($simulateDepositResponse.payment_id) {
+        $simulatePaymentId = $simulateDepositResponse.payment_id
+        Write-Host "Created payment for simulation: $simulatePaymentId"
+
+        # Now simulate the callback
+        $simulateCallbackResponse = Invoke-PostAuth -url "$baseUrl/api/payments/simulate-deposit-callback/?payment_id=$simulatePaymentId" -token $tenantToken -body "{}"
+        Write-Host "Simulate callback response: $($simulateCallbackResponse | ConvertTo-Json)"
+    }
+} catch {
+    Write-Host "Simulate callback test failed: $($_.Exception.Message)"
+}
+
+Write-Host "All tests completed with new payment flow and cleanup/simulation features!"
 Write-Host "Key improvements:"
 Write-Host "- Deposit payments now wait for callback confirmation"
 Write-Host "- Tenant assignment happens ONLY after successful payment"
 Write-Host "- Payment status polling replaces immediate success assumption"
 Write-Host "- Proper handling of both success and failure scenarios"
+Write-Host "- Added cleanup endpoint for pending payments older than 10 minutes"
+Write-Host "- Added simulation endpoint for testing deposit callbacks"

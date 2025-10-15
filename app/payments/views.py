@@ -1291,6 +1291,7 @@ def mpesa_deposit_callback(request):
 class DepositPaymentStatusView(APIView):
     """
     Allows tenants to check the status of their deposit payment.
+    Includes automatic timeout detection (10 minutes).
     """
     permission_classes = [IsAuthenticated]
 
@@ -1304,6 +1305,21 @@ class DepositPaymentStatusView(APIView):
         except Payment.DoesNotExist:
             return Response({"error": "Deposit payment not found"}, status=404)
 
+        # Check for timeout (10 minutes)
+        if payment.status == "Pending":
+            time_elapsed = timezone.now() - payment.transaction_date
+            if time_elapsed.total_seconds() > 600:  # 10 minutes
+                payment.status = "Failed"
+                payment.save()
+                logger.warning(f"Payment {payment.id} timed out after 10 minutes")
+
+                # Invalidate caches
+                cache.delete_many([
+                    f"pending_deposit_payment:{payment.tenant.id}:{payment.unit.id}",
+                    f"payments:tenant:{payment.tenant.id}",
+                    f"payments:landlord:{payment.unit.property_obj.landlord.id}",
+                ])
+
         return Response({
             "payment_id": payment.id,
             "status": payment.status,
@@ -1311,4 +1327,110 @@ class DepositPaymentStatusView(APIView):
             "unit_number": payment.unit.unit_number,
             "transaction_date": payment.transaction_date,
             "mpesa_receipt": payment.mpesa_receipt
+        })
+
+# ------------------------------
+# CLEANUP PENDING PAYMENTS VIEW
+# ------------------------------
+class CleanupPendingPaymentsView(APIView):
+    """
+    Admin endpoint to cleanup pending payments older than 10 minutes.
+    Marks them as Failed and invalidates relevant caches.
+    """
+    permission_classes = [IsAuthenticated]  # TODO: Add admin permission
+
+    def post(self, request):
+        # Find all pending payments older than 10 minutes
+        cutoff_time = timezone.now() - timedelta(minutes=10)
+        pending_payments = Payment.objects.filter(
+            status="Pending",
+            transaction_date__lt=cutoff_time
+        )
+
+        cleaned_count = 0
+        for payment in pending_payments:
+            payment.status = "Failed"
+            payment.save()
+            cleaned_count += 1
+
+            # Invalidate relevant caches
+            if payment.payment_type == 'deposit':
+                cache.delete_many([
+                    f"pending_deposit_payment:{payment.tenant.id}:{payment.unit.id}",
+                    f"payments:tenant:{payment.tenant.id}",
+                    f"payments:landlord:{payment.unit.property_obj.landlord.id}",
+                ])
+            else:  # rent payment
+                cache.delete_many([
+                    f"pending_payment:{payment.tenant.id}:{payment.unit.id}",
+                    f"payments:tenant:{payment.tenant.id}",
+                    f"payments:landlord:{payment.unit.property_obj.landlord.id}",
+                ])
+
+        logger.info(f"Cleaned up {cleaned_count} pending payments older than 10 minutes")
+
+        return Response({
+            "message": f"Cleaned up {cleaned_count} pending payments",
+            "cutoff_time": cutoff_time.isoformat()
+        })
+
+# ------------------------------
+# SIMULATE DEPOSIT CALLBACK VIEW
+# ------------------------------
+class SimulateDepositCallbackView(APIView):
+    """
+    Endpoint to simulate deposit callback for testing purposes.
+    Accepts payment_id as query parameter and simulates success/failure.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        payment_id = request.query_params.get('payment_id')
+        if not payment_id:
+            return Response({"error": "payment_id query parameter required"}, status=400)
+
+        try:
+            payment = Payment.objects.get(id=payment_id, payment_type='deposit')
+        except Payment.DoesNotExist:
+            return Response({"error": f"Deposit payment with id {payment_id} not found"}, status=404)
+
+        # Check if callback is within timeout (10 minutes)
+        time_elapsed = timezone.now() - payment.transaction_date
+        if time_elapsed.total_seconds() > 600:  # 10 minutes
+            return Response({"error": "Payment has timed out (10 minutes)"}, status=400)
+
+        # Simulate successful callback
+        mock_callback_data = {
+            "Body": {
+                "stkCallback": {
+                    "MerchantRequestID": "mock-request-id",
+                    "CheckoutRequestID": "mock-checkout-id",
+                    "ResultCode": 0,
+                    "ResultDesc": "The service request is processed successfully.",
+                    "CallbackMetadata": {
+                        "Item": [
+                            {"Name": "Amount", "Value": str(payment.amount)},
+                            {"Name": "MpesaReceiptNumber", "Value": f"SIM{payment_id}"},
+                            {"Name": "TransactionDate", "Value": timezone.now().strftime("%Y%m%d%H%M%S")},
+                            {"Name": "PhoneNumber", "Value": payment.tenant.phone_number},
+                            {"Name": "AccountReference", "Value": str(payment.id)}
+                        ]
+                    }
+                }
+            }
+        }
+
+        # Create mock request to call the actual callback function
+        from django.http import HttpRequest
+        mock_request = HttpRequest()
+        mock_request.method = 'POST'
+        mock_request._body = json.dumps(mock_callback_data).encode('utf-8')
+
+        logger.info(f"🔧 Simulating deposit callback for payment {payment_id}")
+        response = mpesa_deposit_callback(mock_request)
+
+        return Response({
+            "message": f"Deposit callback simulated for payment {payment_id}",
+            "mock_data": mock_callback_data,
+            "callback_response": response.content.decode('utf-8')
         })
