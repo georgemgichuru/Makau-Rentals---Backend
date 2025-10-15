@@ -90,7 +90,7 @@ function Invoke-PollPaymentStatus {
             $statusResponse = Invoke-GetAuth -url "$baseUrl/api/payments/deposit-status/$paymentId/" -token $token
             Write-Host "Payment status: $($statusResponse.status)"
             
-            if ($statusResponse.status -ne "pending") {
+            if ($statusResponse.status -ne "Pending") {
                 return $statusResponse
             }
         } catch {

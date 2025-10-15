@@ -17,6 +17,7 @@ from .views import (
     UnitTypeListView,
     InitiateDepositPaymentView,
     TriggerDepositCallbackView,
+    DepositPaymentStatusView,
 
     # CSV reports
     LandLordCSVView as landlord_csv,
@@ -62,7 +63,7 @@ urlpatterns = [
     # INITIATE DEPOSIT PAYMENT
     # ------------------------------
     path("initiate-deposit/", InitiateDepositPaymentView.as_view(), name="initiate-deposit"),
-
+    path('deposit-status/<int:payment_id>/', DepositPaymentStatusView.as_view(), name='deposit-status'),
     # ------------------------------
     # CSV REPORTS
     # ------------------------------
