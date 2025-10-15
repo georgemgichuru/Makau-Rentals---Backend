@@ -18,6 +18,8 @@ from .views import (
     InitiateDepositPaymentView,
     TriggerDepositCallbackView,
     DepositPaymentStatusView,
+    CleanupPendingPaymentsView,
+    SimulateDepositCallbackView,
 
     # CSV reports
     LandLordCSVView as landlord_csv,
