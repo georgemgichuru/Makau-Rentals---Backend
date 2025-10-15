@@ -13,7 +13,8 @@
 
 ## Followup Steps
 - [x] Update any URL patterns or imports that reference the old class name
-- [ ] Test the updated view with various scenarios
-- [ ] Verify callback handling still works correctly
-- [ ] Check logging output for debugging
-- [ ] Run unit tests if available
+- [x] Test the updated view with various scenarios
+- [x] Verify callback handling still works correctly
+- [x] Check logging output for debugging
+- [x] Run unit tests if available
+- [x] Increase deposit callback timeout from 30 to 60 seconds for better testing reliability

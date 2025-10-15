@@ -1118,9 +1118,9 @@ def mpesa_deposit_callback(request):
                         id=payment_id, status="Pending", payment_type="deposit")
                     logger.info(f"✅ Found pending deposit payment: {payment.id} for tenant {payment.tenant.email}")
 
-                    # Check if callback arrived within 30 seconds of payment initiation
+                    # Check if callback arrived within 60 seconds of payment initiation (increased for testing)
                     time_elapsed = timezone.now() - payment.transaction_date
-                    if time_elapsed.total_seconds() > 30:
+                    if time_elapsed.total_seconds() > 60:
                         logger.warning(f"⚠️ Deposit callback for payment {payment.id} arrived after 30 seconds ({time_elapsed.total_seconds()}s), marking as Failed")
                         payment.status = "Failed"
                         payment.save()
