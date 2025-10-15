@@ -800,7 +800,7 @@ class RentSummaryView(APIView):
     - Total outstanding rent
     - Per-unit breakdown (unit number, tenant, paid, remaining)
     """
-    permission_classes = [IsAuthenticated, HasActiveSubscription]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request, *args, **kwargs):
         user = request.user
@@ -1340,6 +1340,9 @@ class CleanupPendingPaymentsView(APIView):
     permission_classes = [IsAuthenticated]  # TODO: Add admin permission
 
     def post(self, request):
+        # Add logger import at the top of the function
+        logger = logging.getLogger(__name__)
+
         # Find all pending payments older than 10 minutes
         cutoff_time = timezone.now() - timedelta(minutes=10)
         pending_payments = Payment.objects.filter(

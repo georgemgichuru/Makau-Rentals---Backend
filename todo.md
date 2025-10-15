@@ -1,9 +1,9 @@
-# TODO: Update Makau Rentals Payment Features
+# TODO: Update Payments Code
 
-## Pending Tasks
-- [ ] Update DepositPaymentStatusView in app/payments/views.py to include timeout detection (10 minutes)
-- [ ] Add CleanupPendingPaymentsView after DepositPaymentStatusView in app/payments/views.py
-- [ ] Add SimulateDepositCallbackView after CleanupPendingPaymentsView in app/payments/views.py
-- [ ] Add URL patterns for cleanup and simulation endpoints in app/payments/urls.py
-- [ ] Update comprehensive_test_v2.ps1 with testing logic for new cleanup and simulation endpoints
-- [ ] Test the updated functionality
+## Tasks
+- [ ] Update SubscriptionPayment model in models.py to allow empty mpesa_receipt_number with conditional uniqueness
+- [ ] Add logger to CleanupPendingPaymentsView post method in views.py
+- [ ] Update RentSummaryView permissions to remove HasActiveSubscription
+- [ ] Verify stk_push_subscription function matches provided code
+- [ ] Run migrations for model changes
+- [ ] Test the updated endpoints
