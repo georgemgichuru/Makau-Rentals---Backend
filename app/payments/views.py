@@ -491,36 +491,43 @@ def mpesa_rent_callback(request):
 def mpesa_subscription_callback(request):
     """
     Handles M-Pesa callback for subscription payments.
+    - Finds user by phone number
+    - Creates/updates subscription payment
+    - Updates user subscription
+    - Handles duplicate receipts gracefully
     """
+    logger = logging.getLogger(__name__)
+    logger.info("🔄 Subscription callback received")
+
     try:
         data = json.loads(request.body.decode("utf-8"))
+        logger.info(f"📥 Subscription callback data: {json.dumps(data, indent=2)}")
+
         body = data.get("Body", {}).get("stkCallback", {})
         result_code = body.get("ResultCode")
+        logger.info(f"🔍 Subscription callback result code: {result_code}")
 
         if result_code == 0:  # ✅ Transaction successful
             metadata_items = body.get("CallbackMetadata", {}).get("Item", [])
+            logger.info(f"📋 Subscription callback metadata items: {len(metadata_items)}")
             metadata = {item["Name"]: item.get("Value") for item in metadata_items}
+            logger.info(f"🔧 Raw metadata: {metadata}")
 
-            # FIXED: Convert amount to proper type and handle phone number
-            amount = metadata.get("Amount")
-            if isinstance(amount, str):
-                amount = int(float(amount))  # Handle string amounts like "50.0"
-            else:
-                amount = int(amount)
+            # Convert amount to Decimal for consistency
+            amount_str = metadata.get("Amount")
+            amount = None
+            if amount_str:
+                try:
+                    amount = Decimal(amount_str)
+                    logger.info(f"💰 Subscription callback amount: {amount} (Decimal)")
+                except (ValueError, TypeError) as e:
+                    logger.error(f"❌ Invalid amount format: {amount_str}, error: {e}")
 
             receipt = metadata.get("MpesaReceiptNumber")
             account_reference = metadata.get("AccountReference")
+            phone = str(metadata.get("PhoneNumber")) if metadata.get("PhoneNumber") else None
 
-            # FIXED: Proper phone number handling
-            phone_number = metadata.get("PhoneNumber")
-            if phone_number:
-                # Convert to string and handle different formats
-                phone_str = str(phone_number)
-                # Remove any non-digit characters except +
-                import re
-                phone_str = re.sub(r'[^\d+]', '', phone_str)
-            else:
-                phone_str = None
+            logger.info(f"💰 Subscription callback metadata: amount={amount}, receipt={receipt}, account_reference={account_reference}, phone={phone}")
 
             # Helper function to find user by phone with multiple formats
             def find_user_by_phone(phone_str):
@@ -558,16 +565,94 @@ def mpesa_subscription_callback(request):
 
                 # Remove duplicates
                 phone_variants = list(set(phone_variants))
+                logger.info(f"🔍 Searching for user with phone variants: {phone_variants}")
                 return CustomUser.objects.filter(
                     user_type='landlord',
                     phone_number__in=phone_variants
                 ).first()
 
-            # Rest of your existing subscription callback logic...
+            # Find user by phone number
+            user = find_user_by_phone(phone)
+            if not user:
+                logger.error(f"❌ No landlord found with phone number: {phone}")
+                # Still acknowledge callback but log error
+            else:
+                logger.info(f"✅ Found user: {user.email} for phone: {phone}")
 
+                # Determine subscription type from amount
+                subscription_type = None
+                if amount == Decimal('50'):
+                    subscription_type = 'starter'
+                elif amount == Decimal('100'):
+                    subscription_type = 'basic'
+                elif amount == Decimal('200'):
+                    subscription_type = 'professional'
+                elif amount == Decimal('500'):
+                    subscription_type = 'onetime'
+                else:
+                    logger.warning(f"⚠️ Unknown subscription amount: {amount}, cannot determine plan")
+
+                if subscription_type:
+                    # Handle duplicate receipts gracefully
+                    try:
+                        subscription_payment, created = SubscriptionPayment.objects.get_or_create(
+                            mpesa_receipt_number=receipt,
+                            defaults={
+                                'user': user,
+                                'amount': amount,
+                                'subscription_type': subscription_type,
+                            }
+                        )
+
+                        if created:
+                            logger.info(f"✅ Created new subscription payment: {subscription_payment.id}")
+                        else:
+                            logger.warning(f"⚠️ Subscription payment with receipt {receipt} already exists, skipping duplicate")
+
+                        # Update or create subscription
+                        subscription, sub_created = Subscription.objects.get_or_create(
+                            user=user,
+                            defaults={
+                                'plan': subscription_type,
+                                'expiry_date': timezone.now() + timedelta(days=30) if subscription_type != 'onetime' else None
+                            }
+                        )
+
+                        if not sub_created:
+                            # Update existing subscription
+                            subscription.plan = subscription_type
+                            if subscription_type == 'onetime':
+                                subscription.expiry_date = None  # Lifetime
+                            else:
+                                subscription.expiry_date = timezone.now() + timedelta(days=30)
+                            subscription.save()
+                            logger.info(f"✅ Updated subscription for user {user.email} to {subscription_type}")
+                        else:
+                            logger.info(f"✅ Created new subscription for user {user.email}: {subscription_type}")
+
+                        # Invalidate relevant caches
+                        cache.delete_many([
+                            f"subscription_payments:{user.id}",
+                            f"rent_summary:{user.id}",
+                        ])
+                        logger.info(f"🗑️ Cache invalidated for subscription payment")
+
+                    except Exception as e:
+                        logger.error(f"❌ Error processing subscription payment: {e}")
+                else:
+                    logger.error(f"❌ Could not determine subscription type for amount: {amount}")
+        else:
+            # Transaction failed
+            error_msg = body.get("ResultDesc", "Unknown error")
+            logger.error(f"❌ Subscription transaction failed: {error_msg} (ResultCode: {result_code})")
+
+    except json.JSONDecodeError as e:
+        logger.error(f"❌ Invalid JSON in subscription callback: {e}")
     except Exception as e:
-        print(f"Error processing subscription callback: {str(e)}")
+        logger.error("❌ Unexpected error processing subscription callback:", exc_info=True)
 
+    # CRITICAL: Always respond with success to Safaricom to acknowledge callback receipt
+    logger.info("✅ Responding with success to M-Pesa subscription callback")
     return JsonResponse({"ResultCode": 0, "ResultDesc": "Accepted"})
 # ------------------------------
 # RENT PAYMENTS (DRF Views) - CACHED
@@ -1118,10 +1203,10 @@ def mpesa_deposit_callback(request):
                         id=payment_id, status="Pending", payment_type="deposit")
                     logger.info(f"✅ Found pending deposit payment: {payment.id} for tenant {payment.tenant.email}")
 
-                    # Check if callback arrived within 60 seconds of payment initiation (increased for testing)
+                    # Check if callback arrived within 120 seconds of payment initiation (increased for testing)
                     time_elapsed = timezone.now() - payment.transaction_date
-                    if time_elapsed.total_seconds() > 60:
-                        logger.warning(f"⚠️ Deposit callback for payment {payment.id} arrived after 30 seconds ({time_elapsed.total_seconds()}s), marking as Failed")
+                    if time_elapsed.total_seconds() > 120:
+                        logger.warning(f"⚠️ Deposit callback for payment {payment.id} arrived after 120 seconds ({time_elapsed.total_seconds()}s), marking as Failed")
                         payment.status = "Failed"
                         payment.save()
                         # Invalidate caches for failed payment
@@ -1129,6 +1214,8 @@ def mpesa_deposit_callback(request):
                             f"pending_deposit_payment:{payment.tenant.id}:{payment.unit.id}",
                             f"payments:tenant:{payment.tenant.id}",
                             f"payments:landlord:{payment.unit.property_obj.landlord.id}",
+                            f"rent_summary:{payment.unit.property_obj.landlord.id}",
+                            f"unit:{payment.unit.id}:details"
                         ])
                         logger.info(f"🗑️ Cache invalidated for timed-out payment {payment.id}")
                         logger.info(f"❌ Deposit payment {payment_id} marked as Failed due to timeout")
