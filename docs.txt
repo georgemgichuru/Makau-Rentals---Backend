@@ -1,1688 +1,1439 @@
-
-C:\Users\George Mwangi\Desktop\Makau Rentals>powershell -ExecutionPolicy Bypass -File app/comprehensive_test_v2.ps1
-1. Signing up landlord...
-Landlord signup successful. ID: 93
-Landlord code: L-864097D068
-2. Logging in landlord...
-Landlord login successful.
-2.1. Refreshing token...
-Token refreshed successfully.
-2.2. Getting current user info...
-Current user: {
-    "id":  93,
-    "email":  "test_landlord_20251011092248@example.com",
-    "full_name":  "Test Landlord",
-    "government_id":  null,
-    "id_document":  null,
-    "landlord_code":  "L-864097D068",
-    "date_joined":  "2025-10-11T06:22:49.574242Z",
-    "user_type":  "landlord",
-    "is_active":  true,
-    "is_staff":  false,
-    "is_superuser":  false,
-    "mpesa_till_number":  null,
-    "phone_number":  "254712345678",
-    "emergency_contact":  null,
-    "reminder_mode":  "days_before",
-    "reminder_value":  10
-}
-2.3. Getting subscription status...
-Subscription status: {
-    "plan":  "free",
-    "is_active":  true,
-    "expiry_date":  "2025-12-10T06:22:49.613489Z",
-    "status":  "Subscribed"
-}
-3. Creating property...
-Property created. ID: 43
-4. Creating unit type with automatic units...
-Unit type created. ID: 38
-5. Listing units...
-Units created: 2 units
-First unit ID: 64, Code: U-43-1-Bedroom-1
-5.1. Listing available units...
-Available units: [
-    {
-        "landlord_id":  "L-864097D068",
-        "property_id":  43,
-        "property_name":  "Test Property",
-        "unit_number":  "1"
-    },
-    {
-        "landlord_id":  "L-864097D068",
-        "property_id":  43,
-        "property_name":  "Test Property",
-        "unit_number":  "2"
-    }
-]
-5.2. Getting dashboard stats...
-Dashboard stats: {
-    "total_active_tenants":  0,
-    "total_units_available":  2,
-    "total_units_occupied":  0,
-    "monthly_revenue":  0.0
-}
-6. Signing up tenant...
-Tenant signup successful. ID: 94
-7. Logging in tenant...
-Tenant login successful.
-7.1. Updating reminder preferences...
-Reminder preferences updated: {
-    "reminder_mode":  "days_before",
-    "reminder_value":  10
-}
-8. Initiating deposit payment...
-Error in POST to http://localhost/api/payments/initiate-deposit/: The remote server returned an error: (400) Bad Request.
-Deposit initiation failed (expected if no M-Pesa setup): The remote server returned an error: (400) Bad Request.
-9. Assigning tenant to unit...
-Tenant assigned to unit: {
-    "message":  "Tenant assigned to unit successfully"
-}
-10. Initiating rent payment...
-Error in POST to http://localhost/api/payments/stk-push/64/: The remote server returned an error: (403) Forbidden.
-Rent initiation failed (expected if no M-Pesa setup): The remote server returned an error: (403) Forbidden.
-10.1. Listing rent payments...
-Rent payments:
-11. Creating report as tenant...
-Report created. ID: 23
-11.1. Listing urgent reports...
-Urgent reports:
-11.2. Listing in-progress reports...
-In-progress reports:
-11.3. Listing resolved reports...
-Resolved reports:
-11.4. Updating report status...
-Report status updated: {
-    "status":  "in_progress"
-}
-11.5. Sending email...
-Email sent: {
-    "message":  "Emails sent successfully."
-}
-12. Initiating subscription payment...
-Error in POST to http://localhost/api/payments/stk-push-subscription/: The remote server returned an error: (500) Internal Server Error.
-Subscription initiation failed (expected if no M-Pesa setup): The remote server returned an error: (500) Internal Server Error.
-12.1. Listing subscription payments...
-Subscription payments:
-13. Viewing open reports as landlord...
-Open reports found: 0 reports
-14. Getting rent summary as landlord...
-Rent summary: {
-    "landlord":  "test_landlord_20251011092248@example.com",
-    "total_collected":  0.0,
-    "total_outstanding":  4000.0,
-    "units":  [
-                  {
-                      "unit_number":  "2",
-                      "tenant":  null,
-                      "rent":  2000.0,
-                      "rent_paid":  0.0,
-                      "rent_remaining":  2000.0,
-                      "is_available":  true
-                  },
-                  {
-                      "unit_number":  "1",
-                      "tenant":  "test_tenant_20251011092248@example.com",
-                      "rent":  2000.0,
-                      "rent_paid":  0.0,
-                      "rent_remaining":  2000.0,
-                      "is_available":  false
-                  }
-              ],
-    "last_updated":  "2025-10-11T06:22:58.481474+00:00"
-}
-15. Listing users...
-Users: [
-    {
-        "id":  2,
-        "email":  "tenant@example.com",
-        "full_name":  "",
-        "government_id":  null,
-        "id_document":  null,
-        "landlord_code":  null,
-        "date_joined":  "2025-09-30T11:57:55.186205Z",
-        "user_type":  "tenant",
-        "is_active":  true,
-        "is_staff":  false,
-        "is_superuser":  false,
-        "mpesa_till_number":  null,
-        "phone_number":  null,
-        "emergency_contact":  null,
-        "reminder_mode":  "days_before",
-        "reminder_value":  10
-    },
-    {
-        "id":  5,
-        "email":  "kim@example.com",
-        "full_name":  "",
-        "government_id":  null,
-        "id_document":  null,
-        "landlord_code":  null,
-        "date_joined":  "2025-10-05T18:13:31.112833Z",
-        "user_type":  "tenant",
-        "is_active":  true,
-        "is_staff":  false,
-        "is_superuser":  false,
-        "mpesa_till_number":  null,
-        "phone_number":  "+254722714334",
-        "emergency_contact":  "9393839303",
-        "reminder_mode":  "days_before",
-        "reminder_value":  10
-    },
-    {
-        "id":  6,
-        "email":  "testuser@example.com",
-        "full_name":  "Test User",
-        "government_id":  null,
-        "id_document":  null,
-        "landlord_code":  null,
-        "date_joined":  "2025-10-09T12:58:05.932440Z",
-        "user_type":  "tenant",
-        "is_active":  true,
-        "is_staff":  false,
-        "is_superuser":  false,
-        "mpesa_till_number":  null,
-        "phone_number":  null,
-        "emergency_contact":  null,
-        "reminder_mode":  "days_before",
-        "reminder_value":  10
-    },
-    {
-        "id":  8,
-        "email":  "test@example.com",
-        "full_name":  "Test User",
-        "government_id":  null,
-        "id_document":  null,
-        "landlord_code":  "L-7F314E77BE",
-        "date_joined":  "2025-10-09T13:28:15.489241Z",
-        "user_type":  "tenant",
-        "is_active":  true,
-        "is_staff":  false,
-        "is_superuser":  false,
-        "mpesa_till_number":  null,
-        "phone_number":  "+254712345678",
-        "emergency_contact":  null,
-        "reminder_mode":  "days_before",
-        "reminder_value":  10
-    },
-    {
-        "id":  20,
-        "email":  "test_tenant_20251010102319@example.com",
-        "full_name":  "Test Tenant",
-        "government_id":  null,
-        "id_document":  null,
-        "landlord_code":  null,
-        "date_joined":  "2025-10-10T07:23:23.354084Z",
-        "user_type":  "tenant",
-        "is_active":  true,
-        "is_staff":  false,
-        "is_superuser":  false,
-        "mpesa_till_number":  null,
-        "phone_number":  "254798765432",
-        "emergency_contact":  null,
-        "reminder_mode":  "days_before",
-        "reminder_value":  10
-    },
-    {
-        "id":  14,
-        "email":  "test_tenant_20251010092950@example.com",
-        "full_name":  "Test Tenant",
-        "government_id":  null,
-        "id_document":  null,
-        "landlord_code":  null,
-        "date_joined":  "2025-10-10T06:29:53.374865Z",
-        "user_type":  "tenant",
-        "is_active":  true,
-        "is_staff":  false,
-        "is_superuser":  false,
-        "mpesa_till_number":  null,
-        "phone_number":  "254798765432",
-        "emergency_contact":  null,
-        "reminder_mode":  "days_before",
-        "reminder_value":  10
-    },
-    {
-        "id":  16,
-        "email":  "test_tenant_20251010095933@example.com",
-        "full_name":  "Test Tenant",
-        "government_id":  null,
-        "id_document":  null,
-        "landlord_code":  null,
-        "date_joined":  "2025-10-10T06:59:38.679693Z",
-        "user_type":  "tenant",
-        "is_active":  true,
-        "is_staff":  false,
-        "is_superuser":  false,
-        "mpesa_till_number":  null,
-        "phone_number":  "254798765432",
-        "emergency_contact":  null,
-        "reminder_mode":  "days_before",
-        "reminder_value":  10
-    },
-    {
-        "id":  18,
-        "email":  "test_tenant_20251010100551@example.com",
-        "full_name":  "Test Tenant",
-        "government_id":  null,
-        "id_document":  null,
-        "landlord_code":  null,
-        "date_joined":  "2025-10-10T07:05:53.189757Z",
-        "user_type":  "tenant",
-        "is_active":  true,
-        "is_staff":  false,
-        "is_superuser":  false,
-        "mpesa_till_number":  null,
-        "phone_number":  "254798765432",
-        "emergency_contact":  null,
-        "reminder_mode":  "days_before",
-        "reminder_value":  10
-    },
-    {
-        "id":  24,
-        "email":  "test_tenant_20251010122236@example.com",
-        "full_name":  "Test Tenant",
-        "government_id":  null,
-        "id_document":  null,
-        "landlord_code":  null,
-        "date_joined":  "2025-10-10T09:22:42.812206Z",
-        "user_type":  "tenant",
-        "is_active":  true,
-        "is_staff":  false,
-        "is_superuser":  false,
-        "mpesa_till_number":  null,
-        "phone_number":  "254798765432",
-        "emergency_contact":  null,
-        "reminder_mode":  "days_before",
-        "reminder_value":  10
-    },
-    {
-        "id":  26,
-        "email":  "test_tenant_20251010122308@example.com",
-        "full_name":  "Test Tenant",
-        "government_id":  null,
-        "id_document":  null,
-        "landlord_code":  null,
-        "date_joined":  "2025-10-10T09:23:13.272568Z",
-        "user_type":  "tenant",
-        "is_active":  true,
-        "is_staff":  false,
-        "is_superuser":  false,
-        "mpesa_till_number":  null,
-        "phone_number":  "254798765432",
-        "emergency_contact":  null,
-        "reminder_mode":  "days_before",
-        "reminder_value":  10
-    },
-    {
-        "id":  28,
-        "email":  "test_tenant_20251010124000@example.com",
-        "full_name":  "Test Tenant",
-        "government_id":  null,
-        "id_document":  null,
-        "landlord_code":  null,
-        "date_joined":  "2025-10-10T09:40:04.516891Z",
-        "user_type":  "tenant",
-        "is_active":  true,
-        "is_staff":  false,
-        "is_superuser":  false,
-        "mpesa_till_number":  null,
-        "phone_number":  "254798765432",
-        "emergency_contact":  null,
-        "reminder_mode":  "days_before",
-        "reminder_value":  10
-    },
-    {
-        "id":  30,
-        "email":  "test_tenant_20251010124255@example.com",
-        "full_name":  "Test Tenant",
-        "government_id":  null,
-        "id_document":  null,
-        "landlord_code":  null,
-        "date_joined":  "2025-10-10T09:42:59.088779Z",
-        "user_type":  "tenant",
-        "is_active":  true,
-        "is_staff":  false,
-        "is_superuser":  false,
-        "mpesa_till_number":  null,
-        "phone_number":  "254798765432",
-        "emergency_contact":  null,
-        "reminder_mode":  "days_before",
-        "reminder_value":  10
-    },
-    {
-        "id":  32,
-        "email":  "test_tenant_20251010125629@example.com",
-        "full_name":  "Test Tenant",
-        "government_id":  null,
-        "id_document":  null,
-        "landlord_code":  null,
-        "date_joined":  "2025-10-10T09:56:33.172028Z",
-        "user_type":  "tenant",
-        "is_active":  true,
-        "is_staff":  false,
-        "is_superuser":  false,
-        "mpesa_till_number":  null,
-        "phone_number":  "254798765432",
-        "emergency_contact":  null,
-        "reminder_mode":  "days_before",
-        "reminder_value":  10
-    },
-    {
-        "id":  40,
-        "email":  "test_tenant_20251010134559@example.com",
-        "full_name":  "Test Tenant",
-        "government_id":  null,
-        "id_document":  null,
-        "landlord_code":  null,
-        "date_joined":  "2025-10-10T10:46:04.086268Z",
-        "user_type":  "tenant",
-        "is_active":  true,
-        "is_staff":  false,
-        "is_superuser":  false,
-        "mpesa_till_number":  null,
-        "phone_number":  "254723456789",
-        "emergency_contact":  null,
-        "reminder_mode":  "days_before",
-        "reminder_value":  5
-    },
-    {
-        "id":  44,
-        "email":  "test_tenant_20251011071823@example.com",
-        "full_name":  "Test Tenant",
-        "government_id":  null,
-        "id_document":  null,
-        "landlord_code":  null,
-        "date_joined":  "2025-10-11T04:18:28.580571Z",
-        "user_type":  "tenant",
-        "is_active":  true,
-        "is_staff":  false,
-        "is_superuser":  false,
-        "mpesa_till_number":  null,
-        "phone_number":  "254798765432",
-        "emergency_contact":  null,
-        "reminder_mode":  "days_before",
-        "reminder_value":  10
-    },
-    {
-        "id":  46,
-        "email":  "test_tenant_20251011072442@example.com",
-        "full_name":  "Test Tenant",
-        "government_id":  null,
-        "id_document":  null,
-        "landlord_code":  null,
-        "date_joined":  "2025-10-11T04:24:49.100699Z",
-        "user_type":  "tenant",
-        "is_active":  true,
-        "is_staff":  false,
-        "is_superuser":  false,
-        "mpesa_till_number":  null,
-        "phone_number":  "254798765432",
-        "emergency_contact":  null,
-        "reminder_mode":  "days_before",
-        "reminder_value":  10
-    },
-    {
-        "id":  48,
-        "email":  "test_tenant_20251011074526@example.com",
-        "full_name":  "Test Tenant",
-        "government_id":  null,
-        "id_document":  null,
-        "landlord_code":  null,
-        "date_joined":  "2025-10-11T04:45:45.895354Z",
-        "user_type":  "tenant",
-        "is_active":  true,
-        "is_staff":  false,
-        "is_superuser":  false,
-        "mpesa_till_number":  null,
-        "phone_number":  "254798765432",
-        "emergency_contact":  null,
-        "reminder_mode":  "days_before",
-        "reminder_value":  10
-    },
-    {
-        "id":  50,
-        "email":  "test_tenant_20251011074653@example.com",
-        "full_name":  "Test Tenant",
-        "government_id":  null,
-        "id_document":  null,
-        "landlord_code":  null,
-        "date_joined":  "2025-10-11T04:46:59.005272Z",
-        "user_type":  "tenant",
-        "is_active":  true,
-        "is_staff":  false,
-        "is_superuser":  false,
-        "mpesa_till_number":  null,
-        "phone_number":  "254798765432",
-        "emergency_contact":  null,
-        "reminder_mode":  "days_before",
-        "reminder_value":  10
-    },
-    {
-        "id":  52,
-        "email":  "test_tenant_20251011074745@example.com",
-        "full_name":  "Test Tenant",
-        "government_id":  null,
-        "id_document":  null,
-        "landlord_code":  null,
-        "date_joined":  "2025-10-11T04:47:51.522930Z",
-        "user_type":  "tenant",
-        "is_active":  true,
-        "is_staff":  false,
-        "is_superuser":  false,
-        "mpesa_till_number":  null,
-        "phone_number":  "254798765432",
-        "emergency_contact":  null,
-        "reminder_mode":  "days_before",
-        "reminder_value":  10
-    },
-    {
-        "id":  54,
-        "email":  "test_tenant_20251011075640@example.com",
-        "full_name":  "Test Tenant",
-        "government_id":  null,
-        "id_document":  null,
-        "landlord_code":  null,
-        "date_joined":  "2025-10-11T04:56:48.831962Z",
-        "user_type":  "tenant",
-        "is_active":  true,
-        "is_staff":  false,
-        "is_superuser":  false,
-        "mpesa_till_number":  null,
-        "phone_number":  "254798765432",
-        "emergency_contact":  null,
-        "reminder_mode":  "days_before",
-        "reminder_value":  10
-    },
-    {
-        "id":  56,
-        "email":  "test_tenant_20251011075719@example.com",
-        "full_name":  "Test Tenant",
-        "government_id":  null,
-        "id_document":  null,
-        "landlord_code":  null,
-        "date_joined":  "2025-10-11T04:57:28.790332Z",
-        "user_type":  "tenant",
-        "is_active":  true,
-        "is_staff":  false,
-        "is_superuser":  false,
-        "mpesa_till_number":  null,
-        "phone_number":  "254798765432",
-        "emergency_contact":  null,
-        "reminder_mode":  "days_before",
-        "reminder_value":  10
-    },
-    {
-        "id":  58,
-        "email":  "test_tenant_20251011080137@example.com",
-        "full_name":  "Test Tenant",
-        "government_id":  null,
-        "id_document":  null,
-        "landlord_code":  null,
-        "date_joined":  "2025-10-11T05:01:46.031760Z",
-        "user_type":  "tenant",
-        "is_active":  true,
-        "is_staff":  false,
-        "is_superuser":  false,
-        "mpesa_till_number":  null,
-        "phone_number":  "254798765432",
-        "emergency_contact":  null,
-        "reminder_mode":  "days_before",
-        "reminder_value":  10
-    },
-    {
-        "id":  60,
-        "email":  "test_tenant_20251011080215@example.com",
-        "full_name":  "Test Tenant",
-        "government_id":  null,
-        "id_document":  null,
-        "landlord_code":  null,
-        "date_joined":  "2025-10-11T05:02:19.409280Z",
-        "user_type":  "tenant",
-        "is_active":  true,
-        "is_staff":  false,
-        "is_superuser":  false,
-        "mpesa_till_number":  null,
-        "phone_number":  "254798765432",
-        "emergency_contact":  null,
-        "reminder_mode":  "days_before",
-        "reminder_value":  10
-    },
-    {
-        "id":  62,
-        "email":  "test_tenant_20251011081911@example.com",
-        "full_name":  "Test Tenant",
-        "government_id":  null,
-        "id_document":  null,
-        "landlord_code":  null,
-        "date_joined":  "2025-10-11T05:19:19.075339Z",
-        "user_type":  "tenant",
-        "is_active":  true,
-        "is_staff":  false,
-        "is_superuser":  false,
-        "mpesa_till_number":  null,
-        "phone_number":  "254798765432",
-        "emergency_contact":  null,
-        "reminder_mode":  "days_before",
-        "reminder_value":  10
-    },
-    {
-        "id":  64,
-        "email":  "test_tenant_20251011082020@example.com",
-        "full_name":  "Test Tenant",
-        "government_id":  null,
-        "id_document":  null,
-        "landlord_code":  null,
-        "date_joined":  "2025-10-11T05:20:26.962041Z",
-        "user_type":  "tenant",
-        "is_active":  true,
-        "is_staff":  false,
-        "is_superuser":  false,
-        "mpesa_till_number":  null,
-        "phone_number":  "254798765432",
-        "emergency_contact":  null,
-        "reminder_mode":  "days_before",
-        "reminder_value":  10
-    },
-    {
-        "id":  66,
-        "email":  "test_tenant_20251011082227@example.com",
-        "full_name":  "Test Tenant",
-        "government_id":  null,
-        "id_document":  null,
-        "landlord_code":  null,
-        "date_joined":  "2025-10-11T05:22:33.155773Z",
-        "user_type":  "tenant",
-        "is_active":  true,
-        "is_staff":  false,
-        "is_superuser":  false,
-        "mpesa_till_number":  null,
-        "phone_number":  "254798765432",
-        "emergency_contact":  null,
-        "reminder_mode":  "days_before",
-        "reminder_value":  10
-    },
-    {
-        "id":  68,
-        "email":  "test_tenant_20251011082256@example.com",
-        "full_name":  "Test Tenant",
-        "government_id":  null,
-        "id_document":  null,
-        "landlord_code":  null,
-        "date_joined":  "2025-10-11T05:23:04.080520Z",
-        "user_type":  "tenant",
-        "is_active":  true,
-        "is_staff":  false,
-        "is_superuser":  false,
-        "mpesa_till_number":  null,
-        "phone_number":  "254798765432",
-        "emergency_contact":  null,
-        "reminder_mode":  "days_before",
-        "reminder_value":  10
-    },
-    {
-        "id":  70,
-        "email":  "test_tenant_20251011083011@example.com",
-        "full_name":  "Test Tenant",
-        "government_id":  null,
-        "id_document":  null,
-        "landlord_code":  null,
-        "date_joined":  "2025-10-11T05:30:20.663458Z",
-        "user_type":  "tenant",
-        "is_active":  true,
-        "is_staff":  false,
-        "is_superuser":  false,
-        "mpesa_till_number":  null,
-        "phone_number":  "254798765432",
-        "emergency_contact":  null,
-        "reminder_mode":  "days_before",
-        "reminder_value":  10
-    },
-    {
-        "id":  72,
-        "email":  "test_tenant_20251011083052@example.com",
-        "full_name":  "Test Tenant",
-        "government_id":  null,
-        "id_document":  null,
-        "landlord_code":  null,
-        "date_joined":  "2025-10-11T05:31:00.342974Z",
-        "user_type":  "tenant",
-        "is_active":  true,
-        "is_staff":  false,
-        "is_superuser":  false,
-        "mpesa_till_number":  null,
-        "phone_number":  "254798765432",
-        "emergency_contact":  null,
-        "reminder_mode":  "days_before",
-        "reminder_value":  10
-    },
-    {
-        "id":  74,
-        "email":  "test_tenant_20251011083852@example.com",
-        "full_name":  "Test Tenant",
-        "government_id":  null,
-        "id_document":  null,
-        "landlord_code":  null,
-        "date_joined":  "2025-10-11T05:38:56.974953Z",
-        "user_type":  "tenant",
-        "is_active":  true,
-        "is_staff":  false,
-        "is_superuser":  false,
-        "mpesa_till_number":  null,
-        "phone_number":  "254798765432",
-        "emergency_contact":  null,
-        "reminder_mode":  "days_before",
-        "reminder_value":  10
-    },
-    {
-        "id":  76,
-        "email":  "test_tenant_20251011084123@example.com",
-        "full_name":  "Test Tenant",
-        "government_id":  null,
-        "id_document":  null,
-        "landlord_code":  null,
-        "date_joined":  "2025-10-11T05:41:27.568346Z",
-        "user_type":  "tenant",
-        "is_active":  true,
-        "is_staff":  false,
-        "is_superuser":  false,
-        "mpesa_till_number":  null,
-        "phone_number":  "254798765432",
-        "emergency_contact":  null,
-        "reminder_mode":  "days_before",
-        "reminder_value":  10
-    },
-    {
-        "id":  78,
-        "email":  "test_tenant_20251011084539@example.com",
-        "full_name":  "Test Tenant",
-        "government_id":  null,
-        "id_document":  null,
-        "landlord_code":  null,
-        "date_joined":  "2025-10-11T05:45:47.308256Z",
-        "user_type":  "tenant",
-        "is_active":  true,
-        "is_staff":  false,
-        "is_superuser":  false,
-        "mpesa_till_number":  null,
-        "phone_number":  "254798765432",
-        "emergency_contact":  null,
-        "reminder_mode":  "days_before",
-        "reminder_value":  10
-    },
-    {
-        "id":  80,
-        "email":  "test_tenant_20251011084740@example.com",
-        "full_name":  "Test Tenant",
-        "government_id":  null,
-        "id_document":  null,
-        "landlord_code":  null,
-        "date_joined":  "2025-10-11T05:47:46.881452Z",
-        "user_type":  "tenant",
-        "is_active":  true,
-        "is_staff":  false,
-        "is_superuser":  false,
-        "mpesa_till_number":  null,
-        "phone_number":  "254798765432",
-        "emergency_contact":  null,
-        "reminder_mode":  "days_before",
-        "reminder_value":  10
-    },
-    {
-        "id":  82,
-        "email":  "test_tenant_20251011085114@example.com",
-        "full_name":  "Test Tenant",
-        "government_id":  null,
-        "id_document":  null,
-        "landlord_code":  null,
-        "date_joined":  "2025-10-11T05:51:20.157340Z",
-        "user_type":  "tenant",
-        "is_active":  true,
-        "is_staff":  false,
-        "is_superuser":  false,
-        "mpesa_till_number":  null,
-        "phone_number":  "254798765432",
-        "emergency_contact":  null,
-        "reminder_mode":  "days_before",
-        "reminder_value":  10
-    },
-    {
-        "id":  84,
-        "email":  "test_tenant_20251011085358@example.com",
-        "full_name":  "Test Tenant",
-        "government_id":  null,
-        "id_document":  null,
-        "landlord_code":  null,
-        "date_joined":  "2025-10-11T05:54:01.940060Z",
-        "user_type":  "tenant",
-        "is_active":  true,
-        "is_staff":  false,
-        "is_superuser":  false,
-        "mpesa_till_number":  null,
-        "phone_number":  "254798765432",
-        "emergency_contact":  null,
-        "reminder_mode":  "days_before",
-        "reminder_value":  10
-    },
-    {
-        "id":  86,
-        "email":  "test_tenant_20251011085520@example.com",
-        "full_name":  "Test Tenant",
-        "government_id":  null,
-        "id_document":  null,
-        "landlord_code":  null,
-        "date_joined":  "2025-10-11T05:55:25.141637Z",
-        "user_type":  "tenant",
-        "is_active":  true,
-        "is_staff":  false,
-        "is_superuser":  false,
-        "mpesa_till_number":  null,
-        "phone_number":  "254798765432",
-        "emergency_contact":  null,
-        "reminder_mode":  "days_before",
-        "reminder_value":  10
-    },
-    {
-        "id":  88,
-        "email":  "test_tenant_20251011090443@example.com",
-        "full_name":  "Test Tenant",
-        "government_id":  null,
-        "id_document":  null,
-        "landlord_code":  null,
-        "date_joined":  "2025-10-11T06:04:48.098573Z",
-        "user_type":  "tenant",
-        "is_active":  true,
-        "is_staff":  false,
-        "is_superuser":  false,
-        "mpesa_till_number":  null,
-        "phone_number":  "254798765432",
-        "emergency_contact":  null,
-        "reminder_mode":  "days_before",
-        "reminder_value":  10
-    },
-    {
-        "id":  90,
-        "email":  "test_tenant_20251011090704@example.com",
-        "full_name":  "Test Tenant",
-        "government_id":  null,
-        "id_document":  null,
-        "landlord_code":  null,
-        "date_joined":  "2025-10-11T06:07:09.172345Z",
-        "user_type":  "tenant",
-        "is_active":  true,
-        "is_staff":  false,
-        "is_superuser":  false,
-        "mpesa_till_number":  null,
-        "phone_number":  "254798765432",
-        "emergency_contact":  null,
-        "reminder_mode":  "days_before",
-        "reminder_value":  10
-    },
-    {
-        "id":  92,
-        "email":  "test_tenant_20251011090954@example.com",
-        "full_name":  "Test Tenant",
-        "government_id":  null,
-        "id_document":  null,
-        "landlord_code":  null,
-        "date_joined":  "2025-10-11T06:09:58.956688Z",
-        "user_type":  "tenant",
-        "is_active":  true,
-        "is_staff":  false,
-        "is_superuser":  false,
-        "mpesa_till_number":  null,
-        "phone_number":  "254798765432",
-        "emergency_contact":  null,
-        "reminder_mode":  "days_before",
-        "reminder_value":  10
-    },
-    {
-        "id":  94,
-        "email":  "test_tenant_20251011092248@example.com",
-        "full_name":  "Test Tenant",
-        "government_id":  null,
-        "id_document":  null,
-        "landlord_code":  null,
-        "date_joined":  "2025-10-11T06:22:56.062930Z",
-        "user_type":  "tenant",
-        "is_active":  true,
-        "is_staff":  false,
-        "is_superuser":  false,
-        "mpesa_till_number":  null,
-        "phone_number":  "254798765432",
-        "emergency_contact":  null,
-        "reminder_mode":  "days_before",
-        "reminder_value":  10
-    }
-]
-15.1. Getting user detail...
-User detail: {
-    "id":  93,
-    "email":  "test_landlord_20251011092248@example.com",
-    "full_name":  "Test Landlord",
-    "government_id":  null,
-    "id_document":  null,
-    "landlord_code":  "L-864097D068",
-    "date_joined":  "2025-10-11T06:22:49.574242Z",
-    "user_type":  "landlord",
-    "is_active":  true,
-    "is_staff":  false,
-    "is_superuser":  false,
-    "mpesa_till_number":  null,
-    "phone_number":  "254712345678",
-    "emergency_contact":  null,
-    "reminder_mode":  "days_before",
-    "reminder_value":  10
-}
-15.2. Updating user...
-User updated: {
-    "id":  93,
-    "email":  "test_landlord_20251011092248@example.com",
-    "full_name":  "Updated Landlord",
-    "government_id":  null,
-    "id_document":  null,
-    "landlord_code":  "L-864097D068",
-    "date_joined":  "2025-10-11T06:22:49.574242Z",
-    "user_type":  "landlord",
-    "is_active":  true,
-    "is_staff":  false,
-    "is_superuser":  false,
-    "mpesa_till_number":  null,
-    "phone_number":  "254712345678",
-    "emergency_contact":  null,
-    "reminder_mode":  "days_before",
-    "reminder_value":  10
-}
-15.3. Requesting password reset...
-Password reset requested: {
-    "message":  "Password reset email sent."
-}
-15.4. Updating property...
-Property updated: {
-    "id":  43,
-    "landlord":  93,
-    "name":  "Updated Property",
-    "city":  "Nairobi",
-    "state":  "Kenya",
-    "unit_count":  1
-}
-15.5. Creating unit...
-Unit created: {
-    "id":  66,
-    "property_obj":  43,
-    "unit_code":  "U-43-3",
-    "unit_number":  "3",
-    "floor":  null,
-    "bedrooms":  0,
-    "bathrooms":  0,
-    "unit_type":  38,
-    "rent":  "2000.00",
-    "tenant":  null,
-    "rent_paid":  "0.00",
-    "rent_remaining":  "2000.00",
-    "deposit":  "1000.00",
-    "is_available":  true
-}
-15.6. Updating unit...
-Unit updated: {
-    "id":  66,
-    "property_obj":  43,
-    "unit_code":  "U-43-3",
-    "unit_number":  "3",
-    "floor":  null,
-    "bedrooms":  0,
-    "bathrooms":  0,
-    "unit_type":  38,
-    "rent":  "2000.00",
-    "tenant":  null,
-    "rent_paid":  "0.00",
-    "rent_remaining":  "2000.00",
-    "deposit":  "1000.00",
-    "is_available":  true
-}
-15.7. Tenant updating unit...
-Tenant unit updated: {
-    "unit_number":  "1"
-}
-15.8. Getting unit type detail...
-Unit type detail: {
-    "id":  38,
-    "landlord":  93,
-    "name":  "1 Bedroom",
-    "deposit":  "1000.00",
-    "rent":  "2000.00"
-}
-15.9. Updating till number...
-Till number updated: {
-    "message":  "Till number updated successfully",
-    "mpesa_till_number":  "123456"
-}
-15.10. Adjusting rent...
-Rent adjusted: {
-    "message":  "Rent set to 2500 for 3 units successfully"
-}
-16. Getting rent payment detail...
-No rent payments to detail
-16.1. Getting subscription payment detail...
-No subscription payments to detail
-16.2. Listing unit types (payments)...
-Unit types (payments): [
-    {
-        "id":  1,
-        "landlord":  13,
-        "name":  "1 Bedroom",
-        "deposit":  "1000.00",
-        "rent":  "2000.00"
-    },
-    {
-        "id":  2,
-        "landlord":  15,
-        "name":  "1 Bedroom",
-        "deposit":  "1000.00",
-        "rent":  "2000.00"
-    },
-    {
-        "id":  3,
-        "landlord":  17,
-        "name":  "1 Bedroom",
-        "deposit":  "1000.00",
-        "rent":  "2000.00"
-    },
-    {
-        "id":  4,
-        "landlord":  19,
-        "name":  "1 Bedroom",
-        "deposit":  "1000.00",
-        "rent":  "2000.00"
-    },
-    {
-        "id":  5,
-        "landlord":  21,
-        "name":  "1 Bedroom",
-        "deposit":  "1000.00",
-        "rent":  "2000.00"
-    },
-    {
-        "id":  6,
-        "landlord":  23,
-        "name":  "1 Bedroom",
-        "deposit":  "1000.00",
-        "rent":  "2000.00"
-    },
-    {
-        "id":  7,
-        "landlord":  25,
-        "name":  "1 Bedroom",
-        "deposit":  "1000.00",
-        "rent":  "2000.00"
-    },
-    {
-        "id":  8,
-        "landlord":  27,
-        "name":  "1 Bedroom",
-        "deposit":  "1000.00",
-        "rent":  "2000.00"
-    },
-    {
-        "id":  9,
-        "landlord":  29,
-        "name":  "1 Bedroom",
-        "deposit":  "1000.00",
-        "rent":  "2000.00"
-    },
-    {
-        "id":  10,
-        "landlord":  31,
-        "name":  "1 Bedroom",
-        "deposit":  "1000.00",
-        "rent":  "2000.00"
-    },
-    {
-        "id":  11,
-        "landlord":  39,
-        "name":  "Studio Apartment",
-        "deposit":  "15000.00",
-        "rent":  "15000.00"
-    },
-    {
-        "id":  12,
-        "landlord":  42,
-        "name":  "1 Bedroom",
-        "deposit":  "1000.00",
-        "rent":  "2000.00"
-    },
-    {
-        "id":  13,
-        "landlord":  43,
-        "name":  "1 Bedroom",
-        "deposit":  "1000.00",
-        "rent":  "2000.00"
-    },
-    {
-        "id":  14,
-        "landlord":  45,
-        "name":  "1 Bedroom",
-        "deposit":  "1000.00",
-        "rent":  "2000.00"
-    },
-    {
-        "id":  15,
-        "landlord":  47,
-        "name":  "1 Bedroom",
-        "deposit":  "1000.00",
-        "rent":  "2000.00"
-    },
-    {
-        "id":  16,
-        "landlord":  49,
-        "name":  "1 Bedroom",
-        "deposit":  "1000.00",
-        "rent":  "2000.00"
-    },
-    {
-        "id":  17,
-        "landlord":  51,
-        "name":  "1 Bedroom",
-        "deposit":  "1000.00",
-        "rent":  "2000.00"
-    },
-    {
-        "id":  18,
-        "landlord":  53,
-        "name":  "1 Bedroom",
-        "deposit":  "1000.00",
-        "rent":  "2000.00"
-    },
-    {
-        "id":  19,
-        "landlord":  55,
-        "name":  "1 Bedroom",
-        "deposit":  "1000.00",
-        "rent":  "2000.00"
-    },
-    {
-        "id":  20,
-        "landlord":  57,
-        "name":  "1 Bedroom",
-        "deposit":  "1000.00",
-        "rent":  "2000.00"
-    },
-    {
-        "id":  21,
-        "landlord":  59,
-        "name":  "1 Bedroom",
-        "deposit":  "1000.00",
-        "rent":  "2000.00"
-    },
-    {
-        "id":  22,
-        "landlord":  61,
-        "name":  "1 Bedroom",
-        "deposit":  "1000.00",
-        "rent":  "2000.00"
-    },
-    {
-        "id":  23,
-        "landlord":  63,
-        "name":  "1 Bedroom",
-        "deposit":  "1000.00",
-        "rent":  "2000.00"
-    },
-    {
-        "id":  24,
-        "landlord":  65,
-        "name":  "1 Bedroom",
-        "deposit":  "1000.00",
-        "rent":  "2000.00"
-    },
-    {
-        "id":  25,
-        "landlord":  67,
-        "name":  "1 Bedroom",
-        "deposit":  "1000.00",
-        "rent":  "2000.00"
-    },
-    {
-        "id":  26,
-        "landlord":  69,
-        "name":  "1 Bedroom",
-        "deposit":  "1000.00",
-        "rent":  "2000.00"
-    },
-    {
-        "id":  27,
-        "landlord":  71,
-        "name":  "1 Bedroom",
-        "deposit":  "1000.00",
-        "rent":  "2000.00"
-    },
-    {
-        "id":  28,
-        "landlord":  73,
-        "name":  "1 Bedroom",
-        "deposit":  "1000.00",
-        "rent":  "2000.00"
-    },
-    {
-        "id":  29,
-        "landlord":  75,
-        "name":  "1 Bedroom",
-        "deposit":  "1000.00",
-        "rent":  "2000.00"
-    },
-    {
-        "id":  30,
-        "landlord":  77,
-        "name":  "1 Bedroom",
-        "deposit":  "1000.00",
-        "rent":  "2000.00"
-    },
-    {
-        "id":  31,
-        "landlord":  79,
-        "name":  "1 Bedroom",
-        "deposit":  "1000.00",
-        "rent":  "2000.00"
-    },
-    {
-        "id":  32,
-        "landlord":  81,
-        "name":  "1 Bedroom",
-        "deposit":  "1000.00",
-        "rent":  "2000.00"
-    },
-    {
-        "id":  33,
-        "landlord":  83,
-        "name":  "1 Bedroom",
-        "deposit":  "1000.00",
-        "rent":  "2000.00"
-    },
-    {
-        "id":  34,
-        "landlord":  85,
-        "name":  "1 Bedroom",
-        "deposit":  "1000.00",
-        "rent":  "2000.00"
-    },
-    {
-        "id":  35,
-        "landlord":  87,
-        "name":  "1 Bedroom",
-        "deposit":  "1000.00",
-        "rent":  "2000.00"
-    },
-    {
-        "id":  36,
-        "landlord":  89,
-        "name":  "1 Bedroom",
-        "deposit":  "1000.00",
-        "rent":  "2000.00"
-    },
-    {
-        "id":  37,
-        "landlord":  91,
-        "name":  "1 Bedroom",
-        "deposit":  "1000.00",
-        "rent":  "2000.00"
-    },
-    {
-        "id":  38,
-        "landlord":  93,
-        "name":  "1 Bedroom",
-        "deposit":  "1000.00",
-        "rent":  "2000.00"
-    }
-]
-16.3. Getting landlord CSV...
-Landlord CSV: "Tenant,Unit Number,Floor,Bedrooms,Bathrooms,Rent,Rent Paid,Rent Remaining,Rent Due Date,Deposit,Is Available\r\nVacant,2,,0,0,2500.00,0.00,2500.00,,1000.00,True\r\nVacant,3,,0,0,2500.00,0.00,2500.00,,1000.00,True\r\ntest_tenant_20251011092248@example.com,1,,0,0,2500.00,0.00,2500.00,,1000.00,False\r\n"
-16.4. Getting tenant CSV...
-Tenant CSV: "Property,Unit Number,Floor,Bedrooms,Bathrooms,Rent,Rent Paid,Rent Remaining,Rent Due Date,Deposit\r\nUpdated Property,1,,0,0,2500.00,0.00,2500.00,,1000.00\r\n"
-All tests completed successfully!
-
-C:\Users\George Mwangi\Desktop\Makau Rentals>
-
-# Comprehensive test script v2 for Makau Rentals backend flows
-# Tests all endpoints in accounts, payments, and communication
-# Sends required JSON and receives responses
-
-$baseUrl = "http://localhost"
-
-# Function to perform POST request with JSON body
-function Invoke-PostJson {
-    param (
-        [string]$url,
-        [hashtable]$headers = @{},
-        [string]$body
-    )
-    try {
-        return Invoke-RestMethod -Uri $url -Method POST -Headers $headers -Body $body -ContentType "application/json"
-    } catch {
-        Write-Host "Error in POST to $url`: $($_.Exception.Message)"
-        throw
-    }
-}
-
-# Function to perform GET request with Authorization header
-function Invoke-GetAuth {
-    param (
-        [string]$url,
-        [string]$token
-    )
-    $headers = @{ Authorization = "Bearer $token" }
-    try {
-        return Invoke-RestMethod -Uri $url -Method GET -Headers $headers
-    } catch {
-        Write-Host "Error in GET to $url`: $($_.Exception.Message)"
-        throw
-    }
-}
-
-# Function to perform PUT request with Authorization header
-function Invoke-PutAuth {
-    param (
-        [string]$url,
-        [string]$token,
-        [string]$body
-    )
-    $headers = @{ Authorization = "Bearer $token" }
-    try {
-        return Invoke-RestMethod -Uri $url -Method PUT -Headers $headers -Body $body -ContentType "application/json"
-    } catch {
-        Write-Host "Error in PUT to $url`: $($_.Exception.Message)"
-        throw
-    }
-}
-
-# Function to perform PATCH request with Authorization header
-function Invoke-PatchAuth {
-    param (
-        [string]$url,
-        [string]$token,
-        [string]$body
-    )
-    $headers = @{ Authorization = "Bearer $token" }
-    try {
-        return Invoke-RestMethod -Uri $url -Method PATCH -Headers $headers -Body $body -ContentType "application/json"
-    } catch {
-        Write-Host "Error in PATCH to $url`: $($_.Exception.Message)"
-        throw
-    }
-}
-
-# Test data
-$timestamp = Get-Date -Format 'yyyyMMddHHmmss'
-$landlordEmail = "test_landlord_$timestamp@example.com"  # Use timestamp to ensure uniqueness
-$landlordPassword = "testpass123"
-$landlordFullName = "Test Landlord"
-$landlordPhone = "254712345678"
-
-$tenantEmail = "test_tenant_$timestamp@example.com"
-$tenantPassword = "testpass123"
-$tenantFullName = "Test Tenant"
-$tenantPhone = "254798765432"
-
-# 1. Signup Landlord (no properties)
-Write-Host "1. Signing up landlord..."
-$landlordSignupBody = @{
-    email = $landlordEmail
-    full_name = $landlordFullName
-    user_type = "landlord"
-    password = $landlordPassword
-    phone_number = $landlordPhone
-} | ConvertTo-Json
-
-$landlordSignupResponse = Invoke-PostJson -url "$baseUrl/api/accounts/signup/" -body $landlordSignupBody
-Write-Host "Landlord signup successful. ID: $($landlordSignupResponse.id)"
-$landlordId = $landlordSignupResponse.id
-$landlordCode = $landlordSignupResponse.landlord_code
-Write-Host "Landlord code: $landlordCode"
-
-# 2. Login Landlord
-Write-Host "2. Logging in landlord..."
-$landlordLoginBody = @{
-    email = $landlordEmail
-    password = $landlordPassword
-    user_type = "landlord"
-} | ConvertTo-Json
-
-$landlordLoginResponse = Invoke-PostJson -url "$baseUrl/api/accounts/token/" -body $landlordLoginBody
-Write-Host "Landlord login successful."
-$landlordToken = $landlordLoginResponse.access
-
-# 2.1. Test token refresh
-Write-Host "2.1. Refreshing token..."
-$refreshBody = @{
-    refresh = $landlordLoginResponse.refresh
-} | ConvertTo-Json
-
-$refreshResponse = Invoke-PostJson -url "$baseUrl/api/accounts/token/refresh/" -body $refreshBody
-Write-Host "Token refreshed successfully."
-$landlordToken = $refreshResponse.access
-
-# 2.2. Test /me/ endpoint
-Write-Host "2.2. Getting current user info..."
-$meResponse = Invoke-GetAuth -url "$baseUrl/api/accounts/me/" -token $landlordToken
-Write-Host "Current user: $($meResponse | ConvertTo-Json)"
-
-# 2.3. Test subscription_status/
-Write-Host "2.3. Getting subscription status..."
-$statusResponse = Invoke-GetAuth -url "$baseUrl/api/accounts/subscription-status/" -token $landlordToken
-Write-Host "Subscription status: $($statusResponse | ConvertTo-Json)"
-
-# 3. Create Property as Landlord
-Write-Host "3. Creating property..."
-$propertyBody = @{
-    name = "Test Property"
-    city = "Nairobi"
-    state = "Kenya"
-    unit_count = 1
-} | ConvertTo-Json
-
-$propertyHeaders = @{ Authorization = "Bearer $landlordToken" }
-$propertyResponse = Invoke-PostJson -url "$baseUrl/api/accounts/properties/create/" -headers $propertyHeaders -body $propertyBody
-Write-Host "Property created. ID: $($propertyResponse.id)"
-$propertyId = $propertyResponse.id
-
-# 4. Create UnitType as Landlord with automatic unit creation
-Write-Host "4. Creating unit type with automatic units..."
-$unitTypeBody = @{
-    name = "1 Bedroom"
-    deposit = 1000
-    rent = 2000
-    unit_count = 2
-    property_id = $propertyId
-} | ConvertTo-Json
-
-$unitTypeResponse = Invoke-PostJson -url "$baseUrl/api/accounts/unit-types/" -headers $propertyHeaders -body $unitTypeBody
-Write-Host "Unit type created. ID: $($unitTypeResponse.id)"
-$unitTypeId = $unitTypeResponse.id
-
-# 5. List Units to verify automatic creation
-Write-Host "5. Listing units..."
-$unitsResponse = Invoke-GetAuth -url "$baseUrl/api/accounts/properties/$propertyId/units/" -token $landlordToken
-Write-Host "Units created: $($unitsResponse.count) units"
-$unitId = $unitsResponse[0].id
-$unitCode = $unitsResponse[0].unit_code
-Write-Host "First unit ID: $unitId, Code: $unitCode"
-
-# 5.1. Test available-units/
-Write-Host "5.1. Listing available units..."
-$availableResponse = Invoke-GetAuth -url "$baseUrl/api/accounts/available-units/" -token $landlordToken
-Write-Host "Available units: $($availableResponse | ConvertTo-Json)"
-
-# 5.2. Test dashboard-stats/
-Write-Host "5.2. Getting dashboard stats..."
-$statsResponse = Invoke-GetAuth -url "$baseUrl/api/accounts/dashboard-stats/" -token $landlordToken
-Write-Host "Dashboard stats: $($statsResponse | ConvertTo-Json)"
-
-# 6. Signup Tenant (with landlord_code, no unit_code to skip deposit check)
-Write-Host "6. Signing up tenant..."
-$tenantSignupBody = @{
-    email = $tenantEmail
-    full_name = $tenantFullName
-    user_type = "tenant"
-    password = $tenantPassword
-    phone_number = $tenantPhone
-    landlord_code = $landlordCode
-    # No unit_code to avoid deposit requirement
-} | ConvertTo-Json
-
-$tenantSignupResponse = Invoke-PostJson -url "$baseUrl/api/accounts/signup/" -body $tenantSignupBody
-Write-Host "Tenant signup successful. ID: $($tenantSignupResponse.id)"
-$tenantId = $tenantSignupResponse.id
-
-# 7. Login Tenant
-Write-Host "7. Logging in tenant..."
-$tenantLoginBody = @{
-    email = $tenantEmail
-    password = $tenantPassword
-    user_type = "tenant"
-} | ConvertTo-Json
-
-$tenantLoginResponse = Invoke-PostJson -url "$baseUrl/api/accounts/token/" -body $tenantLoginBody
-Write-Host "Tenant login successful."
-$tenantToken = $tenantLoginResponse.access
-$tenantHeaders = @{ Authorization = "Bearer $tenantToken" }
-
-# 7.1. Test update-reminder-preferences/
-Write-Host "7.1. Updating reminder preferences..."
-$reminderBody = @{
-    rent_reminder = $true
-    maintenance_reminder = $true
-} | ConvertTo-Json
-
-$reminderResponse = Invoke-PatchAuth -url "$baseUrl/api/accounts/update-reminder-preferences/" -token $tenantToken -body $reminderBody
-Write-Host "Reminder preferences updated: $($reminderResponse | ConvertTo-Json)"
-
-# 8. Initiate Deposit Payment as Tenant (for testing, note no real payment)
-Write-Host "8. Initiating deposit payment..."
-$depositBody = @{
-    phone_number = $tenantPhone
-    unit_type_id = $unitTypeId
-    tenant_email = $tenantEmail
-} | ConvertTo-Json
-
-$depositHeaders = @{ Authorization = "Bearer $tenantToken" }
-try {
-    $depositResponse = Invoke-PostJson -url "$baseUrl/api/payments/initiate-deposit/" -headers $depositHeaders -body $depositBody
-    Write-Host "Deposit STK push initiated: $($depositResponse | ConvertTo-Json)"
-} catch {
-    Write-Host "Deposit initiation failed (expected if no M-Pesa setup): $($_.Exception.Message)"
-}
-
-# For testing, manually set unit as assigned (in real, would be after callback)
-# But since no deposit_paid field, we'll proceed to assign directly
-
-# 9. Assign Tenant to Unit as Landlord
-Write-Host "9. Assigning tenant to unit..."
-$assignBody = @{} | ConvertTo-Json
-$assignResponse = Invoke-PostJson -url "$baseUrl/api/accounts/units/$unitId/assign/$tenantId/" -headers $propertyHeaders -body $assignBody
-Write-Host "Tenant assigned to unit: $($assignResponse | ConvertTo-Json)"
-
-# 10. Initiate Rent Payment as Tenant
-Write-Host "10. Initiating rent payment..."
-$rentBody = @{
-    amount = "2000"
-} | ConvertTo-Json
-
-try {
-$rentResponse = Invoke-PostJson -url "$baseUrl/api/payments/stk-push/$unitId/" -headers $depositHeaders -body $rentBody
-    Write-Host "Rent STK push initiated: $($rentResponse | ConvertTo-Json)"
-} catch {
-    Write-Host "Rent initiation failed (expected if no M-Pesa setup): $($_.Exception.Message)"
-}
-
-# 10.1. Test rent-payments/ list
-Write-Host "10.1. Listing rent payments..."
-$rentPaymentsResponse = Invoke-GetAuth -url "$baseUrl/api/payments/rent-payments/" -token $tenantToken
-Write-Host "Rent payments: $($rentPaymentsResponse | ConvertTo-Json)"
-
-# 11. Create Report as Tenant
-Write-Host "11. Creating report as tenant..."
-$reportBody = @{
-    unit = $unitId
-    issue_title = "Test Report"
-    issue_category = "maintenance"
-    description = "This is a test report for maintenance."
-    priority_level = "low"
-} | ConvertTo-Json
-
-$reportResponse = Invoke-PostJson -url "$baseUrl/api/communication/reports/create/" -headers $depositHeaders -body $reportBody
-Write-Host "Report created. ID: $($reportResponse.id)"
-$reportId = $reportResponse.id
-
-# 11.1. Test reports/urgent/
-Write-Host "11.1. Listing urgent reports..."
-$urgentResponse = Invoke-GetAuth -url "$baseUrl/api/communication/reports/urgent/" -token $landlordToken
-Write-Host "Urgent reports: $($urgentResponse | ConvertTo-Json)"
-
-# 11.2. Test reports/in-progress/
-Write-Host "11.2. Listing in-progress reports..."
-$inProgressResponse = Invoke-GetAuth -url "$baseUrl/api/communication/reports/in-progress/" -token $landlordToken
-Write-Host "In-progress reports: $($inProgressResponse | ConvertTo-Json)"
-
-# 11.3. Test reports/resolved/
-Write-Host "11.3. Listing resolved reports..."
-$resolvedResponse = Invoke-GetAuth -url "$baseUrl/api/communication/reports/resolved/" -token $landlordToken
-Write-Host "Resolved reports: $($resolvedResponse | ConvertTo-Json)"
-
-# 11.4. Test update-report-status/
-Write-Host "11.4. Updating report status..."
-$updateStatusBody = @{
-    status = "in_progress"
-} | ConvertTo-Json
-
-$updateResponse = Invoke-PutAuth -url "$baseUrl/api/communication/reports/$reportId/update-status/" -token $landlordToken -body $updateStatusBody
-Write-Host "Report status updated: $($updateResponse | ConvertTo-Json)"
-
-# 11.5. Test send-email/
-Write-Host "11.5. Sending email..."
-$emailBody = @{
-    subject = "Test Email"
-    message = "This is a test email."
-    send_to_all = $true
-} | ConvertTo-Json
-
-$emailResponse = Invoke-PostJson -url "$baseUrl/api/communication/reports/send-email/" -headers $propertyHeaders -body $emailBody
-Write-Host "Email sent: $($emailResponse | ConvertTo-Json)"
-
-# 12. Initiate Subscription Payment as Landlord
-Write-Host "12. Initiating subscription payment..."
-$subscriptionBody = @{
-    plan = "starter"
-    phone_number = $landlordPhone
-} | ConvertTo-Json
-
-$subscriptionHeaders = @{ Authorization = "Bearer $landlordToken" }
-try {
-$subscriptionResponse = Invoke-PostJson -url "$baseUrl/api/payments/stk-push-subscription/" -headers $subscriptionHeaders -body $subscriptionBody
-    Write-Host "Subscription STK push initiated: $($subscriptionResponse | ConvertTo-Json)"
-} catch {
-    Write-Host "Subscription initiation failed (expected if no M-Pesa setup): $($_.Exception.Message)"
-}
-
-# 12.1. Test subscription-payments/ list
-Write-Host "12.1. Listing subscription payments..."
-$subscriptionPaymentsResponse = Invoke-GetAuth -url "$baseUrl/api/payments/subscription-payments/" -token $landlordToken
-Write-Host "Subscription payments: $($subscriptionPaymentsResponse | ConvertTo-Json)"
-
-# 13. View Open Reports as Landlord
-Write-Host "13. Viewing open reports as landlord..."
-$reportsResponse = Invoke-GetAuth -url "$baseUrl/api/communication/reports/open/" -token $landlordToken
-Write-Host "Open reports found: $($reportsResponse.count) reports"
-if ($reportsResponse.count -gt 0) {
-    Write-Host "First report: $($reportsResponse[0] | ConvertTo-Json)"
-}
-
-# 14. Get Rent Summary as Landlord
-Write-Host "14. Getting rent summary as landlord..."
-$summaryResponse = Invoke-GetAuth -url "$baseUrl/api/payments/rent-payments/summary/" -token $landlordToken
-Write-Host "Rent summary: $($summaryResponse | ConvertTo-Json)"
-
-# Additional Accounts Tests
-Write-Host "15. Listing users..."
-$usersResponse = Invoke-GetAuth -url "$baseUrl/api/accounts/users/" -token $landlordToken
-Write-Host "Users: $($usersResponse | ConvertTo-Json)"
-
-Write-Host "15.1. Getting user detail..."
-$userDetailResponse = Invoke-GetAuth -url "$baseUrl/api/accounts/users/$landlordId/" -token $landlordToken
-Write-Host "User detail: $($userDetailResponse | ConvertTo-Json)"
-
-Write-Host "15.2. Updating user..."
-$updateUserBody = @{
-    full_name = "Updated Landlord"
-} | ConvertTo-Json
-$updateUserResponse = Invoke-PutAuth -url "$baseUrl/api/accounts/users/$landlordId/update/" -token $landlordToken -body $updateUserBody
-Write-Host "User updated: $($updateUserResponse | ConvertTo-Json)"
-
-Write-Host "15.3. Requesting password reset..."
-$resetBody = @{
-    email = $landlordEmail
-} | ConvertTo-Json
-$resetResponse = Invoke-PostJson -url "$baseUrl/api/accounts/password-reset/" -body $resetBody
-Write-Host "Password reset requested: $($resetResponse | ConvertTo-Json)"
-
-Write-Host "15.4. Updating property..."
-$updatePropertyBody = @{
-    name = "Updated Property"
-    city = "Nairobi"
-    state = "Kenya"
-} | ConvertTo-Json
-$updatePropertyResponse = Invoke-PutAuth -url "$baseUrl/api/accounts/properties/$propertyId/update/" -token $landlordToken -body $updatePropertyBody
-Write-Host "Property updated: $($updatePropertyResponse | ConvertTo-Json)"
-
-Write-Host "15.5. Creating unit..."
-$createUnitBody = @{
-    unit_code = "A101"
-    unit_type = $unitTypeId
-    property = $propertyId
-} | ConvertTo-Json
-$createUnitResponse = Invoke-PostJson -url "$baseUrl/api/accounts/units/create/" -headers $propertyHeaders -body $createUnitBody
-Write-Host "Unit created: $($createUnitResponse | ConvertTo-Json)"
-$createdUnitId = $createUnitResponse.id
-
-Write-Host "15.6. Updating unit..."
-$updateUnitBody = @{
-    unit_code = "A102"
-} | ConvertTo-Json
-$updateUnitResponse = Invoke-PutAuth -url "$baseUrl/api/accounts/units/$createdUnitId/update/" -token $landlordToken -body $updateUnitBody
-Write-Host "Unit updated: $($updateUnitResponse | ConvertTo-Json)"
-
-Write-Host "15.7. Tenant updating unit..."
-$tenantUpdateUnitBody = @{
-    unit_code = "A103"
-} | ConvertTo-Json
-$tenantUpdateUnitResponse = Invoke-PutAuth -url "$baseUrl/api/accounts/units/tenant/update/" -token $tenantToken -body $tenantUpdateUnitBody
-Write-Host "Tenant unit updated: $($tenantUpdateUnitResponse | ConvertTo-Json)"
-
-Write-Host "15.8. Getting unit type detail..."
-$unitTypeDetailResponse = Invoke-GetAuth -url "$baseUrl/api/accounts/unit-types/$unitTypeId/" -token $landlordToken
-Write-Host "Unit type detail: $($unitTypeDetailResponse | ConvertTo-Json)"
-
-Write-Host "15.9. Updating till number..."
-$updateTillBody = @{
-    mpesa_till_number = "123456"
-} | ConvertTo-Json
-$updateTillResponse = Invoke-PutAuth -url "$baseUrl/api/accounts/update-till-number/" -token $landlordToken -body $updateTillBody
-Write-Host "Till number updated: $($updateTillResponse | ConvertTo-Json)"
-
-Write-Host "15.10. Adjusting rent..."
-$adjustRentBody = @{
-    unit_type_id = $unitTypeId
-    new_rent = 2500
-} | ConvertTo-Json
-$adjustRentResponse = Invoke-PutAuth -url "$baseUrl/api/accounts/adjust-rent/" -token $landlordToken -body $adjustRentBody
-Write-Host "Rent adjusted: $($adjustRentResponse | ConvertTo-Json)"
-
-# Additional Payments Tests
-Write-Host "16. Getting rent payment detail..."
-if ($rentPaymentsResponse.results -and $rentPaymentsResponse.results.count -gt 0) {
-    $paymentId = $rentPaymentsResponse.results[0].id
-    $rentPaymentDetailResponse = Invoke-GetAuth -url "$baseUrl/api/payments/rent-payments/$paymentId/" -token $tenantToken
-    Write-Host "Rent payment detail: $($rentPaymentDetailResponse | ConvertTo-Json)"
-} else {
-    Write-Host "No rent payments to detail"
-}
-
-Write-Host "16.1. Getting subscription payment detail..."
-if ($subscriptionPaymentsResponse.results -and $subscriptionPaymentsResponse.results.count -gt 0) {
-    $subPaymentId = $subscriptionPaymentsResponse.results[0].id
-    $subPaymentDetailResponse = Invoke-GetAuth -url "$baseUrl/api/payments/subscription-payments/$subPaymentId/" -token $landlordToken
-    Write-Host "Subscription payment detail: $($subPaymentDetailResponse | ConvertTo-Json)"
-} else {
-    Write-Host "No subscription payments to detail"
-}
-
-Write-Host "16.2. Listing unit types (payments)..."
-$unitTypesPaymentsResponse = Invoke-GetAuth -url "$baseUrl/api/payments/unit-types/" -token $landlordToken
-Write-Host "Unit types (payments): $($unitTypesPaymentsResponse | ConvertTo-Json)"
-
-Write-Host "16.3. Getting landlord CSV..."
-$landlordCsvResponse = Invoke-GetAuth -url "$baseUrl/api/payments/landlord-csv/$propertyId/" -token $landlordToken
-Write-Host "Landlord CSV: $($landlordCsvResponse | ConvertTo-Json)"
-
-Write-Host "16.4. Getting tenant CSV..."
-$tenantCsvResponse = Invoke-GetAuth -url "$baseUrl/api/payments/tenant-csv/$unitId/" -token $tenantToken
-Write-Host "Tenant CSV: $($tenantCsvResponse | ConvertTo-Json)"
-
-Write-Host "All tests completed successfully!"
+fix the callback function for the deposit to be automatic import base64
+import datetime
+import json
+import requests
+import csv
+import time
+from decimal import Decimal, InvalidOperation
+from django.http import HttpResponse
+from datetime import timedelta
+from django.conf import settings
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+import logging
+from django.utils import timezone
+from django.core.cache import cache
+from django.shortcuts import get_object_or_404
+from accounts.models import CustomUser, Subscription, Property, Unit, UnitType
+# Removed require_subscription import as it's no longer used
+from accounts.serializers import UnitTypeSerializer
+from .models import Payment, SubscriptionPayment
+from .generate_token import generate_access_token, initiate_b2c_payment
+from rest_framework import generics, permissions
+from .serializers import PaymentSerializer, SubscriptionPaymentSerializer
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+from django.utils.decorators import method_decorator
+from accounts.permissions import IsLandlord, HasActiveSubscription
+# ------------------------------
+# STK PUSH INITIATION (Tenant Rent Payment) - UPDATED
+# ------------------------------
+@csrf_exempt
+def stk_push(request, unit_id):
+    """
+    Initiates an M-Pesa STK Push for a tenant's rent payment.
+    """
+    logger = logging.getLogger(__name__)
+
+    # Check authentication first
+    if not request.user.is_authenticated:
+        return JsonResponse({"error": "Authentication required"}, status=401)
+
+    if request.user.user_type != 'tenant':
+        return JsonResponse({"error": "Only tenants can make rent payments"}, status=403)
+
+    try:
+        if request.method != 'POST':
+            return JsonResponse({"error": "POST method required."}, status=405)
+
+        # Parse JSON body
+        try:
+            body = json.loads(request.body.decode('utf-8'))
+        except json.JSONDecodeError:
+            return JsonResponse({"error": "Invalid JSON body."}, status=400)
+
+        # Get amount from JSON data
+        amount_str = body.get('amount')
+        if not amount_str:
+            return JsonResponse({"error": "Amount is required."}, status=400)
+
+        try:
+            amount = Decimal(amount_str)
+        except InvalidOperation:
+            return JsonResponse({"error": "Invalid amount format."}, status=400)
+        
+        # Rate limiting: Check if user has made too many requests
+        rate_limit_key = f"stk_push_rate_limit:{request.user.id}"
+        recent_requests = cache.get(rate_limit_key, 0)
+        if recent_requests >= 5:  # Max 5 requests per minute
+            return JsonResponse({"error": "Too many requests. Please try again later."}, status=429)
+        
+        # Update rate limit counter
+        cache.set(rate_limit_key, recent_requests + 1, timeout=60)
+        
+        # Ensure the unit belongs to the logged-in tenant
+        try:
+            unit = Unit.objects.get(id=unit_id, tenant=request.user)
+        except Unit.DoesNotExist:
+            return JsonResponse({"error": "Unit not found or not assigned to you"}, status=404)
+        except Exception as e:
+            logger.error(f"Unit lookup error: {str(e)}")
+            return JsonResponse({"error": "Payment service temporarily unavailable. Please try again later."}, status=503)
+        
+        # Validate amount - RELAXED FOR TESTING
+        if amount <= 0:
+            return JsonResponse({"error": "Amount must be positive."}, status=400)
+        
+        # Allow any amount that's at least the rent (for testing)
+        if amount < unit.rent:
+            return JsonResponse({"error": f"Amount must be at least the monthly rent ({unit.rent})."}, status=400)
+        
+        # More generous maximum for testing
+        max_amount = unit.rent * 24  # Allow up to 2 years rent for testing
+        if amount > max_amount:
+            return JsonResponse({"error": f"Amount cannot exceed two years' rent ({max_amount})."}, status=400)
+        
+        # Check for duplicate pending payment
+        duplicate_key = f"pending_payment:{request.user.id}:{unit_id}"
+        if cache.get(duplicate_key):
+            return JsonResponse({"error": "A payment request is already pending for this unit."}, status=400)
+        
+        # Create a pending payment record
+        payment = Payment.objects.create(
+            tenant=request.user,
+            unit=unit,
+            amount=amount,
+            status="Pending"
+        )
+        
+        # Mark payment as pending in Redis (5-minute expiry)
+        cache.set(duplicate_key, payment.id, timeout=300)
+        
+        # Check if tenant has paid deposit for this unit
+        deposit_paid = Payment.objects.filter(
+            tenant=request.user,
+            unit=unit,
+            payment_type='deposit',
+            status='Success',
+            amount__gte=unit.deposit
+        ).exists()
+        if not deposit_paid:
+            return JsonResponse({"error": "You must pay the deposit for this unit before making rent payments."}, status=400)
+
+        try:
+            # Generate access token (with Redis caching and retry)
+            access_token_cache_key = "mpesa_access_token"
+            access_token = cache.get(access_token_cache_key)
+            if not access_token:
+                try:
+                    access_token = generate_access_token()
+                except Exception as e:
+                    logger.error(f"Access token generation failed, retrying: {str(e)}")
+                    # Retry once after a short delay
+                    import time
+                    time.sleep(1)
+                    access_token = generate_access_token()
+            # Cache access token for 55 minutes (MPESA tokens expire in 1 hour)
+            cache.set(access_token_cache_key, access_token, timeout=3300)
+        except Exception as e:
+            logger.error(f"Access token generation failed after retry: {str(e)}")
+            return JsonResponse({"error": "Payment service temporarily unavailable. Please try again later."}, status=503)
+        
+        timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+        password = base64.b64encode(
+            (settings.MPESA_SHORTCODE + settings.MPESA_PASSKEY + timestamp).encode("utf-8")
+        ).decode("utf-8")
+        
+        # Always use central shortcode for rent payments
+        business_shortcode = settings.MPESA_SHORTCODE
+        
+        # Build payload for Safaricom API
+        payload = {
+            "BusinessShortCode": business_shortcode,
+            "Password": password,
+            "Timestamp": timestamp,
+            "TransactionType": "CustomerPayBillOnline",
+            "Amount": str(int(amount)),  # Ensure whole number for M-Pesa
+            "PartyA": request.user.phone_number,
+            "PartyB": business_shortcode,
+            "PhoneNumber": request.user.phone_number,
+            "CallBackURL": settings.MPESA_RENT_CALLBACK_URL,
+            "AccountReference": str(payment.id),
+            "TransactionDesc": f"Rent for Unit {unit.unit_number}"
+        }
+        
+        headers = {"Authorization": f"Bearer {access_token}"}
+        
+        try:
+            response = requests.post(
+                "https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest",
+                json=payload,
+                headers=headers,
+                timeout=30
+            )
+            response.raise_for_status()
+            response_data = response.json()
+        except requests.exceptions.RequestException as e:
+            # Don't fail the payment - mark it as pending for manual processing
+            logger.error(f"M-Pesa API request failed: {str(e)}")
+            return JsonResponse({
+                "message": "Payment initiation received. Please check your phone to complete payment.",
+                "payment_id": payment.id
+            })
+        except json.JSONDecodeError as e:
+            logger.error(f"Invalid response from M-Pesa API: {str(e)}")
+            return JsonResponse({
+                "message": "Payment initiation received. Please check your phone to complete payment.",
+                "payment_id": payment.id
+            })
+        
+        if response_data.get("ResponseCode") == "0":
+            # Return success immediately without waiting
+            return JsonResponse({
+                "message": "Payment initiated successfully. Please check your phone to complete payment.",
+                "checkout_request_id": response_data.get("CheckoutRequestID"),
+                "payment_id": payment.id
+            })
+        else:
+            # M-Pesa returned an error but we don't fail the payment
+            error_msg = response_data.get("ResponseDescription", "Unknown error")
+            logger.error(f"M-Pesa STK push error: {error_msg}")
+            return JsonResponse({
+                "message": "Payment initiation received. Please check your phone to complete payment.",
+                "payment_id": payment.id,
+                "note": "If payment doesn't appear on your phone, please try again in a few minutes."
+            })
+            
+    except Exception as e:
+        logger.error(f"Unexpected error in stk_push: {str(e)}")
+        return JsonResponse({"error": "Payment service temporarily unavailable. Please try again later."}, status=503)
+# ------------------------------
+# STK PUSH INITIATION (Landlord Subscription Payment) - UPDATED
+# ------------------------------
+@csrf_exempt
+def stk_push_subscription(request):
+    """
+    Initiates an M-Pesa STK Push for a landlord's subscription payment.
+    - Uses minimal amounts for testing (50 KSH)
+    - Better error handling
+    """
+    try:
+        # Get subscription plan from request
+        plan = None
+        phone_number = None
+        
+        try:
+            if request.method == 'POST':
+                try:
+                    body = json.loads(request.body.decode('utf-8') or '{}')
+                except Exception:
+                    body = {}
+                plan = body.get('plan') or request.GET.get('plan')
+                phone_number = body.get('phone_number')
+            else:
+                plan = request.GET.get('plan')
+        except Exception:
+            plan = request.GET.get('plan')
+        
+        if not plan:
+            return JsonResponse({"error": "Plan parameter is required."}, status=400)
+        if not phone_number:
+            return JsonResponse({"error": "Phone number is required."}, status=400)
+        
+        # Map plan to amount - MINIMAL AMOUNTS FOR TESTING
+        plan_amounts = {
+            "starter": 50,      # Only 50 KSH for testing
+            "basic": 100,       # Only 100 KSH for testing  
+            "professional": 200, # Only 200 KSH for testing
+            "onetime": 500,     # Only 500 KSH for testing
+        }
+        
+        if plan not in plan_amounts:
+            return JsonResponse({"error": "Invalid plan."}, status=400)
+        
+        amount = plan_amounts[plan]
+        
+        # Rate limiting
+        rate_limit_key = f"stk_push_subscription_rate_limit:{phone_number}"
+        recent_requests = cache.get(rate_limit_key, 0)
+        if recent_requests >= 3:
+            return JsonResponse({"error": "Too many requests. Please try again later."}, status=429)
+        
+        cache.set(rate_limit_key, recent_requests + 1, timeout=60)
+        
+        # Check for duplicate pending subscription payment
+        duplicate_key = f"pending_subscription_payment:{phone_number}:{plan}"
+        if cache.get(duplicate_key):
+            return JsonResponse({"error": "A subscription payment request is already pending."}, status=400)
+        
+        # Determine user
+        user = None
+        if request.user.is_authenticated and request.user.user_type == 'landlord':
+            user = request.user
+        
+        # Create a pending subscription payment record
+        subscription_payment = SubscriptionPayment.objects.create(
+            user=user,
+            amount=amount,
+            mpesa_receipt_number="",
+            subscription_type=plan
+        )
+        
+        # Mark payment as pending in Redis (5-minute expiry)
+        cache.set(duplicate_key, subscription_payment.id, timeout=300)
+        
+        try:
+            # Generate access token
+            access_token_cache_key = "mpesa_access_token"
+            access_token = cache.get(access_token_cache_key)
+            if not access_token:
+                access_token = generate_access_token()
+            cache.set(access_token_cache_key, access_token, timeout=3300)
+        except Exception as e:
+            print(f"Access token generation warning: {str(e)}")
+            try:
+                access_token = generate_access_token()
+            except Exception as token_error:
+                return JsonResponse({"error": "Subscription service temporarily unavailable. Please try again later."}, status=503)
+        
+        timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+        password = base64.b64encode(
+            (settings.MPESA_SHORTCODE + settings.MPESA_PASSKEY + timestamp).encode("utf-8")
+        ).decode("utf-8")
+        
+        # Build payload for Safaricom API
+        party_phone = phone_number
+        payload = {
+            "BusinessShortCode": settings.MPESA_SHORTCODE,
+            "Password": password,
+            "Timestamp": timestamp,
+            "TransactionType": "CustomerPayBillOnline",
+            "Amount": str(amount),
+            "PartyA": party_phone,
+            "PartyB": settings.MPESA_SHORTCODE,
+            "PhoneNumber": party_phone,
+            "CallBackURL": settings.MPESA_SUBSCRIPTION_CALLBACK_URL,
+            "AccountReference": str(subscription_payment.id),
+            "TransactionDesc": f"Subscription payment for {plan} plan"
+        }
+        
+        headers = {"Authorization": f"Bearer {access_token}"}
+        
+        try:
+            response = requests.post(
+                "https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest",
+                json=payload,
+                headers=headers,
+                timeout=30
+            )
+            response.raise_for_status()
+            response_data = response.json()
+        except requests.exceptions.RequestException as e:
+            print(f"M-Pesa subscription API request failed: {str(e)}")
+            return JsonResponse({
+                "message": "Subscription payment initiation received.",
+                "payment_id": subscription_payment.id
+            })
+        
+        if response_data.get("ResponseCode") == "0":
+            return JsonResponse({
+                "message": "Subscription payment initiated successfully.",
+                "checkout_request_id": response_data.get("CheckoutRequestID"),
+                "payment_id": subscription_payment.id
+            })
+        else:
+            error_msg = response_data.get("ResponseDescription", "Unknown error")
+            print(f"M-Pesa subscription STK push error: {error_msg}")
+            return JsonResponse({
+                "message": "Subscription payment initiation received.",
+                "payment_id": subscription_payment.id
+            })
+            
+    except Exception as e:
+        print(f"Unexpected error in stk_push_subscription: {str(e)}")
+        return JsonResponse({"error": "Subscription service temporarily unavailable. Please try again later."}, status=503)
+# ------------------------------
+# RENT PAYMENT CALLBACK
+# ------------------------------
+# In payments/views.py - FIX THE MPESA RENT CALLBACK
+@csrf_exempt
+def mpesa_rent_callback(request):
+    """
+    Handles M-Pesa callback for rent payments.
+    - Updates Payment status
+    - Updates Unit rent balances
+    - Initiates B2C disbursement to landlord
+    - Invalidates relevant caches
+    """
+    logger = logging.getLogger(__name__)
+    logger.info("🔄 Rent callback received")
+
+    try:
+        data = json.loads(request.body.decode("utf-8"))
+        logger.info(f"📥 Rent callback data: {json.dumps(data, indent=2)}")
+
+        body = data.get("Body", {}).get("stkCallback", {})
+        result_code = body.get("ResultCode")
+        logger.info(f"🔍 Rent callback result code: {result_code}")
+
+        if result_code == 0:  # ✅ Transaction successful
+            metadata_items = body.get("CallbackMetadata", {}).get("Item", [])
+            logger.info(f"📋 Rent callback metadata items: {len(metadata_items)}")
+            metadata = {item["Name"]: item.get("Value") for item in metadata_items}
+            logger.info(f"🔧 Raw metadata: {metadata}")
+
+            # Convert amount to Decimal for consistency
+            amount_str = metadata.get("Amount")
+            amount = None
+            if amount_str:
+                try:
+                    amount = Decimal(amount_str)
+                    logger.info(f"💰 Rent callback amount: {amount} (Decimal)")
+                except (ValueError, TypeError) as e:
+                    logger.error(f"❌ Invalid amount format: {amount_str}, error: {e}")
+
+            receipt = metadata.get("MpesaReceiptNumber")
+            payment_id = metadata.get("AccountReference")
+            phone = str(metadata.get("PhoneNumber")) if metadata.get("PhoneNumber") else None
+
+            logger.info(f"💰 Rent callback metadata: amount={amount}, receipt={receipt}, payment_id={payment_id}, phone={phone}")
+
+            if payment_id:
+                logger.info(f"🔍 Looking for payment with ID: {payment_id}")
+                try:
+                    payment = Payment.objects.get(id=payment_id, status="Pending")
+                    logger.info(f"✅ Found pending rent payment: {payment.id} for tenant {payment.tenant.email}")
+
+                    payment.status = "Success"
+                    payment.mpesa_receipt = receipt
+                    payment.save()
+                    logger.info(f"✅ Payment {payment.id} status updated to Success")
+
+                    # Update unit balances - FIXED: Use Decimal amount
+                    unit = payment.unit
+                    unit.rent_paid += amount  # Now both are Decimal
+                    unit.rent_remaining = max(unit.rent - unit.rent_paid, Decimal('0'))
+                    unit.save()
+                    logger.info(f"✅ Unit {unit.unit_number} balances updated: paid={unit.rent_paid}, remaining={unit.rent_remaining}")
+
+                    # Invalidate relevant caches
+                    cache.delete_many([
+                        f"pending_payment:{payment.tenant.id}:{unit.id}",
+                        f"payments:tenant:{payment.tenant.id}",
+                        f"payments:landlord:{payment.unit.property_obj.landlord.id}",
+                        f"rent_summary:{unit.property_obj.landlord.id}",
+                        f"unit:{unit.id}:details"
+                    ])
+                    logger.info(f"🗑️ Cache invalidated for payment {payment.id}")
+                    logger.info(f"✅ Rent payment successful: {receipt} for payment {payment_id}")
+
+                    # Initiate B2C disbursement to landlord
+                    landlord = unit.property_obj.landlord
+                    recipient = landlord.mpesa_till_number or landlord.phone_number
+                    logger.info(f"🏦 Initiating B2C disbursement to landlord {landlord.email}, recipient: {recipient}")
+                    if recipient:
+                        try:
+                            b2c_response = initiate_b2c_payment(
+                                amount=amount,
+                                recipient=recipient,
+                                payment_id=payment_id,
+                                remarks=f"Rent payment disbursement for Unit {unit.unit_number}"
+                            )
+                            logger.info(f"✅ B2C disbursement initiated for payment {payment_id}: {b2c_response}")
+                        except ValueError as e:
+                            logger.error(f"❌ B2C disbursement failed for payment {payment_id}: {str(e)}")
+                    else:
+                        logger.error(f"❌ No recipient (till number or phone) for landlord {landlord.id}")
+
+                except Payment.DoesNotExist:
+                    logger.error(f"❌ Payment with id {payment_id} not found or already processed")
+                except Exception as e:
+                    logger.error(f"❌ Error updating payment {payment_id}: {e}")
+            else:
+                logger.warning("⚠️ No payment_id in rent callback, cannot process payment")
+        else:
+            # ❌ Transaction failed - UPDATE PAYMENT STATUS TO FAILED
+            error_msg = body.get("ResultDesc", "Unknown error")
+            logger.error(f"❌ Rent transaction failed: {error_msg} (ResultCode: {result_code})")
+            # Try to find and update the payment to Failed
+            try:
+                payment_id = body.get("AccountReference")
+                if payment_id:
+                    payment = Payment.objects.get(id=payment_id, status="Pending")
+                    payment.status = "Failed"
+                    payment.save()
+                    logger.info(f"✅ Rent payment {payment_id} marked as Failed")
+                    # Invalidate caches
+                    cache.delete_many([
+                        f"pending_payment:{payment.tenant.id}:{payment.unit.id}",
+                        f"payments:tenant:{payment.tenant.id}",
+                        f"payments:landlord:{payment.unit.property_obj.landlord.id}",
+                    ])
+                    logger.info(f"🗑️ Cache invalidated for failed payment {payment_id}")
+            except Payment.DoesNotExist:
+                logger.error(f"Payment with id {payment_id} not found for failure update")
+            except Exception as e:
+                logger.error(f"Error updating failed payment: {e}")
+
+    except json.JSONDecodeError as e:
+        logger.error(f"❌ Invalid JSON in rent callback: {e}")
+    except Exception as e:
+        logger.error("❌ Unexpected error processing rent callback:", exc_info=True)
+
+    # CRITICAL: Always respond with success to Safaricom to acknowledge callback receipt
+    logger.info("✅ Responding with success to M-Pesa rent callback")
+    return JsonResponse({"ResultCode": 0, "ResultDesc": "Accepted"})
+# ------------------------------
+# SUBSCRIPTION PAYMENT CALLBACK
+# ------------------------------
+@csrf_exempt
+def mpesa_subscription_callback(request):
+    """
+    Handles M-Pesa callback for subscription payments.
+    - Finds user by phone number
+    - Creates/updates subscription payment
+    - Updates user subscription
+    - Handles duplicate receipts gracefully
+    """
+    logger = logging.getLogger(__name__)
+    logger.info("🔄 Subscription callback received")
+
+    try:
+        data = json.loads(request.body.decode("utf-8"))
+        logger.info(f"📥 Subscription callback data: {json.dumps(data, indent=2)}")
+
+        body = data.get("Body", {}).get("stkCallback", {})
+        result_code = body.get("ResultCode")
+        logger.info(f"🔍 Subscription callback result code: {result_code}")
+
+        if result_code == 0:  # ✅ Transaction successful
+            metadata_items = body.get("CallbackMetadata", {}).get("Item", [])
+            logger.info(f"📋 Subscription callback metadata items: {len(metadata_items)}")
+            metadata = {item["Name"]: item.get("Value") for item in metadata_items}
+            logger.info(f"🔧 Raw metadata: {metadata}")
+
+            # Convert amount to Decimal for consistency
+            amount_str = metadata.get("Amount")
+            amount = None
+            if amount_str:
+                try:
+                    amount = Decimal(amount_str)
+                    logger.info(f"💰 Subscription callback amount: {amount} (Decimal)")
+                except (ValueError, TypeError) as e:
+                    logger.error(f"❌ Invalid amount format: {amount_str}, error: {e}")
+
+            receipt = metadata.get("MpesaReceiptNumber")
+            account_reference = metadata.get("AccountReference")
+            phone = str(metadata.get("PhoneNumber")) if metadata.get("PhoneNumber") else None
+
+            logger.info(f"💰 Subscription callback metadata: amount={amount}, receipt={receipt}, account_reference={account_reference}, phone={phone}")
+
+            # Helper function to find user by phone with multiple formats
+            def find_user_by_phone(phone_str):
+                if not phone_str:
+                    return None
+
+                phone_variants = [phone_str]
+
+                # Generate all possible phone number formats
+                if phone_str.startswith('+254'):
+                    phone_variants.extend([
+                        phone_str[4:],           # 722714334
+                        '0' + phone_str[4:],     # 0722714334
+                        phone_str[1:],           # 254722714334
+                    ])
+                elif phone_str.startswith('254'):
+                    phone_variants.extend([
+                        '+' + phone_str,         # +254722714334
+                        '0' + phone_str[3:],     # 0722714334
+                        phone_str[3:],           # 722714334
+                    ])
+                elif phone_str.startswith('0'):
+                    phone_variants.extend([
+                        '+254' + phone_str[1:],  # +254722714334
+                        '254' + phone_str[1:],   # 254722714334
+                        phone_str[1:],           # 722714334
+                    ])
+                else:
+                    # Assume it's local without 0, add variants
+                    phone_variants.extend([
+                        '+254' + phone_str,      # +254722714334
+                        '254' + phone_str,       # 254722714334
+                        '0' + phone_str,         # 0722714334
+                    ])
+
+                # Remove duplicates
+                phone_variants = list(set(phone_variants))
+                logger.info(f"🔍 Searching for user with phone variants: {phone_variants}")
+                return CustomUser.objects.filter(
+                    user_type='landlord',
+                    phone_number__in=phone_variants
+                ).first()
+
+            # Find user by phone number
+            user = find_user_by_phone(phone)
+            if not user:
+                logger.error(f"❌ No landlord found with phone number: {phone}")
+                # Still acknowledge callback but log error
+            else:
+                logger.info(f"✅ Found user: {user.email} for phone: {phone}")
+
+                # Determine subscription type from amount
+                subscription_type = None
+                if amount == Decimal('50'):
+                    subscription_type = 'starter'
+                elif amount == Decimal('100'):
+                    subscription_type = 'basic'
+                elif amount == Decimal('200'):
+                    subscription_type = 'professional'
+                elif amount == Decimal('500'):
+                    subscription_type = 'onetime'
+                else:
+                    logger.warning(f"⚠️ Unknown subscription amount: {amount}, cannot determine plan")
+
+                if subscription_type:
+                    # Handle duplicate receipts gracefully
+                    try:
+                        subscription_payment, created = SubscriptionPayment.objects.get_or_create(
+                            mpesa_receipt_number=receipt,
+                            defaults={
+                                'user': user,
+                                'amount': amount,
+                                'subscription_type': subscription_type,
+                            }
+                        )
+
+                        if created:
+                            logger.info(f"✅ Created new subscription payment: {subscription_payment.id}")
+                        else:
+                            logger.warning(f"⚠️ Subscription payment with receipt {receipt} already exists, skipping duplicate")
+
+                        # Update or create subscription
+                        subscription, sub_created = Subscription.objects.get_or_create(
+                            user=user,
+                            defaults={
+                                'plan': subscription_type,
+                                'expiry_date': timezone.now() + timedelta(days=30) if subscription_type != 'onetime' else None
+                            }
+                        )
+
+                        if not sub_created:
+                            # Update existing subscription
+                            subscription.plan = subscription_type
+                            if subscription_type == 'onetime':
+                                subscription.expiry_date = None  # Lifetime
+                            else:
+                                subscription.expiry_date = timezone.now() + timedelta(days=30)
+                            subscription.save()
+                            logger.info(f"✅ Updated subscription for user {user.email} to {subscription_type}")
+                        else:
+                            logger.info(f"✅ Created new subscription for user {user.email}: {subscription_type}")
+
+                        # Invalidate relevant caches
+                        cache.delete_many([
+                            f"subscription_payments:{user.id}",
+                            f"rent_summary:{user.id}",
+                        ])
+                        logger.info(f"🗑️ Cache invalidated for subscription payment")
+
+                    except Exception as e:
+                        logger.error(f"❌ Error processing subscription payment: {e}")
+                else:
+                    logger.error(f"❌ Could not determine subscription type for amount: {amount}")
+        else:
+            # Transaction failed
+            error_msg = body.get("ResultDesc", "Unknown error")
+            logger.error(f"❌ Subscription transaction failed: {error_msg} (ResultCode: {result_code})")
+
+    except json.JSONDecodeError as e:
+        logger.error(f"❌ Invalid JSON in subscription callback: {e}")
+    except Exception as e:
+        logger.error("❌ Unexpected error processing subscription callback:", exc_info=True)
+
+    # CRITICAL: Always respond with success to Safaricom to acknowledge callback receipt
+    logger.info("✅ Responding with success to M-Pesa subscription callback")
+    return JsonResponse({"ResultCode": 0, "ResultDesc": "Accepted"})
+# ------------------------------
+# RENT PAYMENTS (DRF Views) - CACHED
+# ------------------------------
+class PaymentListCreateView(generics.ListCreateAPIView):
+    """
+    GET:
+    - Tenants: only see their own rent payments (cached)
+    - Landlords: see all rent payments for units in their properties (cached)
+    POST:
+    - Only tenants can create a new rent payment
+    """
+    serializer_class = PaymentSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    def get_queryset(self):
+       user = self.request.user
+       cache_key = f"payments:{user.user_type}:{user.id}"
+       # Try to get cached data
+       cached_data = cache.get(cache_key)
+       if cached_data:
+           # Return a queryset-like object (we'll handle this in the serializer)
+           return Payment.objects.none()  # Serializer will use cached data
+       # If not cached, fetch from database
+       if user.user_type == "tenant":
+           queryset = Payment.objects.filter(tenant=user).order_by('-transaction_date')
+       elif user.user_type == "landlord":
+           queryset = Payment.objects.filter(
+               unit__property_obj__landlord=user).order_by('-transaction_date')
+       else:
+           queryset = Payment.objects.none()
+       # Cache the results for 5 minutes
+       if queryset.exists():
+           cache.set(cache_key, PaymentSerializer(queryset, many=True).data, timeout=300)
+       return queryset
+    def list(self, request, *args, **kwargs):
+       # Custom list method to handle cached data
+       user = self.request.user
+       cache_key = f"payments:{user.user_type}:{user.id}"
+       cached_data = cache.get(cache_key)
+       if cached_data:
+           return Response(cached_data)
+       return super().list(request, *args, **kwargs)
+    def perform_create(self, serializer):
+       if self.request.user.user_type == "tenant":
+           payment = serializer.save(tenant=self.request.user)
+           # Invalidate cache after creation
+           cache.delete(f"payments:tenant:{self.request.user.id}")
+           cache.delete(f"payments:landlord:{payment.unit.property_obj.landlord.id}")
+       else:
+           raise PermissionError("Only tenants can create rent payments.")
+class PaymentDetailView(generics.RetrieveAPIView):
+    """
+    GET:
+    - Tenants: can only view their own payment details (cached)
+    - Landlords: can view payment details for units in their properties (cached)
+    """
+    serializer_class = PaymentSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        if user.user_type == "tenant":
+            return Payment.objects.filter(tenant=user)
+        elif user.user_type == "landlord":
+            return Payment.objects.filter(unit__property_obj__landlord=user)
+        return Payment.objects.none()
+
+    def retrieve(self, request, *args, **kwargs):
+        payment_id = kwargs.get('pk')
+        cache_key = f"payment:{payment_id}:details"
+        cached_data = cache.get(cache_key)
+        if cached_data:
+            return Response(cached_data)
+        response = super().retrieve(request, *args, **kwargs)
+        cache.set(cache_key, response.data, timeout=300)
+        return response
+
+# ------------------------------
+# SUBSCRIPTION PAYMENTS (DRF Views) - CACHED
+# ------------------------------
+class SubscriptionPaymentListCreateView(generics.ListCreateAPIView):
+    """
+    GET:
+    - Landlords: only see their own subscription payments (cached)
+    - Tenants: no access
+    POST:
+    - Only landlords can create subscription payments
+    """
+    serializer_class = SubscriptionPaymentSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        if user.user_type == "landlord":
+            return SubscriptionPayment.objects.filter(user=user).order_by('-transaction_date')
+        return SubscriptionPayment.objects.none()
+
+    def list(self, request, *args, **kwargs):
+        user = self.request.user
+        if user.user_type != "landlord":
+            return Response({"error": "Only landlords can view subscription payments."}, status=403)
+        cache_key = f"subscription_payments:{user.id}"
+        cached_data = cache.get(cache_key)
+        if cached_data:
+            return Response(cached_data)
+        response = super().list(request, *args, **kwargs)
+        cache.set(cache_key, response.data, timeout=300)
+        return response
+
+    def perform_create(self, serializer):
+        if self.request.user.user_type == "landlord":
+            serializer.save(user=self.request.user)
+            # Invalidate cache after creation
+            cache.delete(f"subscription_payments:{self.request.user.id}")
+        else:
+            raise PermissionError("Only landlords can make subscription payments.")
+class SubscriptionPaymentDetailView(generics.RetrieveAPIView):
+    """
+    GET:
+    - Landlords: can only view their own subscription payment details (cached)
+    """
+    serializer_class = SubscriptionPaymentSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        if user.user_type == "landlord":
+            return SubscriptionPayment.objects.filter(user=user)
+        return SubscriptionPayment.objects.none()
+
+    def retrieve(self, request, *args, **kwargs):
+        payment_id = kwargs.get('pk')
+        cache_key = f"subscription_payment:{payment_id}:details"
+        cached_data = cache.get(cache_key)
+        if cached_data:
+            return Response(cached_data)
+        response = super().retrieve(request, *args, **kwargs)
+        cache.set(cache_key, response.data, timeout=300)
+        return response
+
+class RentSummaryView(APIView):
+    """
+    Provides a financial summary for landlords (cached):
+    - Total rent collected across all their properties
+    - Total outstanding rent
+    - Per-unit breakdown (unit number, tenant, paid, remaining)
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        user = request.user
+        if user.user_type != "landlord":
+            return Response({"error": "Only landlords can view rent summaries."}, status=403)
+        # Check cache first
+        cache_key = f"rent_summary:{user.id}"
+        cached_summary = cache.get(cache_key)
+        if cached_summary:
+            return Response(cached_summary)
+        # Get all units owned by this landlord
+        units = Unit.objects.filter(property_obj__landlord=user)
+        total_collected = 0
+        total_outstanding = 0
+        unit_breakdown = []
+        for unit in units:
+            collected = float(unit.rent_paid)
+            outstanding = float(unit.rent_remaining)
+            total_collected += collected
+            total_outstanding += outstanding
+            unit_breakdown.append({
+                "unit_number": unit.unit_number,
+                "tenant": unit.tenant.email if unit.tenant else None,
+                "rent": float(unit.rent),
+                "rent_paid": collected,
+                "rent_remaining": outstanding,
+                "is_available": unit.is_available,
+            })
+        summary = {
+            "landlord": user.email,
+            "total_collected": total_collected,
+            "total_outstanding": total_outstanding,
+            "units": unit_breakdown,
+            "last_updated": timezone.now().isoformat(),
+        }
+        # Cache for 10 minutes
+        cache.set(cache_key, summary, timeout=600)
+        return Response(summary)
+# ------------------------------
+# GENERATE RENT PAYMENTS CSV REPORT
+# ------------------------------
+class LandLordCSVView(APIView):
+    """
+    Generate CSV report for landlord with Redis caching for frequent requests
+    """
+    permission_classes = [IsAuthenticated, HasActiveSubscription]
+
+    def get(self, request, property_id):
+        cache_key = f"landlord_csv:{property_id}:{request.user.id}"
+        cached_response = cache.get(cache_key)
+        if cached_response:
+            response = HttpResponse(cached_response, content_type='text/csv')
+            response['Content-Disposition'] = 'attachment; filename="landlord_data.csv"'
+            return response
+        property = get_object_or_404(Property, pk=property_id)
+        # Verify the property belongs to the logged-in landlord
+        if property.landlord != request.user:
+            return HttpResponse("Unauthorized", status=403)
+        units = property.unit_list.all()
+        response = HttpResponse(content_type='text/csv')
+        response['Content-Disposition'] = 'attachment; filename="landlord_data.csv"'
+        writer = csv.writer(response)
+        writer.writerow(['Tenant', 'Unit Number', 'Floor', 'Bedrooms', 'Bathrooms', 'Rent',
+                         'Rent Paid', 'Rent Remaining', 'Rent Due Date', 'Deposit', 'Is Available'])
+        for unit in units:
+            writer.writerow([
+                unit.tenant.email if unit.tenant else 'Vacant',
+                unit.unit_number,
+                unit.floor,
+                unit.bedrooms,
+                unit.bathrooms,
+                unit.rent,
+                unit.rent_paid,
+                unit.rent_remaining,  # Fixed: was unit.balance
+                unit.rent_due_date,
+                unit.deposit,
+                unit.is_available
+            ])
+        # Cache the CSV content for 5 minutes (for frequent downloads)
+        cache.set(cache_key, response.content, timeout=300)
+        return response
+class TenantCSVView(APIView):
+    """
+    Generate CSV report for tenant with Redis caching
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, unit_id):
+        cache_key = f"tenant_csv:{unit_id}:{request.user.id}"
+        cached_response = cache.get(cache_key)
+        if cached_response:
+            response = HttpResponse(cached_response, content_type='text/csv')
+            response['Content-Disposition'] = 'attachment; filename="tenant_data.csv"'
+            return response
+        unit = get_object_or_404(Unit, pk=unit_id)
+        # Verify the unit belongs to the logged-in tenant
+        if unit.tenant != request.user:
+            return HttpResponse("Unauthorized", status=403)
+        response = HttpResponse(content_type='text/csv')
+        response['Content-Disposition'] = 'attachment; filename="tenant_data.csv"'
+        writer = csv.writer(response)
+        writer.writerow(['Property', 'Unit Number', 'Floor', 'Bedrooms', 'Bathrooms',
+                         'Rent', 'Rent Paid', 'Rent Remaining', 'Rent Due Date', 'Deposit'])
+        writer.writerow([
+            unit.property_obj.name,
+            unit.unit_number,
+            unit.floor,
+            unit.bedrooms,
+            unit.bathrooms,
+            unit.rent,
+            unit.rent_paid,
+            unit.rent_remaining,  # Fixed: was unit.balance
+            unit.rent_due_date,
+            unit.deposit
+        ])
+        # Cache the CSV content for 5 minutes
+        cache.set(cache_key, response.content, timeout=300)
+        return response
+# ------------------------------
+# UNIT TYPES LIST (For Tenants to Choose Room Types)
+# ------------------------------
+class UnitTypeListView(APIView):
+    def get(self, request):
+        landlord_code = request.query_params.get('landlord_code')
+        if landlord_code:
+            try:
+                landlord = CustomUser.objects.get(
+                    landlord_code=landlord_code, user_type='landlord')
+                unit_types = UnitType.objects.filter(landlord=landlord)
+            except CustomUser.DoesNotExist:
+                return Response({'error': 'Invalid landlord code'}, status=400)
+        else:
+            unit_types = UnitType.objects.all()
+        serializer = UnitTypeSerializer(unit_types, many=True)
+        return Response(serializer.data)
+# ------------------------------
+# INITIATE DEPOSIT PAYMENT
+# ------------------------------
+class InitiateDepositPaymentView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        unit_id = request.data.get('unit_id')
+        if not unit_id:
+            return Response({'error': 'unit_id is required'}, status=400)
+        
+        try:
+            unit = Unit.objects.get(id=unit_id, is_available=True)
+        except Unit.DoesNotExist:
+            return Response({'error': 'Invalid unit or not available'}, status=400)
+
+        # Check if unit already has a tenant
+        if unit.tenant:
+            return Response({'error': 'Unit is already occupied'}, status=400)
+
+        amount = unit.deposit
+        
+        # Validate amount
+        if amount is None or amount <= 0:
+            return Response({"error": "Deposit amount is not set or invalid."}, status=400)
+        
+        # Ensure amount is a whole number (M-Pesa requires integer amounts)
+        if not (amount % 1 == 0):
+            return Response({"error": "Deposit amount must be a whole number."}, status=400)
+        
+        # Convert to integer for M-Pesa
+        amount = int(amount)
+        
+        # Rate limiting
+        rate_limit_key = f"deposit_stk_push_rate_limit:{request.user.id}"
+        recent_requests = cache.get(rate_limit_key, 0)
+        if recent_requests >= 5:
+            return Response({"error": "Too many requests. Please try again later."}, status=429)
+        
+        cache.set(rate_limit_key, recent_requests + 1, timeout=60)
+        
+        # Check for duplicate pending payment
+        duplicate_key = f"pending_deposit_payment:{request.user.id}:{unit_id}"
+        if cache.get(duplicate_key):
+            return Response({"error": "A deposit payment request is already pending for this unit."}, status=400)
+        
+        # Create a pending payment record - DO NOT ASSIGN TENANT YET
+        payment = Payment.objects.create(
+            tenant=request.user,
+            unit=unit,
+            payment_type='deposit',
+            amount=amount,
+            status="Pending"  # Keep as Pending until callback confirms
+        )
+        
+        # Mark payment as pending in Redis (5-minute expiry)
+        cache.set(duplicate_key, payment.id, timeout=300)
+        
+        try:
+            # Generate access token
+            access_token_cache_key = "mpesa_access_token"
+            access_token = cache.get(access_token_cache_key)
+            if not access_token:
+                access_token = generate_access_token()
+            cache.set(access_token_cache_key, access_token, timeout=3300)
+        except Exception as e:
+            return Response({"error": f"Payment initiation failed: {str(e)}"}, status=400)
+        
+        timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+        password = base64.b64encode(
+            (settings.MPESA_SHORTCODE + settings.MPESA_PASSKEY + timestamp).encode("utf-8")
+        ).decode("utf-8")
+        
+        business_shortcode = settings.MPESA_SHORTCODE
+        
+        # Build payload for Safaricom API
+        payload = {
+            "BusinessShortCode": business_shortcode,
+            "Password": password,
+            "Timestamp": timestamp,
+            "TransactionType": "CustomerPayBillOnline",
+            "Amount": str(payment.amount),
+            "PartyA": request.user.phone_number,
+            "PartyB": business_shortcode,
+            "PhoneNumber": request.user.phone_number,
+            "CallBackURL": settings.MPESA_DEPOSIT_CALLBACK_URL,
+            "AccountReference": str(payment.id),
+            "TransactionDesc": f"Deposit for Unit {unit.unit_number}"
+        }
+        
+        headers = {"Authorization": f"Bearer {access_token}"}
+        
+        try:
+            response = requests.post(
+                "https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest",
+                json=payload,
+                headers=headers,
+                timeout=30
+            )
+            response_data = response.json()
+            
+            if response_data.get("ResponseCode") == "0":
+                # Return success but DO NOT assign tenant - wait for callback
+                return JsonResponse({
+                    "message": "Deposit payment initiated for tenant {} on unit {}. Tenant will be assigned to the unit upon successful payment confirmation.".format(
+                        request.user.full_name, unit.unit_number
+                    ),
+                    "checkout_request_id": response_data.get("CheckoutRequestID"),
+                    "payment_id": payment.id
+                })
+            else:
+                # STK push failed - mark payment as failed immediately
+                payment.status = "Failed"
+                payment.save()
+                cache.delete(duplicate_key)
+                return Response({
+                    "error": "Payment initiation failed: {}".format(
+                        response_data.get("ResponseDescription", "Unknown error")
+                    )
+                }, status=400)
+                
+        except requests.exceptions.RequestException as e:
+            # Network error - mark payment as failed
+            payment.status = "Failed"
+            payment.save()
+            cache.delete(duplicate_key)
+            return Response({"error": "Payment service temporarily unavailable. Please try again later."}, status=503)
+# ------------------------------
+# TRIGGER DEPOSIT CALLBACK (FOR TESTING)
+# ------------------------------
+class TriggerDepositCallbackView(APIView):
+    """
+    Manual endpoint to trigger deposit callback for testing.
+    Accepts payment_id as query parameter.
+    """
+    permission_classes = [IsAuthenticated]  # Allow authenticated users for testing
+
+    def post(self, request):
+        from django.http import HttpRequest
+        import json
+        import logging
+
+        logger = logging.getLogger(__name__)
+
+        payment_id = request.query_params.get('payment_id')
+        if not payment_id:
+            return Response({"error": "payment_id query parameter required"}, status=400)
+
+        try:
+            payment = Payment.objects.get(id=payment_id, payment_type='deposit')
+        except Payment.DoesNotExist:
+            return Response({"error": f"Deposit payment with id {payment_id} not found"}, status=404)
+
+        # Create mock callback data
+        mock_callback_data = {
+            "Body": {
+                "stkCallback": {
+                    "MerchantRequestID": "mock-request-id",
+                    "CheckoutRequestID": "mock-checkout-id",
+                    "ResultCode": 0,
+                    "ResultDesc": "The service request is processed successfully.",
+                    "CallbackMetadata": {
+                        "Item": [
+                            {"Name": "Amount", "Value": str(payment.amount)},
+                            {"Name": "MpesaReceiptNumber", "Value": f"TEST{payment_id}"},
+                            {"Name": "TransactionDate", "Value": "20231201120000"},
+                            {"Name": "PhoneNumber", "Value": payment.tenant.phone_number},
+                            {"Name": "AccountReference", "Value": str(payment.id)}
+                        ]
+                    }
+                }
+            }
+        }
+
+        # Simulate the callback by calling the actual callback function
+        mock_request = HttpRequest()
+        mock_request.method = 'POST'
+        mock_request._body = json.dumps(mock_callback_data).encode('utf-8')
+
+        logger.info(f"🔧 Manually triggering deposit callback for payment {payment_id}")
+        response = mpesa_deposit_callback(mock_request)
+
+        return Response({
+            "message": f"Deposit callback triggered for payment {payment_id}",
+            "mock_data": mock_callback_data,
+            "callback_response": response.content.decode('utf-8')
+        })
+
+# ------------------------------
+# B2C PAYMENT CALLBACK
+# ------------------------------
+@csrf_exempt
+def mpesa_b2c_callback(request):
+    """
+    Handles M-Pesa callback for B2C disbursements.
+    - Logs the result of the disbursement
+    - Could update payment records if needed
+    """
+    try:
+        data = json.loads(request.body.decode("utf-8"))
+        result = data.get("Result", {})
+        result_code = result.get("ResultCode")
+        result_desc = result.get("ResultDesc")
+        if result_code == 0:  # ✅ Disbursement successful
+            print(f"✅ B2C disbursement successful: {result_desc}")
+        else:
+            print(f"❌ B2C disbursement failed: {result_desc}")
+    except Exception as e:
+        print("Error processing B2C callback:", e)
+    # Always respond with success to Safaricom
+    return JsonResponse({"ResultCode": 0, "ResultDesc": "Accepted"})
+
+# ------------------------------
+# DEPOSIT PAYMENT CALLBACK
+# ------------------------------
+@csrf_exempt
+def mpesa_deposit_callback(request):
+    """
+    Handles M-Pesa callback for deposit payments.
+    - Updates Payment status to Success only if callback arrives within timeout
+    - Assigns tenant to unit upon successful payment
+    - Invalidates relevant caches
+    - ALWAYS returns success to acknowledge callback receipt
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info("🔄 Deposit callback received")
+
+    try:
+        # Parse request data
+        data = json.loads(request.body.decode("utf-8"))
+        logger.info(f"📥 Deposit callback data: {json.dumps(data, indent=2)}")
+
+        body = data.get("Body", {}).get("stkCallback", {})
+        result_code = body.get("ResultCode")
+        logger.info(f"🔍 Deposit callback result code: {result_code}")
+
+        if result_code == 0:  # ✅ Transaction successful
+            metadata_items = body.get("CallbackMetadata", {}).get("Item", [])
+            logger.info(f"📋 Deposit callback metadata items: {len(metadata_items)}")
+            metadata = {item["Name"]: item.get("Value") for item in metadata_items}
+            logger.info(f"🔧 Raw metadata: {metadata}")
+
+            # Convert amount to Decimal for consistency
+            amount_str = metadata.get("Amount")
+            amount = None
+            if amount_str:
+                try:
+                    amount = Decimal(amount_str)
+                    logger.info(f"💰 Deposit callback amount: {amount} (Decimal)")
+                except (ValueError, TypeError) as e:
+                    logger.error(f"❌ Invalid amount format: {amount_str}, error: {e}")
+
+            receipt = metadata.get("MpesaReceiptNumber")
+            payment_id = metadata.get("AccountReference")
+            phone = str(metadata.get("PhoneNumber")) if metadata.get("PhoneNumber") else None
+
+            logger.info(f"💰 Deposit callback metadata: amount={amount}, receipt={receipt}, payment_id={payment_id}, phone={phone}")
+
+            # Process payment update
+            if payment_id:
+                logger.info(f"🔍 Looking for payment with ID: {payment_id}")
+                try:
+                    payment = Payment.objects.get(
+                        id=payment_id, status="Pending", payment_type="deposit")
+                    logger.info(f"✅ Found pending deposit payment: {payment.id} for tenant {payment.tenant.email}")
+
+                    # Check if callback arrived within 120 seconds of payment initiation (increased for testing)
+                    time_elapsed = timezone.now() - payment.transaction_date
+                    if time_elapsed.total_seconds() > 120:
+                        logger.warning(f"⚠️ Deposit callback for payment {payment.id} arrived after 120 seconds ({time_elapsed.total_seconds()}s), marking as Failed")
+                        payment.status = "Failed"
+                        payment.save()
+                        # Invalidate caches for failed payment
+                        cache.delete_many([
+                            f"pending_deposit_payment:{payment.tenant.id}:{payment.unit.id}",
+                            f"payments:tenant:{payment.tenant.id}",
+                            f"payments:landlord:{payment.unit.property_obj.landlord.id}",
+                            f"rent_summary:{payment.unit.property_obj.landlord.id}",
+                            f"unit:{payment.unit.id}:details"
+                        ])
+                        logger.info(f"🗑️ Cache invalidated for timed-out payment {payment.id}")
+                        logger.info(f"❌ Deposit payment {payment_id} marked as Failed due to timeout")
+                    else:
+                        payment.status = "Success"
+                        payment.mpesa_receipt = receipt
+                        payment.save()
+                        logger.info(f"✅ Payment {payment.id} status updated to Success")
+
+                        # Assign tenant to unit upon successful deposit payment
+                        unit = payment.unit
+                        if unit.is_available and not unit.tenant:
+                            unit.tenant = payment.tenant
+                            unit.is_available = False
+                            unit.save()
+                            logger.info(f"✅ Tenant {payment.tenant.email} assigned to unit {unit.unit_number} after successful deposit")
+                        else:
+                            logger.warning(f"⚠️ Unit {unit.unit_number} not available or already assigned, skipping assignment")
+
+                        # Invalidate relevant caches
+                        cache.delete_many([
+                            f"pending_deposit_payment:{payment.tenant.id}:{payment.unit.id}",
+                            f"payments:tenant:{payment.tenant.id}",
+                            f"payments:landlord:{payment.unit.property_obj.landlord.id}",
+                            f"rent_summary:{payment.unit.property_obj.landlord.id}",
+                            f"unit:{payment.unit.id}:details",
+                            f"property:{unit.property_obj.id}:units"  # Invalidate unit list cache
+                        ])
+                        logger.info(f"🗑️ Cache invalidated for payment {payment.id}")
+                        logger.info(f"✅ Deposit payment successful: {receipt} for payment {payment_id}")
+
+                except Payment.DoesNotExist:
+                    logger.error(f"❌ Payment with id {payment_id} not found or already processed")
+                except Exception as e:
+                    logger.error(f"❌ Error updating payment {payment_id}: {e}")
+            else:
+                logger.warning("⚠️ No payment_id in callback, cannot process payment")
+        else:
+            # Transaction failed - UPDATE PAYMENT STATUS TO FAILED
+            error_msg = body.get("ResultDesc", "Unknown error")
+            logger.error(f"❌ Deposit transaction failed: {error_msg} (ResultCode: {result_code})")
+            # Try to find and update the payment to Failed
+            try:
+                payment_id = body.get("AccountReference")
+                if payment_id:
+                    payment = Payment.objects.get(id=payment_id, status="Pending", payment_type="deposit")
+                    payment.status = "Failed"
+                    payment.save()
+                    # Invalidate caches
+                    cache.delete_many([
+                        f"pending_deposit_payment:{payment.tenant.id}:{payment.unit.id}",
+                        f"payments:tenant:{payment.tenant.id}",
+                        f"payments:landlord:{payment.unit.property_obj.landlord.id}",
+                    ])
+                    logger.info(f"✅ Deposit payment {payment_id} marked as Failed")
+            except Payment.DoesNotExist:
+                logger.error(f"Payment with id {payment_id} not found for failure update")
+            except Exception as e:
+                logger.error(f"Error updating failed deposit payment: {e}")
+
+    except json.JSONDecodeError as e:
+        logger.error(f"❌ Invalid JSON in deposit callback: {e}")
+    except Exception as e:
+        logger.error("❌ Unexpected error processing deposit callback:", exc_info=True)
+
+    # CRITICAL: Always respond with success to Safaricom to acknowledge callback receipt
+    logger.info("✅ Responding with success to M-Pesa callback")
+    return JsonResponse({"ResultCode": 0, "ResultDesc": "Accepted"})
+
+# ------------------------------
+# DEPOSIT PAYMENT STATUS VIEW
+# ------------------------------
+class DepositPaymentStatusView(APIView):
+    """
+    Allows tenants to check the status of their deposit payment.
+    Includes automatic timeout detection (10 minutes).
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, payment_id):
+        try:
+            payment = Payment.objects.get(
+                id=payment_id,
+                tenant=request.user,
+                payment_type='deposit'
+            )
+        except Payment.DoesNotExist:
+            return Response({"error": "Deposit payment not found"}, status=404)
+
+        # Check for timeout (10 minutes)
+        if payment.status == "Pending":
+            time_elapsed = timezone.now() - payment.transaction_date
+            if time_elapsed.total_seconds() > 600:  # 10 minutes
+                payment.status = "Failed"
+                payment.save()
+                logger.warning(f"Payment {payment.id} timed out after 10 minutes")
+
+                # Invalidate caches
+                cache.delete_many([
+                    f"pending_deposit_payment:{payment.tenant.id}:{payment.unit.id}",
+                    f"payments:tenant:{payment.tenant.id}",
+                    f"payments:landlord:{payment.unit.property_obj.landlord.id}",
+                ])
+
+        return Response({
+            "payment_id": payment.id,
+            "status": payment.status,
+            "amount": payment.amount,
+            "unit_number": payment.unit.unit_number,
+            "transaction_date": payment.transaction_date,
+            "mpesa_receipt": payment.mpesa_receipt
+        })
+
+# ------------------------------
+# CLEANUP PENDING PAYMENTS VIEW
+# ------------------------------
+class CleanupPendingPaymentsView(APIView):
+    """
+    Admin endpoint to cleanup pending payments older than 10 minutes.
+    Marks them as Failed and invalidates relevant caches.
+    """
+    permission_classes = [IsAuthenticated]  # TODO: Add admin permission
+
+    def post(self, request):
+        # Add logger import at the top of the function
+        logger = logging.getLogger(__name__)
+
+        # Find all pending payments older than 10 minutes
+        cutoff_time = timezone.now() - timedelta(minutes=10)
+        pending_payments = Payment.objects.filter(
+            status="Pending",
+            transaction_date__lt=cutoff_time
+        )
+
+        cleaned_count = 0
+        for payment in pending_payments:
+            payment.status = "Failed"
+            payment.save()
+            cleaned_count += 1
+
+            # Invalidate relevant caches
+            if payment.payment_type == 'deposit':
+                cache.delete_many([
+                    f"pending_deposit_payment:{payment.tenant.id}:{payment.unit.id}",
+                    f"payments:tenant:{payment.tenant.id}",
+                    f"payments:landlord:{payment.unit.property_obj.landlord.id}",
+                ])
+            else:  # rent payment
+                cache.delete_many([
+                    f"pending_payment:{payment.tenant.id}:{payment.unit.id}",
+                    f"payments:tenant:{payment.tenant.id}",
+                    f"payments:landlord:{payment.unit.property_obj.landlord.id}",
+                ])
+
+        logger.info(f"Cleaned up {cleaned_count} pending payments older than 10 minutes")
+
+        return Response({
+            "message": f"Cleaned up {cleaned_count} pending payments",
+            "cutoff_time": cutoff_time.isoformat()
+        })
+
+# ------------------------------
+# SIMULATE DEPOSIT CALLBACK VIEW
+# ------------------------------
+class SimulateDepositCallbackView(APIView):
+    """
+    Endpoint to simulate deposit callback for testing purposes.
+    Accepts payment_id as query parameter and simulates success/failure.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        payment_id = request.query_params.get('payment_id')
+        if not payment_id:
+            return Response({"error": "payment_id query parameter required"}, status=400)
+
+        try:
+            payment = Payment.objects.get(id=payment_id, payment_type='deposit')
+        except Payment.DoesNotExist:
+            return Response({"error": f"Deposit payment with id {payment_id} not found"}, status=404)
+
+        # Check if callback is within timeout (10 minutes)
+        time_elapsed = timezone.now() - payment.transaction_date
+        if time_elapsed.total_seconds() > 600:  # 10 minutes
+            return Response({"error": "Payment has timed out (10 minutes)"}, status=400)
+
+        # Simulate successful callback
+        mock_callback_data = {
+            "Body": {
+                "stkCallback": {
+                    "MerchantRequestID": "mock-request-id",
+                    "CheckoutRequestID": "mock-checkout-id",
+                    "ResultCode": 0,
+                    "ResultDesc": "The service request is processed successfully.",
+                    "CallbackMetadata": {
+                        "Item": [
+                            {"Name": "Amount", "Value": str(payment.amount)},
+                            {"Name": "MpesaReceiptNumber", "Value": f"SIM{payment_id}"},
+                            {"Name": "TransactionDate", "Value": timezone.now().strftime("%Y%m%d%H%M%S")},
+                            {"Name": "PhoneNumber", "Value": payment.tenant.phone_number},
+                            {"Name": "AccountReference", "Value": str(payment.id)}
+                        ]
+                    }
+                }
+            }
+        }
+
+        # Create mock request to call the actual callback function
+        from django.http import HttpRequest
+        mock_request = HttpRequest()
+        mock_request.method = 'POST'
+        mock_request._body = json.dumps(mock_callback_data).encode('utf-8')
+
+        logger.info(f"🔧 Simulating deposit callback for payment {payment_id}")
+        response = mpesa_deposit_callback(mock_request)
+
+        return Response({
+            "message": f"Deposit callback simulated for payment {payment_id}",
+            "mock_data": mock_callback_data,
+            "callback_response": response.content.decode('utf-8')
+        })

@@ -1155,19 +1155,22 @@ def mpesa_b2c_callback(request):
 def mpesa_deposit_callback(request):
     """
     Handles M-Pesa callback for deposit payments.
-    - Updates Payment status to Success only if callback arrives within timeout
-    - Assigns tenant to unit upon successful payment
-    - Invalidates relevant caches
-    - ALWAYS returns success to acknowledge callback receipt
+    ✅ Automatically confirms deposits and assigns tenant to unit
+    ✅ No timeout restriction (safe for delayed callbacks)
+    ✅ Always acknowledges Safaricom callback with success
     """
     import logging
+    from decimal import Decimal
+    from django.utils import timezone
+    import json
+
     logger = logging.getLogger(__name__)
     logger.info("🔄 Deposit callback received")
 
     try:
-        # Parse request data
+        # --- Parse callback data ---
         data = json.loads(request.body.decode("utf-8"))
-        logger.info(f"📥 Deposit callback data: {json.dumps(data, indent=2)}")
+        logger.info(f"📥 Deposit callback payload: {json.dumps(data, indent=2)}")
 
         body = data.get("Body", {}).get("stkCallback", {})
         result_code = body.get("ResultCode")
@@ -1175,114 +1178,88 @@ def mpesa_deposit_callback(request):
 
         if result_code == 0:  # ✅ Transaction successful
             metadata_items = body.get("CallbackMetadata", {}).get("Item", [])
-            logger.info(f"📋 Deposit callback metadata items: {len(metadata_items)}")
             metadata = {item["Name"]: item.get("Value") for item in metadata_items}
-            logger.info(f"🔧 Raw metadata: {metadata}")
+            logger.info(f"🔧 Parsed metadata: {metadata}")
 
-            # Convert amount to Decimal for consistency
+            # Extract values
             amount_str = metadata.get("Amount")
-            amount = None
-            if amount_str:
-                try:
-                    amount = Decimal(amount_str)
-                    logger.info(f"💰 Deposit callback amount: {amount} (Decimal)")
-                except (ValueError, TypeError) as e:
-                    logger.error(f"❌ Invalid amount format: {amount_str}, error: {e}")
-
             receipt = metadata.get("MpesaReceiptNumber")
             payment_id = metadata.get("AccountReference")
             phone = str(metadata.get("PhoneNumber")) if metadata.get("PhoneNumber") else None
 
-            logger.info(f"💰 Deposit callback metadata: amount={amount}, receipt={receipt}, payment_id={payment_id}, phone={phone}")
-
-            # Process payment update
-            if payment_id:
-                logger.info(f"🔍 Looking for payment with ID: {payment_id}")
-                try:
-                    payment = Payment.objects.get(
-                        id=payment_id, status="Pending", payment_type="deposit")
-                    logger.info(f"✅ Found pending deposit payment: {payment.id} for tenant {payment.tenant.email}")
-
-                    # Check if callback arrived within 120 seconds of payment initiation (increased for testing)
-                    time_elapsed = timezone.now() - payment.transaction_date
-                    if time_elapsed.total_seconds() > 120:
-                        logger.warning(f"⚠️ Deposit callback for payment {payment.id} arrived after 120 seconds ({time_elapsed.total_seconds()}s), marking as Failed")
-                        payment.status = "Failed"
-                        payment.save()
-                        # Invalidate caches for failed payment
-                        cache.delete_many([
-                            f"pending_deposit_payment:{payment.tenant.id}:{payment.unit.id}",
-                            f"payments:tenant:{payment.tenant.id}",
-                            f"payments:landlord:{payment.unit.property_obj.landlord.id}",
-                            f"rent_summary:{payment.unit.property_obj.landlord.id}",
-                            f"unit:{payment.unit.id}:details"
-                        ])
-                        logger.info(f"🗑️ Cache invalidated for timed-out payment {payment.id}")
-                        logger.info(f"❌ Deposit payment {payment_id} marked as Failed due to timeout")
-                    else:
-                        payment.status = "Success"
-                        payment.mpesa_receipt = receipt
-                        payment.save()
-                        logger.info(f"✅ Payment {payment.id} status updated to Success")
-
-                        # Assign tenant to unit upon successful deposit payment
-                        unit = payment.unit
-                        if unit.is_available and not unit.tenant:
-                            unit.tenant = payment.tenant
-                            unit.is_available = False
-                            unit.save()
-                            logger.info(f"✅ Tenant {payment.tenant.email} assigned to unit {unit.unit_number} after successful deposit")
-                        else:
-                            logger.warning(f"⚠️ Unit {unit.unit_number} not available or already assigned, skipping assignment")
-
-                        # Invalidate relevant caches
-                        cache.delete_many([
-                            f"pending_deposit_payment:{payment.tenant.id}:{payment.unit.id}",
-                            f"payments:tenant:{payment.tenant.id}",
-                            f"payments:landlord:{payment.unit.property_obj.landlord.id}",
-                            f"rent_summary:{payment.unit.property_obj.landlord.id}",
-                            f"unit:{payment.unit.id}:details",
-                            f"property:{unit.property_obj.id}:units"  # Invalidate unit list cache
-                        ])
-                        logger.info(f"🗑️ Cache invalidated for payment {payment.id}")
-                        logger.info(f"✅ Deposit payment successful: {receipt} for payment {payment_id}")
-
-                except Payment.DoesNotExist:
-                    logger.error(f"❌ Payment with id {payment_id} not found or already processed")
-                except Exception as e:
-                    logger.error(f"❌ Error updating payment {payment_id}: {e}")
-            else:
-                logger.warning("⚠️ No payment_id in callback, cannot process payment")
-        else:
-            # Transaction failed - UPDATE PAYMENT STATUS TO FAILED
-            error_msg = body.get("ResultDesc", "Unknown error")
-            logger.error(f"❌ Deposit transaction failed: {error_msg} (ResultCode: {result_code})")
-            # Try to find and update the payment to Failed
+            # Convert amount safely
             try:
-                payment_id = body.get("AccountReference")
-                if payment_id:
-                    payment = Payment.objects.get(id=payment_id, status="Pending", payment_type="deposit")
+                amount = Decimal(amount_str)
+            except Exception:
+                amount = Decimal('0')
+            logger.info(f"💰 Amount={amount}, Receipt={receipt}, PaymentID={payment_id}, Phone={phone}")
+
+            # --- Update the payment record ---
+            if not payment_id:
+                logger.error("❌ Missing AccountReference (payment_id) in callback.")
+                return JsonResponse({"ResultCode": 0, "ResultDesc": "Accepted"})
+
+            try:
+                payment = Payment.objects.get(id=payment_id, payment_type="deposit")
+            except Payment.DoesNotExist:
+                logger.error(f"❌ Payment with id {payment_id} not found.")
+                return JsonResponse({"ResultCode": 0, "ResultDesc": "Accepted"})
+
+            # Update payment status
+            payment.status = "Success"
+            payment.mpesa_receipt = receipt
+            payment.transaction_date = timezone.now()
+            payment.save()
+            logger.info(f"✅ Payment {payment.id} marked as Success")
+
+            # --- Assign tenant automatically ---
+            unit = payment.unit
+            if unit.is_available or not unit.tenant:
+                unit.tenant = payment.tenant
+                unit.is_available = False
+                unit.save()
+                logger.info(f"🏠 Tenant {payment.tenant.email} assigned to unit {unit.unit_number}")
+            else:
+                logger.warning(f"⚠️ Unit {unit.unit_number} already occupied. Skipping assignment.")
+
+            # --- Invalidate caches ---
+            cache.delete_many([
+                f"pending_deposit_payment:{payment.tenant.id}:{unit.id}",
+                f"payments:tenant:{payment.tenant.id}",
+                f"payments:landlord:{unit.property_obj.landlord.id}",
+                f"rent_summary:{unit.property_obj.landlord.id}",
+                f"unit:{unit.id}:details",
+                f"property:{unit.property_obj.id}:units"
+            ])
+            logger.info(f"🗑️ Cache cleared for payment {payment.id}")
+
+        else:
+            # ❌ Transaction failed
+            error_msg = body.get("ResultDesc", "Unknown error")
+            payment_id = body.get("AccountReference")
+            logger.error(f"❌ Deposit transaction failed: {error_msg} (Payment ID: {payment_id})")
+
+            if payment_id:
+                try:
+                    payment = Payment.objects.get(id=payment_id, payment_type="deposit")
                     payment.status = "Failed"
                     payment.save()
-                    # Invalidate caches
                     cache.delete_many([
                         f"pending_deposit_payment:{payment.tenant.id}:{payment.unit.id}",
                         f"payments:tenant:{payment.tenant.id}",
                         f"payments:landlord:{payment.unit.property_obj.landlord.id}",
                     ])
-                    logger.info(f"✅ Deposit payment {payment_id} marked as Failed")
-            except Payment.DoesNotExist:
-                logger.error(f"Payment with id {payment_id} not found for failure update")
-            except Exception as e:
-                logger.error(f"Error updating failed deposit payment: {e}")
+                    logger.info(f"✅ Marked payment {payment_id} as Failed")
+                except Payment.DoesNotExist:
+                    logger.error(f"Payment {payment_id} not found for failure update")
 
     except json.JSONDecodeError as e:
         logger.error(f"❌ Invalid JSON in deposit callback: {e}")
     except Exception as e:
-        logger.error("❌ Unexpected error processing deposit callback:", exc_info=True)
+        logger.exception("❌ Unexpected error in deposit callback")
 
-    # CRITICAL: Always respond with success to Safaricom to acknowledge callback receipt
-    logger.info("✅ Responding with success to M-Pesa callback")
+    # --- Always respond success to Safaricom ---
+    logger.info("✅ Acknowledging M-Pesa callback with success")
     return JsonResponse({"ResultCode": 0, "ResultDesc": "Accepted"})
 
 # ------------------------------
