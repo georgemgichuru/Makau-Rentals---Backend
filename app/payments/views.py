@@ -1005,7 +1005,12 @@ class InitiateDepositPaymentView(APIView):
         ).decode("utf-8")
         
         business_shortcode = settings.MPESA_SHORTCODE
-        
+
+        # Normalize phone number for M-Pesa (remove + if present)
+        phone_number = request.user.phone_number
+        if phone_number.startswith('+'):
+            phone_number = phone_number[1:]
+
         # Build payload for Safaricom API
         payload = {
             "BusinessShortCode": business_shortcode,
@@ -1013,9 +1018,9 @@ class InitiateDepositPaymentView(APIView):
             "Timestamp": timestamp,
             "TransactionType": "CustomerPayBillOnline",
             "Amount": str(payment.amount),
-            "PartyA": request.user.phone_number,
+            "PartyA": phone_number,
             "PartyB": business_shortcode,
-            "PhoneNumber": request.user.phone_number,
+            "PhoneNumber": phone_number,
             "CallBackURL": settings.MPESA_DEPOSIT_CALLBACK_URL,
             "AccountReference": str(payment.id),
             "TransactionDesc": f"Deposit for Unit {unit.unit_number}"
