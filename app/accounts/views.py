@@ -50,9 +50,9 @@ class UnitTypeListCreateView(APIView):
         serializer = UnitTypeSerializer(data=request.data)
         if serializer.is_valid():
             unit_type = serializer.save(landlord=request.user)
-            
+
             # Automatically create units based on the unit_count
-            unit_count = request.data.get('unit_count', 1)
+            unit_count = int(request.data.get('unit_count', 1))
             property_id = request.data.get('property_id')
             
             if property_id and unit_count > 0:
@@ -70,17 +70,17 @@ class UnitTypeListCreateView(APIView):
         # Get existing units to determine next unit number
         existing_units = Unit.objects.filter(property_obj=property_obj)
         last_unit = existing_units.order_by('-unit_number').first()
-        
+
         if last_unit and last_unit.unit_number.isdigit():
             start_number = int(last_unit.unit_number) + 1
         else:
             start_number = 1
-        
+
         units_created = []
         for i in range(unit_count):
             unit_number = start_number + i
             unit_code = f"U-{property_obj.id}-{unit_type.name.replace(' ', '-')}-{unit_number}"
-            
+
             unit = Unit.objects.create(
                 property_obj=property_obj,
                 unit_code=unit_code,
@@ -91,7 +91,11 @@ class UnitTypeListCreateView(APIView):
                 deposit=unit_type.deposit,
             )
             units_created.append(unit)
-        
+
+        # Invalidate caches after creating units
+        cache.delete(f"landlord:{unit_type.landlord.id}:properties")
+        cache.delete(f"property:{property_obj.id}:units")
+
         return units_created
 
 
@@ -179,7 +183,7 @@ class UnitTypeDetailView(APIView):
 # Lists a single user (cached)
 # View to get user details
 class UserDetailView(APIView):
-    permission_classes = [HasActiveSubscription]
+    permission_classes = [IsAuthenticated, HasActiveSubscription]
 
     def get(self, request, user_id):
         cache_key = f"user:{user_id}"
@@ -299,6 +303,7 @@ class UserCreateView(APIView):
                         from payments.models import Payment
                         deposit_payments = Payment.objects.filter(
                             tenant=user,
+                            unit=unit,
                             payment_type='deposit',
                             status='Success',
                             amount__gte=unit.deposit
@@ -356,15 +361,13 @@ class CreatePropertyView(APIView):
 
         # Get plan limit
         max_properties = PLAN_LIMITS.get(plan)
-        if max_properties is None:
-            logger.error(f"Unknown plan {plan} for user {user.id}")
+        if max_properties is None and plan != "onetime":
             return Response({"error": f"Unknown plan type: {plan}"}, status=400)
 
         # Count current properties
         current_count = Property.objects.filter(landlord=user).count()
         logger.info(f"Current properties count: {current_count}, max: {max_properties}")
-        if current_count >= max_properties:
-            logger.warning(f"Property limit reached for user {user.id}")
+        if plan != "onetime" and current_count >= max_properties:
             return Response({
                 "error": f"Your current plan ({plan}) allows a maximum of {max_properties} properties. Upgrade to add more."
             }, status=403)
@@ -411,6 +414,7 @@ class CreateUnitView(APIView):
         if serializer.is_valid():
             unit = serializer.save()
             cache.delete(f"landlord:{request.user.id}:properties")
+            cache.delete(f"property:{unit.property_obj.id}:units")
             return Response(serializer.data, status=201)
         return Response(serializer.errors, status=400)
 
@@ -497,7 +501,11 @@ class AssignTenantView(APIView):
             unit.tenant = tenant
             unit.is_available = False
             unit.save()
-            
+
+            # Invalidate caches
+            cache.delete(f"landlord:{request.user.id}:properties")
+            cache.delete(f"property:{unit.property_obj.id}:units")
+
             logger.info(f"✅ Tenant {tenant.full_name} assigned to unit {unit.unit_number}")
 
             return Response({
@@ -547,6 +555,7 @@ class UpdatePropertyView(APIView):
             if serializer.is_valid():
                 serializer.save()
                 cache.delete(f"landlord:{request.user.id}:properties")
+                cache.delete(f"property:{property_id}:units")
                 return Response(serializer.data)
             return Response(serializer.errors, status=400)
         except Property.DoesNotExist:
@@ -557,6 +566,7 @@ class UpdatePropertyView(APIView):
             property = Property.objects.get(id=property_id, landlord=request.user)
             property.delete()
             cache.delete(f"landlord:{request.user.id}:properties")
+            cache.delete(f"property:{property_id}:units")
             return Response({"message": "Property deleted successfully."}, status=200)
         except Property.DoesNotExist:
             return Response({"error": "Property not found or you do not have permission"}, status=404)
@@ -648,6 +658,8 @@ class AdjustRentView(APIView):
         value = request.data.get('value')  # decimal, positive for increase, negative for decrease
         unit_type_id = request.data.get('unit_type_id')  # optional, if provided, adjust only units of this type
 
+        logger.info(f"AdjustRentView POST: Landlord {landlord.id} adjusting rent, adjustment_type={adjustment_type}, value={value}, unit_type_id={unit_type_id}")
+
         if adjustment_type not in ['percentage', 'fixed']:
             return Response({"error": "adjustment_type must be 'percentage' or 'fixed'"}, status=400)
 
@@ -678,6 +690,8 @@ class AdjustRentView(APIView):
             unit.save()  # This will update rent_remaining
             updated_count += 1
 
+        logger.info(f"AdjustRentView POST: Rent adjusted for {updated_count} units by landlord {landlord.id}")
+
         # Invalidate caches
         cache.delete(f"landlord:{landlord.id}:properties")
         # Also invalidate rent_summary cache
@@ -690,6 +704,8 @@ class AdjustRentView(APIView):
         landlord = request.user
         new_rent = request.data.get('new_rent')
         unit_type_id = request.data.get('unit_type_id')  # optional
+
+        logger.info(f"AdjustRentView PUT: Landlord {landlord.id} setting new rent, new_rent={new_rent}, unit_type_id={unit_type_id}")
 
         if new_rent is None:
             return Response({"error": "new_rent is required"}, status=400)
@@ -712,6 +728,8 @@ class AdjustRentView(APIView):
             unit.rent = new_rent
             unit.save()
             updated_count += 1
+
+        logger.info(f"AdjustRentView PUT: Rent set to {new_rent} for {updated_count} units by landlord {landlord.id}")
 
         # Invalidate caches
         cache.delete(f"landlord:{landlord.id}:properties")
@@ -807,3 +825,10 @@ class LandlordAvailableUnitsView(APIView):
         units = Unit.objects.filter(property_obj__landlord=request.user, is_available=True)
         serializer = AvailableUnitsSerializer(units, many=True)
         return Response(serializer.data)
+
+
+# New endpoint to log requests and return a welcome message
+class WelcomeView(APIView):
+    def get(self, request):
+        logger.info(f"Request received: {request.method} {request.path}")
+        return Response({"message": "Welcome to the Makau Rentals API!"})
