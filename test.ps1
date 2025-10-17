@@ -138,7 +138,7 @@ function Register-Landlord {
         full_name = "Demo Landlord"
         user_type = "landlord"
         password = "DemoPass123!"
-        phone_number = "+254708374149"  # M-Pesa test phone number
+        phone_number = "+254722714334"  # M-Pesa test phone number
         government_id = "12345678"
     }
     
@@ -291,7 +291,7 @@ function Register-Tenant {
         full_name = "Demo Tenant"
         user_type = "tenant"
         password = "DemoPass123!"
-        phone_number = "+254708374149"  # M-Pesa test phone number
+        phone_number = "+254722714334"  # M-Pesa test phone number
         government_id = "87654321"
         landlord_code = $LandlordCode
     }
@@ -531,7 +531,7 @@ function Test-Deposit-Payment {
         unit_id = $Global:UnitId
     }
 
-    $response = Invoke-ApiRequest -Endpoint "payments/deposit/initiate/" -Method "POST" -Body $depositData -Token $Global:TenantToken -TimeoutSec 45
+    $response = Invoke-ApiRequest -Endpoint "payments/initiate-deposit/" -Method "POST" -Body $depositData -Token $Global:TenantToken -TimeoutSec 45
 
     if ($response.Success) {
         Write-ColorOutput "SUCCESS: Deposit payment initiated:" $Green
@@ -571,7 +571,7 @@ function Test-Rent-Payment {
     }
     
     Write-ColorOutput "   Initiating 1 KSH rent payment for unit $Global:UnitId..." $Yellow
-    Write-ColorOutput "   Tenant Phone: +254708374149" $Yellow
+    Write-ColorOutput "   Tenant Phone: +254722714334" $Yellow
     Write-ColorOutput "   Amount: 1 KSH" $Yellow
     
     $response = Invoke-ApiRequest -Endpoint "payments/stk-push/$Global:UnitId/" -Method "POST" -Body $rentData -Token $Global:TenantToken -TimeoutSec 45
@@ -597,7 +597,7 @@ function Test-Subscription-Payment {
     
     $subscriptionData = @{
         plan = "starter"
-        phone_number = "+254708374149"  # Landlord's phone for subscription
+        phone_number = "+254722714334"  # Landlord's phone for subscription
     }
     
     Write-ColorOutput "   Initiating 1 KSH subscription payment..." $Yellow
@@ -733,7 +733,7 @@ function Test-Disbursements {
 
     # Assume endpoint for disbursements (landlord disbursing funds to tenants or vendors)
     $disbursementData = @{
-        recipient_phone = "+254708374149"  # Test phone
+        recipient_phone = "+254722714334"  # Test phone
         amount = 1.00  # 1 KSH for testing
         description = "Test disbursement for workflow validation"
     }
@@ -900,8 +900,8 @@ function Main {
     Write-ColorOutput "   API Documentation: $BaseUrl/api/docs/" $Cyan
     Write-ColorOutput "`nIMPORTANT: Check your phone to complete the M-Pesa payments!" $Yellow
     Write-ColorOutput "Phone numbers used:" $Yellow
-    Write-ColorOutput "   Landlord: +254708374149" $Yellow
-    Write-ColorOutput "   Tenant: +254708374149" $Yellow
+    Write-ColorOutput "   Landlord: +254722714334" $Yellow
+    Write-ColorOutput "   Tenant: +254722714334" $Yellow
 }
 
 # Start the demo

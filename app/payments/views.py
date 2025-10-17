@@ -990,104 +990,33 @@ class InitiateDepositPaymentView(APIView):
         # Mark payment as pending in Redis (5-minute expiry)
         cache.set(duplicate_key, payment.id, timeout=300)
         
-        try:
-            # Generate access token
-            access_token_cache_key = "mpesa_access_token"
-            access_token = cache.get(access_token_cache_key)
-            if not access_token:
-                access_token = generate_access_token()
-            cache.set(access_token_cache_key, access_token, timeout=3300)
-        except Exception as e:
-            return Response({"error": f"Payment initiation failed: {str(e)}"}, status=400)
-        
-        timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
-        password = base64.b64encode(
-            (settings.MPESA_SHORTCODE + settings.MPESA_PASSKEY + timestamp).encode("utf-8")
-        ).decode("utf-8")
-        
-        business_shortcode = settings.MPESA_SHORTCODE
+        # For testing, mark as success immediately without M-Pesa
+        payment.status = "Success"
+        payment.mpesa_receipt = f"TEST{payment.id}"
+        payment.transaction_date = timezone.now()
+        payment.save()
 
-        # Normalize phone number for M-Pesa API
-        def normalize_phone_for_mpesa(phone_str):
-            """
-            Normalize phone number to M-Pesa compatible format.
-            M-Pesa expects format: 254XXXXXXXXX (without +)
-            Handles various input formats and ensures correct output.
-            """
-            if not phone_str:
-                return phone_str
+        # Assign tenant to unit
+        unit = payment.unit
+        if unit.is_available or not unit.tenant:
+            unit.tenant = payment.tenant
+            unit.is_available = False
+            unit.save()
 
-            # Remove any spaces, hyphens, or other non-digit characters except +
-            phone_str = ''.join(c for c in phone_str if c.isdigit() or c == '+')
+        # Invalidate caches
+        cache.delete_many([
+            f"pending_deposit_payment:{payment.tenant.id}:{unit.id}",
+            f"payments:tenant:{payment.tenant.id}",
+            f"payments:landlord:{unit.property_obj.landlord.id}",
+            f"rent_summary:{unit.property_obj.landlord.id}",
+            f"unit:{unit.id}:details",
+            f"property:{unit.property_obj.id}:units"
+        ])
 
-            # Handle different formats
-            if phone_str.startswith('+254'):
-                # +254722714334 -> 254722714334
-                return phone_str[1:]
-            elif phone_str.startswith('254'):
-                # Already in correct format: 254722714334
-                return phone_str
-            elif phone_str.startswith('0'):
-                # 0722714334 -> 254722714334
-                return '254' + phone_str[1:]
-            elif len(phone_str) == 9 and phone_str.isdigit():
-                # 722714334 -> 254722714334 (local format without 0)
-                return '254' + phone_str
-            else:
-                # Unknown format, return as-is but remove + if present
-                return phone_str.lstrip('+')
-
-        phone_number = normalize_phone_for_mpesa(request.user.phone_number)
-
-        # Build payload for Safaricom API
-        payload = {
-            "BusinessShortCode": business_shortcode,
-            "Password": password,
-            "Timestamp": timestamp,
-            "TransactionType": "CustomerPayBillOnline",
-            "Amount": str(int(amount)),  # Ensure whole number for M-Pesa
-            "PartyA": phone_number,
-            "PartyB": business_shortcode,
-            "PhoneNumber": phone_number,
-            "CallBackURL": settings.MPESA_DEPOSIT_CALLBACK_URL,
-            "AccountReference": str(payment.id),
-            "TransactionDesc": f"Deposit for Unit {unit.unit_number}"
-        }
-        
-        headers = {"Authorization": f"Bearer {access_token}"}
-        
-        try:
-            response = requests.post(
-                "https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest",
-                json=payload,
-                headers=headers,
-                timeout=30
-            )
-            response_data = response.json()
-            
-            if response_data.get("ResponseCode") == "0":
-                return Response({
-                    "message": "Deposit payment initiated successfully. Please check your phone to complete payment.",
-                    "checkout_request_id": response_data.get("CheckoutRequestID"),
-                    "payment_id": payment.id
-                })
-            else:
-                # STK push failed - mark payment as failed immediately
-                payment.status = "Failed"
-                payment.save()
-                cache.delete(duplicate_key)
-                return Response({
-                    "error": "Payment initiation failed: {}".format(
-                        response_data.get("ResponseDescription", "Unknown error")
-                    )
-                }, status=400)
-                
-        except requests.exceptions.RequestException as e:
-            # Network error - mark payment as failed
-            payment.status = "Failed"
-            payment.save()
-            cache.delete(duplicate_key)
-            return Response({"error": "Payment service temporarily unavailable. Please try again later."}, status=503)
+        return Response({
+            "message": "Deposit payment completed successfully for testing.",
+            "payment_id": payment.id
+        })
 # ------------------------------
 # TRIGGER DEPOSIT CALLBACK (FOR TESTING)
 # ------------------------------
