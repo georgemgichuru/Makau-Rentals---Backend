@@ -18,6 +18,8 @@ from .views import (
     InitiateDepositPaymentView,
     TriggerDepositCallbackView,
     DepositPaymentStatusView,
+    CleanupPendingPaymentsView,
+    SimulateDepositCallbackView,
 
     # CSV reports
     LandLordCSVView as landlord_csv,
@@ -69,4 +71,10 @@ urlpatterns = [
     # ------------------------------
     path("landlord-csv/<int:property_id>/", landlord_csv.as_view(), name="landlord-csv"),
     path("tenant-csv/<int:unit_id>/", tenant_csv.as_view(), name="tenant-csv"),
+
+    # ------------------------------
+    # CLEANUP AND SIMULATION ENDPOINTS
+    # ------------------------------
+    path("cleanup-pending-payments/", CleanupPendingPaymentsView.as_view(), name="cleanup-pending-payments"),
+    path("simulate-deposit-callback/", SimulateDepositCallbackView.as_view(), name="simulate-deposit-callback"),
 ]

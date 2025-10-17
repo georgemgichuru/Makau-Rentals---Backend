@@ -39,22 +39,30 @@ class SubscriptionPayment(models.Model):
     user = models.ForeignKey(
         CustomUser,
         on_delete=models.CASCADE,
-        limit_choices_to={'user_type': 'landlord'},
-        related_name='subscription_payments',
         null=True,
         blank=True
     )
     amount = models.DecimalField(max_digits=10, decimal_places=2)
-    mpesa_receipt_number = models.CharField(max_length=100, unique=True)
-    transaction_date = models.DateTimeField(auto_now_add=True)
-    subscription_type = models.CharField(
-        max_length=20,
-        choices=Subscription.PLAN_CHOICES
+    mpesa_receipt_number = models.CharField(
+        max_length=50,
+        blank=True,  # Allow empty strings
+        default=""
     )
+    transaction_date = models.DateTimeField(auto_now_add=True)
+    subscription_type = models.CharField(max_length=20, choices=Subscription.PLAN_CHOICES)
+
+    class Meta:
+        # Remove or modify the unique constraint to allow empty strings
+        constraints = [
+            models.UniqueConstraint(
+                fields=['mpesa_receipt_number'],
+                name='unique_mpesa_receipt',
+                condition=~models.Q(mpesa_receipt_number='')  # Only enforce uniqueness for non-empty values
+            )
+        ]
 
     def __str__(self):
-        user_email = self.user.email if self.user else "Pending"
-        return f"{user_email} - {self.subscription_type} - {self.mpesa_receipt_number}"
+        return f"Subscription Payment {self.id} - {self.subscription_type}"
 
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)

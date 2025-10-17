@@ -50,9 +50,9 @@ class UnitTypeListCreateView(APIView):
         serializer = UnitTypeSerializer(data=request.data)
         if serializer.is_valid():
             unit_type = serializer.save(landlord=request.user)
-            
+
             # Automatically create units based on the unit_count
-            unit_count = request.data.get('unit_count', 1)
+            unit_count = int(request.data.get('unit_count', 1))
             property_id = request.data.get('property_id')
             
             if property_id and unit_count > 0:
@@ -70,17 +70,17 @@ class UnitTypeListCreateView(APIView):
         # Get existing units to determine next unit number
         existing_units = Unit.objects.filter(property_obj=property_obj)
         last_unit = existing_units.order_by('-unit_number').first()
-        
+
         if last_unit and last_unit.unit_number.isdigit():
             start_number = int(last_unit.unit_number) + 1
         else:
             start_number = 1
-        
+
         units_created = []
         for i in range(unit_count):
             unit_number = start_number + i
             unit_code = f"U-{property_obj.id}-{unit_type.name.replace(' ', '-')}-{unit_number}"
-            
+
             unit = Unit.objects.create(
                 property_obj=property_obj,
                 unit_code=unit_code,
@@ -91,7 +91,11 @@ class UnitTypeListCreateView(APIView):
                 deposit=unit_type.deposit,
             )
             units_created.append(unit)
-        
+
+        # Invalidate caches after creating units
+        cache.delete(f"landlord:{unit_type.landlord.id}:properties")
+        cache.delete(f"property:{property_obj.id}:units")
+
         return units_created
 
 
@@ -179,7 +183,7 @@ class UnitTypeDetailView(APIView):
 # Lists a single user (cached)
 # View to get user details
 class UserDetailView(APIView):
-    permission_classes = [HasActiveSubscription]
+    permission_classes = [IsAuthenticated, HasActiveSubscription]
 
     def get(self, request, user_id):
         cache_key = f"user:{user_id}"
@@ -299,6 +303,7 @@ class UserCreateView(APIView):
                         from payments.models import Payment
                         deposit_payments = Payment.objects.filter(
                             tenant=user,
+                            unit=unit,
                             payment_type='deposit',
                             status='Success',
                             amount__gte=unit.deposit
@@ -356,15 +361,13 @@ class CreatePropertyView(APIView):
 
         # Get plan limit
         max_properties = PLAN_LIMITS.get(plan)
-        if max_properties is None:
-            logger.error(f"Unknown plan {plan} for user {user.id}")
+        if max_properties is None and plan != "onetime":
             return Response({"error": f"Unknown plan type: {plan}"}, status=400)
 
         # Count current properties
         current_count = Property.objects.filter(landlord=user).count()
         logger.info(f"Current properties count: {current_count}, max: {max_properties}")
-        if current_count >= max_properties:
-            logger.warning(f"Property limit reached for user {user.id}")
+        if plan != "onetime" and current_count >= max_properties:
             return Response({
                 "error": f"Your current plan ({plan}) allows a maximum of {max_properties} properties. Upgrade to add more."
             }, status=403)
@@ -411,6 +414,7 @@ class CreateUnitView(APIView):
         if serializer.is_valid():
             unit = serializer.save()
             cache.delete(f"landlord:{request.user.id}:properties")
+            cache.delete(f"property:{unit.property_obj.id}:units")
             return Response(serializer.data, status=201)
         return Response(serializer.errors, status=400)
 
@@ -476,147 +480,37 @@ class AssignTenantView(APIView):
                     "status": "failed"
                 }, status=400)
 
-            # Validate tenant phone number
-            if not tenant.phone_number:
-                logger.error(f"Tenant {tenant_id} has no phone number")
-                return Response({
-                    "error": "Tenant phone number is required for payment initiation",
-                    "status": "failed"
-                }, status=400)
-
-            # Validate deposit amount
-            amount = unit.deposit
-            if amount is None or amount <= 0:
-                logger.error(f"Invalid deposit amount for unit {unit_id}: {amount}")
-                return Response({
-                    "error": "Deposit amount is not set or invalid",
-                    "status": "failed"
-                }, status=400)
-
-            # Ensure amount is a whole number (M-Pesa requires integer amounts)
-            if not (amount % 1 == 0):
-                logger.error(f"Deposit amount {amount} is not a whole number")
-                return Response({
-                    "error": "Deposit amount must be a whole number",
-                    "status": "failed"
-                }, status=400)
-
-            amount = int(amount)
-            logger.info(f"Deposit amount validated: {amount}")
-
-            # Rate limiting: Check if user has made too many requests
-            rate_limit_key = f"assign_stk_push_rate_limit:{request.user.id}"
-            recent_requests = cache.get(rate_limit_key, 0)
-            if recent_requests >= 5:  # Max 5 requests per minute
-                logger.warning(f"Rate limit exceeded for landlord {request.user.id}")
-                return Response({
-                    "error": "Too many requests. Please try again later",
-                    "status": "failed"
-                }, status=429)
-
-            # Update rate limit counter
-            cache.set(rate_limit_key, recent_requests + 1, timeout=60)
-            logger.info(f"Rate limit updated for landlord {request.user.id}")
-
-            # Check for duplicate pending payment
-            duplicate_key = f"pending_assign_deposit_payment:{tenant.id}:{unit_id}"
-            if cache.get(duplicate_key):
-                logger.warning(f"Duplicate payment request for tenant {tenant_id} and unit {unit_id}")
-                return Response({
-                    "error": "A deposit payment request is already pending for this tenant and unit",
-                    "status": "failed"
-                }, status=400)
-
-            # Create a pending payment record
-            payment = Payment.objects.create(
+            # CHECK IF DEPOSIT IS PAID BEFORE ASSIGNMENT
+            from payments.models import Payment
+            deposit_paid = Payment.objects.filter(
                 tenant=tenant,
                 unit=unit,
                 payment_type='deposit',
-                amount=amount,
-                status="Pending"
-            )
-            logger.info(f"Payment record created: ID {payment.id}")
-
-            # Mark payment as pending in Redis (5-minute expiry)
-            cache.set(duplicate_key, payment.id, timeout=300)
-
-            # Generate access token
-            from payments.generate_token import generate_access_token
-            import requests
-            import base64
-            import datetime
-            from django.conf import settings
-
-            try:
-                access_token_cache_key = "mpesa_access_token"
-                access_token = cache.get(access_token_cache_key)
-                if not access_token:
-                    access_token = generate_access_token()
-                    cache.set(access_token_cache_key, access_token, timeout=3300)
-                logger.info("M-Pesa access token obtained")
-            except Exception as e:
-                logger.error(f"Failed to generate access token: {str(e)}")
+                status='Success',
+                amount__gte=unit.deposit
+            ).exists()
+            
+            if not deposit_paid:
+                logger.warning(f"Tenant {tenant_id} has not paid deposit for unit {unit_id}")
                 return Response({
-                    "error": f"Payment initiation failed: {str(e)}",
+                    "error": "Tenant must pay deposit before being assigned to unit",
                     "status": "failed"
                 }, status=400)
 
-            timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
-            password = base64.b64encode(
-                (settings.MPESA_SHORTCODE + settings.MPESA_PASSKEY + timestamp).encode("utf-8")
-            ).decode("utf-8")
+            # If deposit is paid, assign tenant immediately
+            unit.tenant = tenant
+            unit.is_available = False
+            unit.save()
 
-            business_shortcode = settings.MPESA_SHORTCODE
+            # Invalidate caches
+            cache.delete(f"landlord:{request.user.id}:properties")
+            cache.delete(f"property:{unit.property_obj.id}:units")
 
-            payload = {
-                "BusinessShortCode": business_shortcode,
-                "Password": password,
-                "Timestamp": timestamp,
-                "TransactionType": "CustomerPayBillOnline",
-                "Amount": str(amount),
-                "PartyA": tenant.phone_number,
-                "PartyB": business_shortcode,
-                "PhoneNumber": tenant.phone_number,
-                "CallBackURL": settings.MPESA_DEPOSIT_CALLBACK_URL,
-                "AccountReference": str(payment.id),
-                "TransactionDesc": f"Deposit for Unit {unit.unit_number}"
-            }
+            logger.info(f"✅ Tenant {tenant.full_name} assigned to unit {unit.unit_number}")
 
-            headers = {"Authorization": f"Bearer {access_token}"}
-
-            try:
-                logger.info(f"Initiating STK push for tenant {tenant.phone_number}")
-                response = requests.post(
-                    "https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest",
-                    json=payload,
-                    headers=headers,
-                    timeout=30
-                )
-                response.raise_for_status()
-                response_data = response.json()
-                logger.info(f"STK push response: {response_data}")
-            except requests.exceptions.RequestException as e:
-                logger.error(f"STK push request failed: {str(e)}")
-                return Response({
-                    "error": f"Payment initiation failed: {str(e)}",
-                    "status": "failed"
-                }, status=400)
-
-            if response_data.get("ResponseCode") != "0":
-                logger.error(f"STK push failed with response code: {response_data.get('ResponseCode')}")
-                return Response({
-                    "error": "Failed to initiate payment. Please try again",
-                    "status": "failed"
-                }, status=400)
-
-            # Return success immediately - assignment will be handled by callback upon successful payment
-            logger.info(f"Deposit payment initiated successfully for tenant {tenant.full_name} on unit {unit.unit_number}")
             return Response({
-                'message': f'Deposit payment initiated for tenant {tenant.full_name} on unit {unit.unit_number}. '
-                          f'Tenant will be assigned to the unit upon successful payment confirmation.',
-                'payment_id': payment.id,
-                'checkout_request_id': response_data.get("CheckoutRequestID"),
-                'status': 'pending'
+                'message': f'Tenant {tenant.full_name} successfully assigned to unit {unit.unit_number}',
+                'status': 'success'
             }, status=200)
 
         except Unit.DoesNotExist:
@@ -661,6 +555,7 @@ class UpdatePropertyView(APIView):
             if serializer.is_valid():
                 serializer.save()
                 cache.delete(f"landlord:{request.user.id}:properties")
+                cache.delete(f"property:{property_id}:units")
                 return Response(serializer.data)
             return Response(serializer.errors, status=400)
         except Property.DoesNotExist:
@@ -671,6 +566,7 @@ class UpdatePropertyView(APIView):
             property = Property.objects.get(id=property_id, landlord=request.user)
             property.delete()
             cache.delete(f"landlord:{request.user.id}:properties")
+            cache.delete(f"property:{property_id}:units")
             return Response({"message": "Property deleted successfully."}, status=200)
         except Property.DoesNotExist:
             return Response({"error": "Property not found or you do not have permission"}, status=404)
@@ -762,6 +658,8 @@ class AdjustRentView(APIView):
         value = request.data.get('value')  # decimal, positive for increase, negative for decrease
         unit_type_id = request.data.get('unit_type_id')  # optional, if provided, adjust only units of this type
 
+        logger.info(f"AdjustRentView POST: Landlord {landlord.id} adjusting rent, adjustment_type={adjustment_type}, value={value}, unit_type_id={unit_type_id}")
+
         if adjustment_type not in ['percentage', 'fixed']:
             return Response({"error": "adjustment_type must be 'percentage' or 'fixed'"}, status=400)
 
@@ -792,6 +690,8 @@ class AdjustRentView(APIView):
             unit.save()  # This will update rent_remaining
             updated_count += 1
 
+        logger.info(f"AdjustRentView POST: Rent adjusted for {updated_count} units by landlord {landlord.id}")
+
         # Invalidate caches
         cache.delete(f"landlord:{landlord.id}:properties")
         # Also invalidate rent_summary cache
@@ -804,6 +704,8 @@ class AdjustRentView(APIView):
         landlord = request.user
         new_rent = request.data.get('new_rent')
         unit_type_id = request.data.get('unit_type_id')  # optional
+
+        logger.info(f"AdjustRentView PUT: Landlord {landlord.id} setting new rent, new_rent={new_rent}, unit_type_id={unit_type_id}")
 
         if new_rent is None:
             return Response({"error": "new_rent is required"}, status=400)
@@ -826,6 +728,8 @@ class AdjustRentView(APIView):
             unit.rent = new_rent
             unit.save()
             updated_count += 1
+
+        logger.info(f"AdjustRentView PUT: Rent set to {new_rent} for {updated_count} units by landlord {landlord.id}")
 
         # Invalidate caches
         cache.delete(f"landlord:{landlord.id}:properties")
@@ -921,3 +825,10 @@ class LandlordAvailableUnitsView(APIView):
         units = Unit.objects.filter(property_obj__landlord=request.user, is_available=True)
         serializer = AvailableUnitsSerializer(units, many=True)
         return Response(serializer.data)
+
+
+# New endpoint to log requests and return a welcome message
+class WelcomeView(APIView):
+    def get(self, request):
+        logger.info(f"Request received: {request.method} {request.path}")
+        return Response({"message": "Welcome to the Makau Rentals API!"})
