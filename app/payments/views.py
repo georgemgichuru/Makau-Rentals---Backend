@@ -72,16 +72,13 @@ def stk_push(request, unit_id):
         # Update rate limit counter
         cache.set(rate_limit_key, recent_requests + 1, timeout=60)
         
-        # Ensure the unit belongs to the logged-in tenant
+        # REQUIRE tenant to be assigned to unit for rent payments
         try:
             unit = Unit.objects.get(id=unit_id, tenant=request.user)
         except Unit.DoesNotExist:
-            return JsonResponse({"error": "Unit not found or not assigned to you"}, status=404)
-        except Exception as e:
-            logger.error(f"Unit lookup error: {str(e)}")
-            return JsonResponse({"error": "Payment service temporarily unavailable. Please try again later."}, status=503)
+            return JsonResponse({"error": "Unit not found or you are not assigned to this unit. Please pay deposit first."}, status=404)
         
-        # Validate amount - RELAXED FOR TESTING
+        # Validate amount
         if amount <= 0:
             return JsonResponse({"error": "Amount must be positive."}, status=400)
         
@@ -110,7 +107,7 @@ def stk_push(request, unit_id):
         # Mark payment as pending in Redis (5-minute expiry)
         cache.set(duplicate_key, payment.id, timeout=300)
         
-        # Check if tenant has paid deposit for this unit
+        # Check if tenant has paid deposit for this unit (REQUIRED)
         deposit_paid = Payment.objects.filter(
             tenant=request.user,
             unit=unit,
@@ -121,6 +118,7 @@ def stk_push(request, unit_id):
         if not deposit_paid:
             return JsonResponse({"error": "You must pay the deposit for this unit before making rent payments."}, status=400)
 
+        # Rest of the function remains the same...
         try:
             # Generate access token (with Redis caching and retry)
             access_token_cache_key = "mpesa_access_token"
@@ -948,13 +946,10 @@ class InitiateDepositPaymentView(APIView):
             return Response({'error': 'unit_id is required'}, status=400)
         
         try:
+            # Only allow deposit payment for available units
             unit = Unit.objects.get(id=unit_id, is_available=True)
         except Unit.DoesNotExist:
-            return Response({'error': 'Invalid unit or not available'}, status=400)
-
-        # Check if unit already has a tenant
-        if unit.tenant:
-            return Response({'error': 'Unit is already occupied'}, status=400)
+            return Response({'error': 'Unit not found or not available for deposit payment'}, status=400)
 
         amount = unit.deposit
         
@@ -982,13 +977,13 @@ class InitiateDepositPaymentView(APIView):
         if cache.get(duplicate_key):
             return Response({"error": "A deposit payment request is already pending for this unit."}, status=400)
         
-        # Create a pending payment record - DO NOT ASSIGN TENANT YET
+        # Create a pending payment record
         payment = Payment.objects.create(
             tenant=request.user,
             unit=unit,
             payment_type='deposit',
             amount=amount,
-            status="Pending"  # Keep as Pending until callback confirms
+            status="Pending"
         )
         
         # Mark payment as pending in Redis (5-minute expiry)
@@ -1038,11 +1033,8 @@ class InitiateDepositPaymentView(APIView):
             response_data = response.json()
             
             if response_data.get("ResponseCode") == "0":
-                # Return success but DO NOT assign tenant - wait for callback
                 return JsonResponse({
-                    "message": "Deposit payment initiated for tenant {} on unit {}. Tenant will be assigned to the unit upon successful payment confirmation.".format(
-                        request.user.full_name, unit.unit_number
-                    ),
+                    "message": "Deposit payment initiated successfully. Please check your phone to complete payment.",
                     "checkout_request_id": response_data.get("CheckoutRequestID"),
                     "payment_id": payment.id
                 })

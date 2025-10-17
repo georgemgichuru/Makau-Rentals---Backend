@@ -476,147 +476,33 @@ class AssignTenantView(APIView):
                     "status": "failed"
                 }, status=400)
 
-            # Validate tenant phone number
-            if not tenant.phone_number:
-                logger.error(f"Tenant {tenant_id} has no phone number")
-                return Response({
-                    "error": "Tenant phone number is required for payment initiation",
-                    "status": "failed"
-                }, status=400)
-
-            # Validate deposit amount
-            amount = unit.deposit
-            if amount is None or amount <= 0:
-                logger.error(f"Invalid deposit amount for unit {unit_id}: {amount}")
-                return Response({
-                    "error": "Deposit amount is not set or invalid",
-                    "status": "failed"
-                }, status=400)
-
-            # Ensure amount is a whole number (M-Pesa requires integer amounts)
-            if not (amount % 1 == 0):
-                logger.error(f"Deposit amount {amount} is not a whole number")
-                return Response({
-                    "error": "Deposit amount must be a whole number",
-                    "status": "failed"
-                }, status=400)
-
-            amount = int(amount)
-            logger.info(f"Deposit amount validated: {amount}")
-
-            # Rate limiting: Check if user has made too many requests
-            rate_limit_key = f"assign_stk_push_rate_limit:{request.user.id}"
-            recent_requests = cache.get(rate_limit_key, 0)
-            if recent_requests >= 5:  # Max 5 requests per minute
-                logger.warning(f"Rate limit exceeded for landlord {request.user.id}")
-                return Response({
-                    "error": "Too many requests. Please try again later",
-                    "status": "failed"
-                }, status=429)
-
-            # Update rate limit counter
-            cache.set(rate_limit_key, recent_requests + 1, timeout=60)
-            logger.info(f"Rate limit updated for landlord {request.user.id}")
-
-            # Check for duplicate pending payment
-            duplicate_key = f"pending_assign_deposit_payment:{tenant.id}:{unit_id}"
-            if cache.get(duplicate_key):
-                logger.warning(f"Duplicate payment request for tenant {tenant_id} and unit {unit_id}")
-                return Response({
-                    "error": "A deposit payment request is already pending for this tenant and unit",
-                    "status": "failed"
-                }, status=400)
-
-            # Create a pending payment record
-            payment = Payment.objects.create(
+            # CHECK IF DEPOSIT IS PAID BEFORE ASSIGNMENT
+            from payments.models import Payment
+            deposit_paid = Payment.objects.filter(
                 tenant=tenant,
                 unit=unit,
                 payment_type='deposit',
-                amount=amount,
-                status="Pending"
-            )
-            logger.info(f"Payment record created: ID {payment.id}")
-
-            # Mark payment as pending in Redis (5-minute expiry)
-            cache.set(duplicate_key, payment.id, timeout=300)
-
-            # Generate access token
-            from payments.generate_token import generate_access_token
-            import requests
-            import base64
-            import datetime
-            from django.conf import settings
-
-            try:
-                access_token_cache_key = "mpesa_access_token"
-                access_token = cache.get(access_token_cache_key)
-                if not access_token:
-                    access_token = generate_access_token()
-                    cache.set(access_token_cache_key, access_token, timeout=3300)
-                logger.info("M-Pesa access token obtained")
-            except Exception as e:
-                logger.error(f"Failed to generate access token: {str(e)}")
+                status='Success',
+                amount__gte=unit.deposit
+            ).exists()
+            
+            if not deposit_paid:
+                logger.warning(f"Tenant {tenant_id} has not paid deposit for unit {unit_id}")
                 return Response({
-                    "error": f"Payment initiation failed: {str(e)}",
+                    "error": "Tenant must pay deposit before being assigned to unit",
                     "status": "failed"
                 }, status=400)
 
-            timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
-            password = base64.b64encode(
-                (settings.MPESA_SHORTCODE + settings.MPESA_PASSKEY + timestamp).encode("utf-8")
-            ).decode("utf-8")
+            # If deposit is paid, assign tenant immediately
+            unit.tenant = tenant
+            unit.is_available = False
+            unit.save()
+            
+            logger.info(f"✅ Tenant {tenant.full_name} assigned to unit {unit.unit_number}")
 
-            business_shortcode = settings.MPESA_SHORTCODE
-
-            payload = {
-                "BusinessShortCode": business_shortcode,
-                "Password": password,
-                "Timestamp": timestamp,
-                "TransactionType": "CustomerPayBillOnline",
-                "Amount": str(amount),
-                "PartyA": tenant.phone_number,
-                "PartyB": business_shortcode,
-                "PhoneNumber": tenant.phone_number,
-                "CallBackURL": settings.MPESA_DEPOSIT_CALLBACK_URL,
-                "AccountReference": str(payment.id),
-                "TransactionDesc": f"Deposit for Unit {unit.unit_number}"
-            }
-
-            headers = {"Authorization": f"Bearer {access_token}"}
-
-            try:
-                logger.info(f"Initiating STK push for tenant {tenant.phone_number}")
-                response = requests.post(
-                    "https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest",
-                    json=payload,
-                    headers=headers,
-                    timeout=30
-                )
-                response.raise_for_status()
-                response_data = response.json()
-                logger.info(f"STK push response: {response_data}")
-            except requests.exceptions.RequestException as e:
-                logger.error(f"STK push request failed: {str(e)}")
-                return Response({
-                    "error": f"Payment initiation failed: {str(e)}",
-                    "status": "failed"
-                }, status=400)
-
-            if response_data.get("ResponseCode") != "0":
-                logger.error(f"STK push failed with response code: {response_data.get('ResponseCode')}")
-                return Response({
-                    "error": "Failed to initiate payment. Please try again",
-                    "status": "failed"
-                }, status=400)
-
-            # Return success immediately - assignment will be handled by callback upon successful payment
-            logger.info(f"Deposit payment initiated successfully for tenant {tenant.full_name} on unit {unit.unit_number}")
             return Response({
-                'message': f'Deposit payment initiated for tenant {tenant.full_name} on unit {unit.unit_number}. '
-                          f'Tenant will be assigned to the unit upon successful payment confirmation.',
-                'payment_id': payment.id,
-                'checkout_request_id': response_data.get("CheckoutRequestID"),
-                'status': 'pending'
+                'message': f'Tenant {tenant.full_name} successfully assigned to unit {unit.unit_number}',
+                'status': 'success'
             }, status=200)
 
         except Unit.DoesNotExist:
