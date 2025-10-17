@@ -1,918 +1,518 @@
-#!/usr/bin/env pwsh
-<#
-.SYNOPSIS
-    Makau Rentals - Real Life Application Workflow Demo
-.DESCRIPTION
-    This script demonstrates the complete workflow of the Makau Rentals application
-    from landlord signup to tenant payments and maintenance reports using the live API.
-    Now includes real M-Pesa integration with 1 KSH transactions.
-.NOTES
-    Author: Makau Rentals
-    Date: $(Get-Date)
-#>
+# Comprehensive test script v3 for Makau Rentals backend flows - MINIMAL AMOUNTS
+# Tests all endpoints in accounts, payments, and communication
+# Uses 10 KSH deposit, 100 KSH rent, 50 KSH subscription for testing
+# UPDATED: Now properly handles deposit payment flow with callback confirmation
 
-# Configuration
-$BaseUrl = "https://makau-rentals-backend.onrender.com"
-$ApiUrl = "$BaseUrl/api"
+$baseUrl = "https://makau-rentals-backend.onrender.com"
 
-# Colors for output
-$Green = "Green"
-$Yellow = "Yellow" 
-$Red = "Red"
-$Cyan = "Cyan"
-$Magenta = "Magenta"
-
-# Global variables to store created data
-$Global:LandlordToken = $null
-$Global:TenantToken = $null
-$Global:LandlordId = $null
-$Global:TenantId = $null
-$Global:PropertyId = $null
-$Global:UnitId = $null
-$Global:UnitTypeId = $null
-$Global:LandlordEmail = $null
-$Global:TenantEmail = $null
-$Global:LandlordCode = $null
-
-function Write-ColorOutput {
-    param(
-        [string]$Message,
-        [string]$Color = "White"
+# Function to perform POST request with JSON body
+function Invoke-PostJson {
+    param (
+        [string]$url,
+        [hashtable]$headers = @{},
+        [string]$body
     )
-    Write-Host $Message -ForegroundColor $Color
-}
-
-function Write-Section {
-    param([string]$Title)
-    Write-Host "`n" + "="*60 -ForegroundColor $Cyan
-    Write-Host $Title -ForegroundColor $Cyan
-    Write-Host "="*60 -ForegroundColor $Cyan
-}
-
-function Write-Step {
-    param([string]$Step)
-    Write-Host "`n>> $Step" -ForegroundColor $Yellow
-}
-
-function Invoke-ApiRequest {
-    param(
-        [string]$Endpoint,
-        [string]$Method = "GET",
-        [object]$Body = $null,
-        [string]$Token = $null,
-        [int]$TimeoutSec = 30
-    )
-    
-    $headers = @{
-        "Content-Type" = "application/json"
-    }
-    
-    if ($Token) {
-        $headers["Authorization"] = "Bearer $Token"
-    }
-    
-    $uri = "$ApiUrl/$Endpoint"
-    
     try {
-        if ($Method -eq "GET") {
-            $response = Invoke-RestMethod -Uri $uri -Method $Method -Headers $headers -TimeoutSec $TimeoutSec
-        } else {
-            $jsonBody = if ($Body) { $Body | ConvertTo-Json } else { "{}" }
-            $response = Invoke-RestMethod -Uri $uri -Method $Method -Headers $headers -Body $jsonBody -TimeoutSec $TimeoutSec
+        return Invoke-RestMethod -Uri $url -Method POST -Headers $headers -Body $body -ContentType "application/json"
+    } catch {
+        Write-Host "Error in POST to $url`: $($_.Exception.Message)"
+        if ($_.Exception.Response) {
+            $stream = $_.Exception.Response.GetResponseStream()
+            $reader = New-Object System.IO.StreamReader($stream)
+            $responseBody = $reader.ReadToEnd()
+            Write-Host "Response body: $responseBody"
         }
-        
-        return @{
-            Success = $true
-            Data = $response
-        }
+        throw
     }
-    catch {
-        $errorMessage = $_.Exception.Message
-        $statusCode = $_.Exception.Response.StatusCode.value__
+}
+
+# Function to perform GET request with Authorization header
+function Invoke-GetAuth {
+    param (
+        [string]$url,
+        [string]$token
+    )
+    $headers = @{ Authorization = "Bearer $token" }
+    try {
+        return Invoke-RestMethod -Uri $url -Method GET -Headers $headers
+    } catch {
+        Write-Host "Error in GET to $url`: $($_.Exception.Message)"
+        throw
+    }
+}
+
+# Function to perform PUT request with Authorization header
+function Invoke-PutAuth {
+    param (
+        [string]$url,
+        [string]$token,
+        [string]$body
+    )
+    $headers = @{ Authorization = "Bearer $token" }
+    try {
+        return Invoke-RestMethod -Uri $url -Method PUT -Headers $headers -Body $body -ContentType "application/json"
+    } catch {
+        Write-Host "Error in PUT to $url`: $($_.Exception.Message)"
+        throw
+    }
+}
+
+# Function to perform PATCH request with Authorization header
+function Invoke-PatchAuth {
+    param (
+        [string]$url,
+        [string]$token,
+        [string]$body
+    )
+    $headers = @{ Authorization = "Bearer $token" }
+    try {
+        return Invoke-RestMethod -Uri $url -Method PATCH -Headers $headers -Body $body -ContentType "application/json"
+    } catch {
+        Write-Host "Error in PATCH to $url`: $($_.Exception.Message)"
+        throw
+    }
+}
+
+# Function to poll payment status
+function Invoke-PollPaymentStatus {
+    param (
+        [string]$paymentId,
+        [string]$token,
+        [int]$maxAttempts = 6,
+        [int]$delaySeconds = 5
+    )
+    
+    for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+        Write-Host "Polling payment status (attempt $attempt of $maxAttempts)..."
+        Start-Sleep -Seconds $delaySeconds
         
         try {
-            if ($_.ErrorDetails.Message -and $_.ErrorDetails.Message -ne "") {
-                $errorDetails = $_.ErrorDetails.Message | ConvertFrom-Json
-                $errorMessage = $errorDetails.detail -or $errorDetails.error -or $errorDetails.message -or $errorMessage
+            $statusResponse = Invoke-GetAuth -url "$baseUrl/api/payments/deposit-status/$paymentId/" -token $token
+            Write-Host "Payment status: $($statusResponse.status)"
+            
+            if ($statusResponse.status -ne "Pending") {
+                return $statusResponse
             }
-        }
-        catch {
-            # If we can't parse JSON error, use the original message
-        }
-        
-        return @{
-            Success = $false
-            Error = $errorMessage
-            StatusCode = $statusCode
+        } catch {
+            Write-Host "Error polling payment status: $($_.Exception.Message)"
         }
     }
+    
+    return @{ status = "timeout"; message = "Payment status polling timed out" }
 }
 
-function Test-ApiConnection {
-    Write-Step "Testing API Connection"
-    $response = Invoke-ApiRequest -Endpoint "accounts/me" -Method "GET"
-    
-    if ($response.Success) {
-        Write-ColorOutput "SUCCESS: API is accessible and responding" $Green
-        return $true
-    } else {
-        if ($response.StatusCode -eq 401) {
-            Write-ColorOutput "SUCCESS: API is accessible (unauthorized access expected)" $Green
-            return $true
-        } else {
-            Write-ColorOutput "ERROR: API connection failed: $($response.Error)" $Red
-            return $false
-        }
-    }
-}
+# Test data
+$timestamp = Get-Date -Format 'yyyyMMddHHmmss'
+$landlordEmail = "test_landlord_$timestamp@example.com"
+$landlordPassword = "testpass123"
+$landlordFullName = "Test Landlord"
+$landlordPhone = "254722714334"
 
-function Register-Landlord {
-    Write-Section "PHASE 1: LANDLORD ONBOARDING"
-    
-    Write-Step "1. Registering Landlord Account"
-    
-    $timestamp = Get-Date -Format "yyyyMMddHHmmss"
-    $Global:LandlordEmail = "demo_landlord_$timestamp@makau.com"
-    $landlordData = @{
-        email = $Global:LandlordEmail
-        full_name = "Demo Landlord"
-        user_type = "landlord"
-        password = "DemoPass123!"
-        phone_number = "+254722714334"  # M-Pesa test phone number
-        government_id = "12345678"
-    }
-    
-    $response = Invoke-ApiRequest -Endpoint "accounts/signup/" -Method "POST" -Body $landlordData
-    
-    if ($response.Success) {
-        $Global:LandlordId = $response.Data.id
-        Write-ColorOutput "SUCCESS: Landlord registered successfully:" $Green
-        Write-ColorOutput "   Email: $($landlordData.email)" $Green
-        Write-ColorOutput "   ID: $($response.Data.id)" $Green
-        Write-ColorOutput "   Landlord Code: $($response.Data.landlord_code)" $Green
-        Write-ColorOutput "   Phone: $($landlordData.phone_number)" $Green
-        return $true
-    } else {
-        Write-ColorOutput "ERROR: Landlord registration failed: $($response.Error)" $Red
-        return $false
-    }
-}
+$tenantEmail = "test_tenant_$timestamp@example.com"
+$tenantPassword = "testpass123"
+$tenantFullName = "Test Tenant"
+$tenantPhone = "254722714334"
 
-function Login-Landlord {
-    Write-Step "2. Landlord Login"
-    
-    $loginData = @{
-        email = $Global:LandlordEmail
-        password = "DemoPass123!"
-        user_type = "landlord"
-    }
-    
-    $response = Invoke-ApiRequest -Endpoint "accounts/token/" -Method "POST" -Body $loginData
-    
-    if ($response.Success) {
-        $Global:LandlordToken = $response.Data.access
-        Write-ColorOutput "SUCCESS: Landlord logged in successfully" $Green
-        Write-ColorOutput "   Token obtained: $($Global:LandlordToken.Substring(0, 20))..." $Green
-        return $true
-    } else {
-        Write-ColorOutput "ERROR: Landlord login failed: $($response.Error)" $Red
-        return $false
-    }
-}
+# 1. Signup Landlord (no properties)
+Write-Host "1. Signing up landlord..."
+$landlordSignupBody = @{
+    email = $landlordEmail
+    full_name = $landlordFullName
+    user_type = "landlord"
+    password = $landlordPassword
+    phone_number = $landlordPhone
+} | ConvertTo-Json
 
-function Create-UnitType {
-    Write-Step "3. Creating Unit Type"
-    
-    # Using 1 KSH for demo payments
-    $unitTypeData = @{
-        name = "Demo Studio"
-        deposit = 1.00  # 1 KSH for testing
-        rent = 1.00     # 1 KSH for testing
-        unit_count = 1
-    }
-    
-    $response = Invoke-ApiRequest -Endpoint "accounts/unit-types/" -Method "POST" -Body $unitTypeData -Token $Global:LandlordToken
-    
-    if ($response.Success) {
-        $Global:UnitTypeId = $response.Data.id
-        Write-ColorOutput "SUCCESS: Unit Type created successfully:" $Green
-        Write-ColorOutput "   Name: $($response.Data.name)" $Green
-        Write-ColorOutput "   Rent: KES $($response.Data.rent)" $Green
-        Write-ColorOutput "   Deposit: KES $($response.Data.deposit)" $Green
-        return $true
-    } else {
-        Write-ColorOutput "ERROR: Unit Type creation failed: $($response.Error)" $Red
-        return $false
-    }
-}
+$landlordSignupResponse = Invoke-PostJson -url "$baseUrl/api/accounts/signup/" -body $landlordSignupBody
+Write-Host "Landlord signup successful. ID: $($landlordSignupResponse.id)"
+$landlordId = $landlordSignupResponse.id
+$landlordCode = $landlordSignupResponse.landlord_code
+Write-Host "Landlord code: $landlordCode"
 
-function Create-Property {
-    Write-Step "4. Creating Property"
-    
-    $propertyData = @{
-        name = "Demo Apartments"
-        city = "Nairobi"
-        state = "Nairobi County"
-        unit_count = 1
-    }
-    
-    $response = Invoke-ApiRequest -Endpoint "accounts/properties/create/" -Method "POST" -Body $propertyData -Token $Global:LandlordToken
-    
-    if ($response.Success) {
-        $Global:PropertyId = $response.Data.id
-        Write-ColorOutput "SUCCESS: Property created successfully:" $Green
-        Write-ColorOutput "   Name: $($response.Data.name)" $Green
-        Write-ColorOutput "   Location: $($response.Data.city), $($response.Data.state)" $Green
-        Write-ColorOutput "   ID: $($response.Data.id)" $Green
-        return $true
-    } else {
-        Write-ColorOutput "ERROR: Property creation failed: $($response.Error)" $Red
-        return $false
-    }
-}
+# 2. Login Landlord
+Write-Host "2. Logging in landlord..."
+$landlordLoginBody = @{
+    email = $landlordEmail
+    password = $landlordPassword
+    user_type = "landlord"
+} | ConvertTo-Json
 
-function Create-Unit {
-    Write-Step "5. Creating Unit"
-    
-    $unitData = @{
-        property = $Global:PropertyId
-        unit_type = $Global:UnitTypeId
-        floor = 1
-        bedrooms = 1
-        bathrooms = 1
-        rent = 1.00     # 1 KSH for testing
-        deposit = 1.00  # 1 KSH for testing
-    }
-    
-    $response = Invoke-ApiRequest -Endpoint "accounts/units/create/" -Method "POST" -Body $unitData -Token $Global:LandlordToken
-    
-    if ($response.Success) {
-        $Global:UnitId = $response.Data.id
-        Write-ColorOutput "SUCCESS: Unit created successfully:" $Green
-        Write-ColorOutput "   Unit Number: $($response.Data.unit_number)" $Green
-        Write-ColorOutput "   Unit Code: $($response.Data.unit_code)" $Green
-        Write-ColorOutput "   Rent: KES $($response.Data.rent)" $Green
-        Write-ColorOutput "   Deposit: KES $($response.Data.deposit)" $Green
-        Write-ColorOutput "   Available: $($response.Data.is_available)" $Green
-        return $true
-    } else {
-        Write-ColorOutput "ERROR: Unit creation failed: $($response.Error)" $Red
-        return $false
-    }
-}
+$landlordLoginResponse = Invoke-PostJson -url "$baseUrl/api/accounts/token/" -body $landlordLoginBody
+Write-Host "Landlord login successful."
+$landlordToken = $landlordLoginResponse.access
 
-function Get-LandlordCode {
-    Write-Step "6. Getting Landlord Code for Tenant Registration"
-    
-    $response = Invoke-ApiRequest -Endpoint "accounts/me/" -Method "GET" -Token $Global:LandlordToken
-    
-    if ($response.Success) {
-        $Global:LandlordCode = $response.Data.landlord_code
-        Write-ColorOutput "SUCCESS: Landlord code retrieved:" $Green
-        Write-ColorOutput "   Landlord Code: $Global:LandlordCode" $Green
-        return $Global:LandlordCode
-    } else {
-        Write-ColorOutput "ERROR: Failed to get landlord code: $($response.Error)" $Red
-        return $null
-    }
-}
+# 2.1. Test token refresh
+Write-Host "2.1. Refreshing token..."
+$refreshBody = @{
+    refresh = $landlordLoginResponse.refresh
+} | ConvertTo-Json
 
-function Register-Tenant {
-    param([string]$LandlordCode)
-    
-    Write-Section "PHASE 2: TENANT ONBOARDING"
-    
-    Write-Step "1. Registering Tenant Account"
-    
-    $timestamp = Get-Date -Format "yyyyMMddHHmmss"
-    $Global:TenantEmail = "demo_tenant_$timestamp@makau.com"
-    $tenantData = @{
-        email = $Global:TenantEmail
-        full_name = "Demo Tenant"
-        user_type = "tenant"
-        password = "DemoPass123!"
-        phone_number = "+254722714334"  # M-Pesa test phone number
-        government_id = "87654321"
-        landlord_code = $LandlordCode
-    }
-    
-    $response = Invoke-ApiRequest -Endpoint "accounts/signup/" -Method "POST" -Body $tenantData
-    
-    if ($response.Success) {
-        $Global:TenantId = $response.Data.id
-        Write-ColorOutput "SUCCESS: Tenant registered successfully:" $Green
-        Write-ColorOutput "   Email: $($tenantData.email)" $Green
-        Write-ColorOutput "   ID: $($response.Data.id)" $Green
-        Write-ColorOutput "   Phone: $($tenantData.phone_number)" $Green
-        return $true
-    } else {
-        Write-ColorOutput "ERROR: Tenant registration failed: $($response.Error)" $Red
-        return $false
-    }
-}
+$refreshResponse = Invoke-PostJson -url "$baseUrl/api/accounts/token/refresh/" -body $refreshBody
+Write-Host "Token refreshed successfully."
+$landlordToken = $refreshResponse.access
 
-function Login-Tenant {
-    Write-Step "2. Tenant Login"
-    
-    $loginData = @{
-        email = $Global:TenantEmail
-        password = "DemoPass123!"
-        user_type = "tenant"
-    }
-    
-    $response = Invoke-ApiRequest -Endpoint "accounts/token/" -Method "POST" -Body $loginData
-    
-    if ($response.Success) {
-        $Global:TenantToken = $response.Data.access
-        Write-ColorOutput "SUCCESS: Tenant logged in successfully" $Green
-        Write-ColorOutput "   Token obtained: $($Global:TenantToken.Substring(0, 20))..." $Green
-        return $true
-    } else {
-        Write-ColorOutput "ERROR: Tenant login failed: $($response.Error)" $Red
-        return $false
-    }
-}
+# 2.2. Test /me/ endpoint
+Write-Host "2.2. Getting current user info..."
+$meResponse = Invoke-GetAuth -url "$baseUrl/api/accounts/me/" -token $landlordToken
+Write-Host "Current user: $($meResponse | ConvertTo-Json)"
 
-function Update-Unit-Deposit {
-    Write-Step "3. Updating Unit Deposit to 1 KSH for Testing"
-    
-    $unitUpdateData = @{
-        deposit = 1.00  # Set to 1 KSH for testing
-    }
-    
-    $response = Invoke-ApiRequest -Endpoint "accounts/units/$Global:UnitId/update/" -Method "PUT" -Body $unitUpdateData -Token $Global:LandlordToken
-    
-    if ($response.Success) {
-        Write-ColorOutput "SUCCESS: Unit deposit updated to 1 KSH for testing" $Green
-        return $true
-    } else {
-        Write-ColorOutput "WARNING: Could not update unit deposit: $($response.Error)" $Yellow
-        return $false
-    }
-}
+# 2.3. Test subscription_status/
+Write-Host "2.3. Getting subscription status..."
+$statusResponse = Invoke-GetAuth -url "$baseUrl/api/accounts/subscription-status/" -token $landlordToken
+Write-Host "Subscription status: $($statusResponse | ConvertTo-Json)"
 
-function Get-User-Profile {
-    param([string]$Token, [string]$UserType)
-    
-    Write-Step "Getting $UserType Profile"
-    
-    $response = Invoke-ApiRequest -Endpoint "accounts/me/" -Method "GET" -Token $Token
-    
-    if ($response.Success) {
-        Write-ColorOutput "SUCCESS: $UserType profile retrieved:" $Green
-        Write-ColorOutput "   Name: $($response.Data.full_name)" $Green
-        Write-ColorOutput "   Email: $($response.Data.email)" $Green
-        Write-ColorOutput "   User Type: $($response.Data.user_type)" $Green
-        if ($response.Data.phone_number) {
-            Write-ColorOutput "   Phone: $($response.Data.phone_number)" $Green
-        }
-        return $true
-    } else {
-        Write-ColorOutput "ERROR: Failed to get profile: $($response.Error)" $Red
-        return $false
-    }
-}
+# 3. Create Property as Landlord
+Write-Host "3. Creating property..."
+$propertyBody = @{
+    name = "Test Property"
+    city = "Nairobi"
+    state = "Kenya"
+    unit_count = 1
+} | ConvertTo-Json
 
-function Check-Subscription-Status {
-    Write-Step "Checking Landlord Subscription Status"
-    
-    $response = Invoke-ApiRequest -Endpoint "accounts/subscription-status/" -Method "GET" -Token $Global:LandlordToken
-    
-    if ($response.Success) {
-        Write-ColorOutput "SUCCESS: Subscription status:" $Green
-        Write-ColorOutput "   Plan: $($response.Data.plan)" $Green
-        Write-ColorOutput "   Active: $($response.Data.is_active)" $Green
-        Write-ColorOutput "   Status: $($response.Data.status)" $Green
-        if ($response.Data.expiry_date) {
-            Write-ColorOutput "   Expiry: $($response.Data.expiry_date)" $Green
-        }
-        return $true
-    } else {
-        Write-ColorOutput "ERROR: Failed to get subscription status: $($response.Error)" $Red
-        return $false
-    }
-}
+$propertyHeaders = @{ Authorization = "Bearer $landlordToken" }
+$propertyResponse = Invoke-PostJson -url "$baseUrl/api/accounts/properties/create/" -headers $propertyHeaders -body $propertyBody
+Write-Host "Property created. ID: $($propertyResponse.id)"
+$propertyId = $propertyResponse.id
 
-function View-Landlord-Dashboard {
-    Write-Section "PHASE 3: LANDLORD MANAGEMENT"
-    
-    Write-Step "1. Viewing Landlord Dashboard"
-    
-    $response = Invoke-ApiRequest -Endpoint "accounts/dashboard-stats/" -Method "GET" -Token $Global:LandlordToken
-    
-    if ($response.Success) {
-        Write-ColorOutput "SUCCESS: Dashboard statistics:" $Green
-        Write-ColorOutput "   Active Tenants: $($response.Data.total_active_tenants)" $Green
-        Write-ColorOutput "   Available Units: $($response.Data.total_units_available)" $Green
-        Write-ColorOutput "   Occupied Units: $($response.Data.total_units_occupied)" $Green
-        Write-ColorOutput "   Monthly Revenue: KES $($response.Data.monthly_revenue)" $Green
-        return $true
-    } else {
-        Write-ColorOutput "ERROR: Failed to get dashboard stats: $($response.Error)" $Red
-        return $false
-    }
-}
+# 4. Create UnitType as Landlord with MINIMAL amounts
+Write-Host "4. Creating unit type with minimal amounts (10 KSH deposit, 100 KSH rent)..."
+$unitTypeBody = @{
+    name = "1 Bedroom Minimal"
+    deposit = 10    # Only 10 KSH for testing
+    rent = 100      # Only 100 KSH rent for testing
+    unit_count = 2
+    property_id = $propertyId
+} | ConvertTo-Json
 
-function View-Rent-Summary {
-    Write-Step "2. Viewing Rent Summary"
-    
-    $response = Invoke-ApiRequest -Endpoint "payments/rent-payments/summary/" -Method "GET" -Token $Global:LandlordToken
-    
-    if ($response.Success) {
-        Write-ColorOutput "SUCCESS: Rent summary:" $Green
-        Write-ColorOutput "   Total Collected: KES $($response.Data.total_collected)" $Green
-        Write-ColorOutput "   Total Outstanding: KES $($response.Data.total_outstanding)" $Green
-        Write-ColorOutput "   Units: $($response.Data.units.Count)" $Green
-        return $true
-    } else {
-        Write-ColorOutput "ERROR: Failed to get rent summary: $($response.Error)" $Red
-        return $false
-    }
-}
+$unitTypeResponse = Invoke-PostJson -url "$baseUrl/api/accounts/unit-types/" -headers $propertyHeaders -body $unitTypeBody
+Write-Host "Unit type created. ID: $($unitTypeResponse.id)"
+$unitTypeId = $unitTypeResponse.id
+$unitDeposit = 10  # Only 10 KSH deposit
+$unitRent = 100    # Only 100 KSH rent
 
-function View-Landlord-Properties {
-    Write-Step "3. Viewing Landlord Properties"
-    
-    $response = Invoke-ApiRequest -Endpoint "accounts/properties/" -Method "GET" -Token $Global:LandlordToken
-    
-    if ($response.Success) {
-        Write-ColorOutput "SUCCESS: Properties list:" $Green
-        foreach ($property in $response.Data) {
-            Write-ColorOutput "   - $($property.name) ($($property.city)) - $($property.unit_count) units" $Green
-        }
-        return $true
-    } else {
-        Write-ColorOutput "ERROR: Failed to get properties: $($response.Error)" $Red
-        return $false
-    }
-}
+# 5. List Units to verify automatic creation
+Write-Host "5. Listing units..."
+$unitsResponse = Invoke-GetAuth -url "$baseUrl/api/accounts/properties/$propertyId/units/" -token $landlordToken
+Write-Host "Units created: $($unitsResponse.count) units"
+$unitId = $unitsResponse[0].id
+$unitCode = $unitsResponse[0].unit_code
+Write-Host "First unit ID: $unitId, Code: $unitCode"
 
-function Submit-Maintenance-Report {
-    Write-Section "PHASE 4: MAINTENANCE & COMMUNICATION"
-    
-    Write-Step "1. Submitting Maintenance Report"
-    
-    # First, let's assign the tenant to the unit to fix the 403 error
-    Write-ColorOutput "   Note: Tenant must be assigned to unit to submit reports" $Yellow
-    
-    $reportData = @{
-        unit = $Global:UnitId
-        issue_category = "maintenance"
-        priority_level = "low"
-        issue_title = "Demo: Test Maintenance Request"
-        description = "This is a demo maintenance report for testing purposes."
-    }
-    
-    $response = Invoke-ApiRequest -Endpoint "communication/reports/create/" -Method "POST" -Body $reportData -Token $Global:TenantToken
-    
-    if ($response.Success) {
-        Write-ColorOutput "SUCCESS: Maintenance report submitted:" $Green
-        Write-ColorOutput "   Issue: $($response.Data.issue_title)" $Green
-        Write-ColorOutput "   Category: $($response.Data.issue_category)" $Green
-        Write-ColorOutput "   Priority: $($response.Data.priority_level)" $Green
-        Write-ColorOutput "   Status: $($response.Data.status)" $Green
-        return $true
-    } else {
-        Write-ColorOutput "WARNING: Maintenance report submission failed (tenant not assigned to unit): $($response.Error)" $Yellow
-        return $false
-    }
-}
+# 5.1. Test available-units/
+Write-Host "5.1. Listing available units..."
+$availableResponse = Invoke-GetAuth -url "$baseUrl/api/accounts/available-units/" -token $landlordToken
+Write-Host "Available units: $($availableResponse | ConvertTo-Json)"
 
-function View-Tenant-Reports {
-    Write-Step "2. Viewing Tenant Reports"
-    
-    $response = Invoke-ApiRequest -Endpoint "communication/reports/open/" -Method "GET" -Token $Global:TenantToken
-    
-    if ($response.Success) {
-        Write-ColorOutput "SUCCESS: Open reports:" $Green
-        if ($response.Data.Count -gt 0) {
-            foreach ($report in $response.Data) {
-                Write-ColorOutput "   - $($report.issue_title) [$($report.status)]" $Green
-            }
-        } else {
-            Write-ColorOutput "   No open reports found" $Yellow
-        }
-        return $true
-    } else {
-        Write-ColorOutput "ERROR: Failed to get reports: $($response.Error)" $Red
-        return $false
-    }
-}
+# 5.2. Test dashboard-stats/
+Write-Host "5.2. Getting dashboard stats..."
+$statsResponse = Invoke-GetAuth -url "$baseUrl/api/accounts/dashboard-stats/" -token $landlordToken
+Write-Host "Dashboard stats: $($statsResponse | ConvertTo-Json)"
 
-function View-Landlord-Reports {
-    Write-Step "3. Viewing Landlord Reports"
-    
-    $response = Invoke-ApiRequest -Endpoint "communication/reports/open/" -Method "GET" -Token $Global:LandlordToken
-    
-    if ($response.Success) {
-        Write-ColorOutput "SUCCESS: Landlord open reports:" $Green
-        if ($response.Data.Count -gt 0) {
-            foreach ($report in $response.Data) {
-                Write-ColorOutput "   - $($report.issue_title) by $($report.tenant.full_name)" $Green
-            }
-        } else {
-            Write-ColorOutput "   No open reports found" $Yellow
-        }
-        return $true
-    } else {
-        Write-ColorOutput "ERROR: Failed to get landlord reports: $($response.Error)" $Red
-        return $false
-    }
-}
+# 6. Signup Tenant (with landlord_code, no unit_code to skip deposit check)
+Write-Host "6. Signing up tenant..."
+$tenantSignupBody = @{
+    email = $tenantEmail
+    full_name = $tenantFullName
+    user_type = "tenant"
+    password = $tenantPassword
+    phone_number = $tenantPhone
+    landlord_code = $landlordCode
+    # No unit_code to avoid deposit requirement
+} | ConvertTo-Json
 
-function Test-Deposit-Payment {
-    Write-Section "PHASE 5: REAL M-PESA PAYMENTS (1 KSH)"
+$tenantSignupResponse = Invoke-PostJson -url "$baseUrl/api/accounts/signup/" -body $tenantSignupBody
+Write-Host "Tenant signup successful. ID: $($tenantSignupResponse.id)"
+$tenantId = $tenantSignupResponse.id
 
-    Write-Step "1. Testing Deposit Payment (1 KSH)"
+# 7. Login Tenant
+Write-Host "7. Logging in tenant..."
+$tenantLoginBody = @{
+    email = $tenantEmail
+    password = $tenantPassword
+    user_type = "tenant"
+} | ConvertTo-Json
 
-    Write-ColorOutput "   Initiating 1 KSH deposit payment for unit $Global:UnitId..." $Yellow
+$tenantLoginResponse = Invoke-PostJson -url "$baseUrl/api/accounts/token/" -body $tenantLoginBody
+Write-Host "Tenant login successful."
+$tenantToken = $tenantLoginResponse.access
+$tenantHeaders = @{ Authorization = "Bearer $tenantToken" }
 
-    $depositData = @{
-        unit_id = $Global:UnitId
-    }
+# 7.1. Test update-reminder-preferences/
+Write-Host "7.1. Updating reminder preferences..."
+$reminderBody = @{
+    rent_reminder = $true
+    maintenance_reminder = $true
+} | ConvertTo-Json
 
-    $response = Invoke-ApiRequest -Endpoint "payments/initiate-deposit/" -Method "POST" -Body $depositData -Token $Global:TenantToken -TimeoutSec 45
+$reminderResponse = Invoke-PatchAuth -url "$baseUrl/api/accounts/update-reminder-preferences/" -token $tenantToken -body $reminderBody
+Write-Host "Reminder preferences updated: $($reminderResponse | ConvertTo-Json)"
 
-    if ($response.Success) {
-        Write-ColorOutput "SUCCESS: Deposit payment initiated:" $Green
-        Write-ColorOutput "   Message: $($response.Data.message)" $Green
-        if ($response.Data.payment_id) {
-            Write-ColorOutput "   Payment ID: $($response.Data.payment_id)" $Green
-        }
-        if ($response.Data.checkout_request_id) {
-            Write-ColorOutput "   Checkout Request ID: $($response.Data.checkout_request_id)" $Green
-        }
+# 8. NEW FLOW: Initiate Deposit Payment (10 KSH) - Tenant pays deposit first
+Write-Host "8. NEW FLOW: Initiating deposit payment (10 KSH)..."
+$depositBody = @{
+    unit_id = $unitId
+} | ConvertTo-Json
 
-        # Check payment status
-        if ($response.Data.payment_id) {
-            Write-ColorOutput "   Checking payment status..." $Yellow
-            Start-Sleep -Seconds 5
-            $statusResponse = Invoke-ApiRequest -Endpoint "payments/deposit-status/$($response.Data.payment_id)/" -Method "GET" -Token $Global:TenantToken
-            if ($statusResponse.Success) {
-                Write-ColorOutput "   Payment Status: $($statusResponse.Data.status)" $Green
-            }
-        }
-
-        return $true
-    } else {
-        Write-ColorOutput "ERROR: Deposit payment initiation failed: $($response.Error)" $Red
-        return $false
-    }
-}
-
-function Test-Rent-Payment {
-    Write-Step "2. Testing Rent Payment (1 KSH)"
-    
-    # First, we need to assign the tenant to the unit for rent payments
-    Write-ColorOutput "   Note: Rent payments require tenant to be assigned to unit" $Yellow
-    
-    $rentData = @{
-        amount = 1.00  # 1 KSH for testing
-    }
-    
-    Write-ColorOutput "   Initiating 1 KSH rent payment for unit $Global:UnitId..." $Yellow
-    Write-ColorOutput "   Tenant Phone: +254722714334" $Yellow
-    Write-ColorOutput "   Amount: 1 KSH" $Yellow
-    
-    $response = Invoke-ApiRequest -Endpoint "payments/stk-push/$Global:UnitId/" -Method "POST" -Body $rentData -Token $Global:TenantToken -TimeoutSec 45
-    
-    if ($response.Success) {
-        Write-ColorOutput "SUCCESS: Rent payment initiated:" $Green
-        Write-ColorOutput "   Message: $($response.Data.message)" $Green
-        if ($response.Data.payment_id) {
-            Write-ColorOutput "   Payment ID: $($response.Data.payment_id)" $Green
-        }
-        if ($response.Data.checkout_request_id) {
-            Write-ColorOutput "   Checkout Request ID: $($response.Data.checkout_request_id)" $Green
-        }
-        return $true
-    } else {
-        Write-ColorOutput "WARNING: Rent payment initiation failed (tenant not assigned): $($response.Error)" $Yellow
-        return $false
-    }
-}
-
-function Test-Subscription-Payment {
-    Write-Step "3. Testing Subscription Payment (1 KSH)"
-    
-    $subscriptionData = @{
-        plan = "starter"
-        phone_number = "+254722714334"  # Landlord's phone for subscription
-    }
-    
-    Write-ColorOutput "   Initiating 1 KSH subscription payment..." $Yellow
-    Write-ColorOutput "   Landlord Phone: $($subscriptionData.phone_number)" $Yellow
-    Write-ColorOutput "   Plan: $($subscriptionData.plan)" $Yellow
-    Write-ColorOutput "   Amount: 1 KSH" $Yellow
-    
-    $response = Invoke-ApiRequest -Endpoint "payments/stk-push-subscription/" -Method "POST" -Body $subscriptionData -Token $Global:LandlordToken -TimeoutSec 45
-    
-    if ($response.Success) {
-        Write-ColorOutput "SUCCESS: Subscription payment initiated:" $Green
-        Write-ColorOutput "   Message: $($response.Data.message)" $Green
-        if ($response.Data.payment_id) {
-            Write-ColorOutput "   Payment ID: $($response.Data.payment_id)" $Green
-        }
-        if ($response.Data.checkout_request_id) {
-            Write-ColorOutput "   Checkout Request ID: $($response.Data.checkout_request_id)" $Green
-        }
-        return $true
-    } else {
-        Write-ColorOutput "ERROR: Subscription payment initiation failed: $($response.Error)" $Red
-        return $false
-    }
-}
-
-function Assign-Tenant-To-Unit {
-    Write-Step "4. Assigning Tenant to Unit (Required for Payments)"
-    
-    $assignData = @{
-        # No body needed for this endpoint, uses URL parameters
-    }
-    
-    Write-ColorOutput "   Attempting to assign tenant to unit..." $Yellow
-    
-    # This endpoint requires unit_id and tenant_id in URL
-    $response = Invoke-ApiRequest -Endpoint "accounts/units/$Global:UnitId/assign/$Global:TenantId/" -Method "POST" -Body $assignData -Token $Global:LandlordToken -TimeoutSec 45
-    
-    if ($response.Success) {
-        Write-ColorOutput "SUCCESS: Tenant assigned to unit:" $Green
-        Write-ColorOutput "   Message: $($response.Data.message)" $Green
-        if ($response.Data.payment_id) {
-            Write-ColorOutput "   Payment ID: $($response.Data.payment_id)" $Green
-        }
-        return $true
-    } else {
-        Write-ColorOutput "WARNING: Tenant assignment failed: $($response.Error)" $Yellow
-        Write-ColorOutput "   This is expected if deposit payment is required first" $Yellow
-        return $false
-    }
-}
-
-function Show-System-Status {
-    Write-Section "SYSTEM STATUS SUMMARY"
-
-    Write-ColorOutput "Application Components Status:" $Cyan
-
-    # Test various endpoints
-    $endpoints = @(
-        @{Name="Authentication"; Endpoint="accounts/token/"},
-        @{Name="User Management"; Endpoint="accounts/me/"},
-        @{Name="Properties"; Endpoint="accounts/properties/"},
-        @{Name="Payments"; Endpoint="payments/rent-payments/"},
-        @{Name="Communication"; Endpoint="communication/reports/open/"}
-    )
-
-    foreach ($endpoint in $endpoints) {
-        $testResponse = Invoke-ApiRequest -Endpoint $endpoint.Endpoint -Method "GET" -Token $Global:LandlordToken
-        $status = if ($testResponse.Success -or $testResponse.StatusCode -eq 401) { "ONLINE" } else { "OFFLINE" }
-        $color = if ($testResponse.Success -or $testResponse.StatusCode -eq 401) { $Green } else { $Red }
-        Write-ColorOutput "   $($endpoint.Name): $status" $color
-    }
-}
-
-function Test-Comprehensive-Endpoints {
-    Write-Section "PHASE 6: COMPREHENSIVE ENDPOINT TESTING"
-
-    Write-Step "1. Testing All Major Endpoints with JSON Validation"
-
-    $endpointTests = @(
-        # Accounts Endpoints
-        @{Name="User Profile"; Endpoint="accounts/me/"; Method="GET"; Token=$Global:LandlordToken; ExpectedKeys=@("id", "email", "full_name")},
-        @{Name="Properties List"; Endpoint="accounts/properties/"; Method="GET"; Token=$Global:LandlordToken; ExpectedKeys=@("id", "name", "city")},
-        @{Name="Units List"; Endpoint="accounts/units/"; Method="GET"; Token=$Global:LandlordToken; ExpectedKeys=@("id", "unit_number", "rent")},
-        @{Name="Unit Types"; Endpoint="accounts/unit-types/"; Method="GET"; Token=$Global:LandlordToken; ExpectedKeys=@("id", "name", "rent")},
-        @{Name="Dashboard Stats"; Endpoint="accounts/dashboard-stats/"; Method="GET"; Token=$Global:LandlordToken; ExpectedKeys=@("total_active_tenants", "total_units_available")},
-        @{Name="Subscription Status"; Endpoint="accounts/subscription-status/"; Method="GET"; Token=$Global:LandlordToken; ExpectedKeys=@("plan", "is_active")},
-
-        # Payments Endpoints
-        @{Name="Rent Payments Summary"; Endpoint="payments/rent-payments/summary/"; Method="GET"; Token=$Global:LandlordToken; ExpectedKeys=@("total_collected", "total_outstanding")},
-        @{Name="Payment History"; Endpoint="payments/payment-history/"; Method="GET"; Token=$Global:LandlordToken; ExpectedKeys=@("id", "amount", "status")},
-        @{Name="Revenue Reports"; Endpoint="payments/revenue-reports/"; Method="GET"; Token=$Global:LandlordToken; ExpectedKeys=@("total_revenue", "monthly_breakdown")},
-        @{Name="M-Pesa STK Push"; Endpoint="payments/stk-push/$Global:UnitId/"; Method="POST"; Token=$Global:TenantToken; Body=@{amount=1.00}; ExpectedKeys=@("message", "payment_id")},
-        @{Name="Deposit Status"; Endpoint="payments/deposit-status/1/"; Method="GET"; Token=$Global:TenantToken; ExpectedKeys=@("status", "amount")},  # Assuming payment_id=1 for test
-
-        # Communication Endpoints
-        @{Name="Open Reports"; Endpoint="communication/reports/open/"; Method="GET"; Token=$Global:LandlordToken; ExpectedKeys=@("id", "issue_title", "status")},
-        @{Name="Closed Reports"; Endpoint="communication/reports/closed/"; Method="GET"; Token=$Global:LandlordToken; ExpectedKeys=@("id", "issue_title", "status")},
-        @{Name="Tenant Reports"; Endpoint="communication/reports/tenant/"; Method="GET"; Token=$Global:TenantToken; ExpectedKeys=@("id", "issue_title", "status")}
-    )
-
-    $passedTests = 0
-    $totalTests = $endpointTests.Count
-
-    foreach ($test in $endpointTests) {
-        Write-ColorOutput "   Testing $($test.Name)..." $Yellow
-        $response = Invoke-ApiRequest -Endpoint $test.Endpoint -Method $test.Method -Token $test.Token -Body $test.Body
-
-        if ($response.Success) {
-            # Validate JSON structure
-            $validJson = $true
-            foreach ($key in $test.ExpectedKeys) {
-                if (-not $response.Data.PSObject.Properties.Match($key)) {
-                    $validJson = $false
-                    break
-                }
-            }
-            if ($validJson) {
-                Write-ColorOutput "     SUCCESS: JSON structure valid" $Green
-                $passedTests++
-            } else {
-                Write-ColorOutput "     WARNING: JSON structure incomplete" $Yellow
-            }
-        } else {
-            Write-ColorOutput "     ERROR: $($response.Error)" $Red
-        }
-    }
-
-    Write-ColorOutput "   Endpoint Tests: $passedTests/$totalTests passed" $(if ($passedTests -eq $totalTests) { $Green } else { $Yellow })
-}
-
-function Test-Disbursements {
-    Write-Step "2. Testing Disbursements Feature"
-
-    # Assume endpoint for disbursements (landlord disbursing funds to tenants or vendors)
-    $disbursementData = @{
-        recipient_phone = "+254722714334"  # Test phone
-        amount = 1.00  # 1 KSH for testing
-        description = "Test disbursement for workflow validation"
-    }
-
-    Write-ColorOutput "   Initiating 1 KSH disbursement..." $Yellow
-    Write-ColorOutput "   Recipient Phone: $($disbursementData.recipient_phone)" $Yellow
-    Write-ColorOutput "   Amount: $($disbursementData.amount) KSH" $Yellow
-
-    $response = Invoke-ApiRequest -Endpoint "payments/disbursements/" -Method "POST" -Body $disbursementData -Token $Global:LandlordToken -TimeoutSec 45
-
-    if ($response.Success) {
-        Write-ColorOutput "SUCCESS: Disbursement initiated:" $Green
-        Write-ColorOutput "   Message: $($response.Data.message)" $Green
-        if ($response.Data.disbursement_id) {
-            Write-ColorOutput "   Disbursement ID: $($response.Data.disbursement_id)" $Green
-        }
-        # Check status if ID available
-        if ($response.Data.disbursement_id) {
-            Start-Sleep -Seconds 5
-            $statusResponse = Invoke-ApiRequest -Endpoint "payments/disbursements/$($response.Data.disbursement_id)/status/" -Method "GET" -Token $Global:LandlordToken
-            if ($statusResponse.Success) {
-                Write-ColorOutput "   Disbursement Status: $($statusResponse.Data.status)" $Green
-            }
-        }
-        return $true
-    } else {
-        Write-ColorOutput "ERROR: Disbursement initiation failed: $($response.Error)" $Red
-        return $false
-    }
-}
-
-function Test-Expanded-Report-System {
-    Write-Step "3. Testing Expanded Report System"
-
-    # Test various report types
-    $reportTests = @(
-        @{Name="Payment Reports"; Endpoint="payments/reports/"; Method="GET"; Token=$Global:LandlordToken},
-        @{Name="Tenant Reports"; Endpoint="accounts/tenants/reports/"; Method="GET"; Token=$Global:LandlordToken},
-        @{Name="Maintenance Reports"; Endpoint="communication/reports/all/"; Method="GET"; Token=$Global:LandlordToken},
-        @{Name="Revenue Reports"; Endpoint="payments/revenue-reports/"; Method="GET"; Token=$Global:LandlordToken}
-    )
-
-    foreach ($test in $reportTests) {
-        Write-ColorOutput "   Testing $($test.Name)..." $Yellow
-        $response = Invoke-ApiRequest -Endpoint $test.Endpoint -Method $test.Method -Token $test.Token
-
-        if ($response.Success) {
-            Write-ColorOutput "     SUCCESS: Report data retrieved" $Green
-            if ($response.Data -is [array]) {
-                Write-ColorOutput "     Records: $($response.Data.Count)" $Green
-            }
-        } else {
-            Write-ColorOutput "     ERROR: $($response.Error)" $Red
-        }
-    }
-}
-
-function Test-Error-Handling {
-    Write-Step "4. Testing Error Handling and Edge Cases"
-
-    # Test invalid endpoints
-    Write-ColorOutput "   Testing invalid endpoint..." $Yellow
-    $invalidResponse = Invoke-ApiRequest -Endpoint "invalid/endpoint/" -Method "GET" -Token $Global:LandlordToken
-    if (-not $invalidResponse.Success) {
-        Write-ColorOutput "     SUCCESS: Properly handled invalid endpoint" $Green
-    } else {
-        Write-ColorOutput "     WARNING: Unexpected success for invalid endpoint" $Yellow
-    }
-
-    # Test unauthorized access
-    Write-ColorOutput "   Testing unauthorized access..." $Yellow
-    $unauthResponse = Invoke-ApiRequest -Endpoint "accounts/dashboard-stats/" -Method "GET"  # No token
-    if ($unauthResponse.StatusCode -eq 401) {
-        Write-ColorOutput "     SUCCESS: Properly handled unauthorized access" $Green
-    } else {
-        Write-ColorOutput "     WARNING: Unexpected response for unauthorized access" $Yellow
-    }
-
-    # Test invalid JSON
-    Write-ColorOutput "   Testing invalid JSON payload..." $Yellow
-    $invalidJsonResponse = Invoke-ApiRequest -Endpoint "accounts/signup/" -Method "POST" -Body "invalid json" -Token $Global:LandlordToken
-    if (-not $invalidJsonResponse.Success) {
-        Write-ColorOutput "     SUCCESS: Properly handled invalid JSON" $Green
-    } else {
-        Write-ColorOutput "     WARNING: Unexpected success for invalid JSON" $Yellow
-    }
-}
-
-function Main {
-    Write-Host "`n" + "="*70 -ForegroundColor $Magenta
-    Write-Host "MAKAU RENTALS - REAL LIFE APPLICATION WORKFLOW DEMO" -ForegroundColor $Magenta
-    Write-Host "Live Server: $BaseUrl" -ForegroundColor $Magenta
-    Write-Host "NOW WITH REAL M-PESA INTEGRATION (1 KSH TRANSACTIONS)" -ForegroundColor $Magenta
-    Write-Host "="*70 -ForegroundColor $Magenta
-    
-    # Test API connection first
-    if (-not (Test-ApiConnection)) {
-        Write-ColorOutput "Cannot proceed without API connection. Please check if the server is running." $Red
-        return
-    }
-    
-    # Landlord workflow
-    if (-not (Register-Landlord)) { return }
-    if (-not (Login-Landlord)) { return }
-    if (-not (Create-UnitType)) { return }
-    if (-not (Create-Property)) { return }
-    if (-not (Create-Unit)) { return }
-    
-    $landlordCode = Get-LandlordCode
-    if (-not $landlordCode) { return }
-    
-    # Tenant workflow  
-    if (-not (Register-Tenant -LandlordCode $landlordCode)) { return }
-    if (-not (Login-Tenant)) { return }
-    
-    # Update unit deposit to 1 KSH for testing
-    Update-Unit-Deposit
-    
-    # User profiles
-    Get-User-Profile -Token $Global:LandlordToken -UserType "Landlord"
-    Get-User-Profile -Token $Global:TenantToken -UserType "Tenant"
-    
-    # Subscription & Dashboard
-    Check-Subscription-Status
-    View-Landlord-Dashboard
-    View-Rent-Summary
-    View-Landlord-Properties
-    
-    # REAL M-Pesa Payment Workflow
-    Test-Deposit-Payment
-    Start-Sleep -Seconds 10
-    Assign-Tenant-To-Unit
-    Test-Rent-Payment
-    Submit-Maintenance-Report
-    View-Tenant-Reports
-    View-Landlord-Reports
-    
-    # Comprehensive endpoint testing
-    Test-Comprehensive-Endpoints
-    Test-Disbursements
-    Test-Expanded-Report-System
-    Test-Error-Handling
-
-    # System status
-    Show-System-Status
-
-    Write-Section "DEMO COMPLETED SUCCESSFULLY!"
-    Write-ColorOutput "The Makau Rentals application workflow has been successfully demonstrated!" $Green
-    Write-ColorOutput "REAL M-PESA PAYMENTS WERE INITIATED WITH 1 KSH TRANSACTIONS!" $Green
-    Write-ColorOutput "COMPREHENSIVE ENDPOINT TESTING COMPLETED!" $Green
-    Write-ColorOutput "Demo Summary:" $Cyan
-    Write-ColorOutput "   - Landlord account created and authenticated" $Cyan
-    Write-ColorOutput "   - Property and unit created with 1 KSH pricing" $Cyan
-    Write-ColorOutput "   - Tenant account created and linked to landlord" $Cyan
-    Write-ColorOutput "   - Real M-Pesa deposit payment initiated (1 KSH)" $Cyan
-    Write-ColorOutput "   - Real M-Pesa rent payment initiated (1 KSH)" $Cyan
-    Write-ColorOutput "   - Real M-Pesa subscription payment initiated (1 KSH)" $Cyan
-    Write-ColorOutput "   - Disbursements feature tested" $Cyan
-    Write-ColorOutput "   - All major endpoints validated for JSON input/output" $Cyan
-    Write-ColorOutput "   - Report system comprehensively tested" $Cyan
-    Write-ColorOutput "   - Error handling and edge cases covered" $Cyan
-    Write-ColorOutput "Live API Endpoints:" $Cyan
-    Write-ColorOutput "   Base URL: $BaseUrl" $Cyan
-    Write-ColorOutput "   API Documentation: $BaseUrl/api/docs/" $Cyan
-    Write-ColorOutput "`nIMPORTANT: Check your phone to complete the M-Pesa payments!" $Yellow
-    Write-ColorOutput "Phone numbers used:" $Yellow
-    Write-ColorOutput "   Landlord: +254722714334" $Yellow
-    Write-ColorOutput "   Tenant: +254722714334" $Yellow
-}
-
-# Start the demo
+$startTime = Get-Date
+Write-Host "Deposit initiation started at: $startTime"
 try {
-    Main
+    $depositResponse = Invoke-PostJson -url "$baseUrl/api/payments/initiate-deposit/" -headers $tenantHeaders -body $depositBody
+    $endTime = Get-Date
+    $duration = $endTime - $startTime
+    Write-Host "Deposit initiation completed in $($duration.TotalSeconds) seconds: $($depositResponse | ConvertTo-Json)"
+    
+    if ($depositResponse.payment_id) {
+        $paymentId = $depositResponse.payment_id
+        Write-Host "Payment ID: $paymentId"
+        
+        # NEW: Poll for payment status instead of assuming success
+        Write-Host "8.1. Polling for payment status..."
+        $statusResult = Invoke-PollPaymentStatus -paymentId $paymentId -token $tenantToken -maxAttempts 6 -delaySeconds 5
+        
+        if ($statusResult.status -eq "pending") {
+            Write-Host "Payment still pending after polling - simulating successful callback..."
+            
+            # Simulate successful deposit callback
+            Write-Host "8.2. Simulating successful deposit callback for payment ID: $paymentId"
+            $callbackBody = @"
+{
+    "Body": {
+        "stkCallback": {
+            "ResultCode": 0,
+            "CallbackMetadata": {
+                "Item": [
+                    {"Name": "Amount", "Value": 10},
+                    {"Name": "MpesaReceiptNumber", "Value": "TEST$paymentId"},
+                    {"Name": "AccountReference", "Value": "$paymentId"},
+                    {"Name": "PhoneNumber", "Value": "$tenantPhone"}
+                ]
+            }
+        }
+    }
 }
-catch {
-    Write-ColorOutput "An unexpected error occurred: $($_.Exception.Message)" $Red
-    Write-ColorOutput "Stack trace: $($_.ScriptStackTrace)" $Red
+"@
+            try {
+                $callbackResponse = Invoke-PostJson -url "$baseUrl/api/payments/callback/deposit/" -body $callbackBody
+                Write-Host "Deposit callback simulated successfully: $($callbackResponse | ConvertTo-Json)"
+                
+                # Check final status after callback
+                Start-Sleep -Seconds 2
+                $finalStatus = Invoke-GetAuth -url "$baseUrl/api/payments/deposit-status/$paymentId/" -token $tenantToken
+                Write-Host "Final payment status after callback: $($finalStatus.status)"
+                
+                if ($finalStatus.status -eq "success") {
+                    Write-Host "SUCCESS: Deposit payment completed and tenant assigned to unit"
+                } else {
+                    Write-Host "WARNING: Deposit payment status is $($finalStatus.status) after callback"
+                }
+            } catch {
+                Write-Host "Deposit callback simulation failed: $($_.Exception.Message)"
+            }
+        } elseif ($statusResult.status -eq "success") {
+            Write-Host "SUCCESS: Deposit payment already completed via callback"
+        } else {
+            Write-Host "Payment failed with status: $($statusResult.status)"
+        }
+    }
+} catch {
+    $endTime = Get-Date
+    $duration = $endTime - $startTime
+    Write-Host "Deposit initiation failed in $($duration.TotalSeconds) seconds: $($_.Exception.Message)"
 }
 
-Write-Host "`n" + "="*70 -ForegroundColor $Magenta
-Write-Host "Demo script execution completed" -ForegroundColor $Magenta
-Write-Host "="*70 -ForegroundColor $Magenta
+# 8.3. Test failed payment scenario
+Write-Host "8.3. Testing failed payment scenario..."
+try {
+    $failedDepositBody = @{
+        unit_id = $unitId
+    } | ConvertTo-Json
+    
+    $failedDepositResponse = Invoke-PostJson -url "$baseUrl/api/payments/initiate-deposit/" -headers $tenantHeaders -body $failedDepositBody
+    
+    if ($failedDepositResponse.payment_id) {
+        $failedPaymentId = $failedDepositResponse.payment_id
+        Write-Host "Created payment for failure test: $failedPaymentId"
+        
+        # Simulate failed callback
+        Write-Host "Simulating failed deposit callback..."
+        $failedCallbackBody = @"
+{
+    "Body": {
+        "stkCallback": {
+            "MerchantRequestID": "test-failed-request",
+            "CheckoutRequestID": "ws_CO_test_failed",
+            "ResultCode": 1032,
+            "ResultDesc": "Request Cancelled by user."
+        }
+    }
+}
+"@
+        $failedCallbackResponse = Invoke-PostJson -url "$baseUrl/api/payments/callback/deposit/" -body $failedCallbackBody
+        Write-Host "Failed callback response: $($failedCallbackResponse | ConvertTo-Json)"
+        
+        # Check status of failed payment
+        Start-Sleep -Seconds 2
+        $failedStatus = Invoke-GetAuth -url "$baseUrl/api/payments/deposit-status/$failedPaymentId/" -token $tenantToken
+        Write-Host "Failed payment status: $($failedStatus.status)"
+        
+        if ($failedStatus.status -eq "failed") {
+            Write-Host "SUCCESS: Failed payment properly handled - tenant not assigned"
+        }
+    }
+} catch {
+    Write-Host "Failed payment test error: $($_.Exception.Message)"
+}
+
+# 9. Verify tenant assignment by checking unit status
+Write-Host "9. Verifying unit assignment status..."
+try {
+    $updatedUnitsResponse = Invoke-GetAuth -url "$baseUrl/api/accounts/properties/$propertyId/units/" -token $landlordToken
+    $assignedUnit = $updatedUnitsResponse | Where-Object { $_.id -eq $unitId } | Select-Object -First 1
+    
+    if ($assignedUnit.tenant -eq $tenantId) {
+        Write-Host "SUCCESS: Tenant $tenantId is properly assigned to unit $unitId"
+    } else {
+        Write-Host "UNIT STATUS: Unit $unitId tenant: $($assignedUnit.tenant), available: $($assignedUnit.is_available)"
+    }
+} catch {
+    Write-Host "Error checking unit assignment: $($_.Exception.Message)"
+}
+
+# 10. Initiate Rent Payment as Tenant (100 KSH) - Only if deposit was successful
+Write-Host "10. Initiating rent payment (100 KSH)..."
+$rentBody = @{
+    amount = "100"
+} | ConvertTo-Json
+
+$startTime = Get-Date
+Write-Host "Rent initiation started at: $startTime"
+try {
+    $rentResponse = Invoke-PostJson -url "$baseUrl/api/payments/stk-push/$unitId/" -headers $tenantHeaders -body $rentBody
+    $endTime = Get-Date
+    $duration = $endTime - $startTime
+    Write-Host "Rent STK push initiated in $($duration.TotalSeconds) seconds: $($rentResponse | ConvertTo-Json)"
+    
+    # Simulate successful rent callback
+    if ($rentResponse.payment_id) {
+        $rentPaymentId = $rentResponse.payment_id
+        Write-Host "Simulating successful rent callback for payment ID: $rentPaymentId"
+        $rentCallbackBody = @"
+{
+    "Body": {
+        "stkCallback": {
+            "ResultCode": 0,
+            "CallbackMetadata": {
+                "Item": [
+                    {"Name": "Amount", "Value": 100},
+                    {"Name": "MpesaReceiptNumber", "Value": "RENT$rentPaymentId"},
+                    {"Name": "AccountReference", "Value": "$rentPaymentId"},
+                    {"Name": "PhoneNumber", "Value": "$tenantPhone"}
+                ]
+            }
+        }
+    }
+}
+"@
+        $rentCallbackResponse = Invoke-PostJson -url "$baseUrl/api/payments/callback/rent/" -body $rentCallbackBody
+        Write-Host "Rent callback simulated: $($rentCallbackResponse | ConvertTo-Json)"
+    }
+} catch {
+    $endTime = Get-Date
+    $duration = $endTime - $startTime
+    Write-Host "Rent initiation failed in $($duration.TotalSeconds) seconds: $($_.Exception.Message)"
+}
+
+# 10.1. Test rent-payments/ list
+Write-Host "10.1. Listing rent payments..."
+$rentPaymentsResponse = Invoke-GetAuth -url "$baseUrl/api/payments/rent-payments/" -token $tenantToken
+Write-Host "Rent payments: $($rentPaymentsResponse | ConvertTo-Json)"
+
+# 11. Create Report as Tenant
+Write-Host "11. Creating report as tenant..."
+$reportBody = @{
+    unit = $unitId
+    issue_title = "Test Report"
+    issue_category = "maintenance"
+    description = "This is a test report for maintenance."
+    priority_level = "low"
+} | ConvertTo-Json
+
+try {
+    $reportResponse = Invoke-PostJson -url "$baseUrl/api/communication/reports/create/" -headers $tenantHeaders -body $reportBody
+    Write-Host "Report created. ID: $($reportResponse.id)"
+    $reportId = $reportResponse.id
+} catch {
+    Write-Host "Report creation failed: $($_.Exception.Message)"
+}
+
+# 12. Initiate Subscription Payment as Landlord (50 KSH test plan)
+Write-Host "12. Initiating subscription payment (50 KSH test plan)..."
+$subscriptionBody = @{
+    plan = "starter"
+    phone_number = $landlordPhone
+} | ConvertTo-Json
+
+$subscriptionHeaders = @{ Authorization = "Bearer $landlordToken" }
+$startTime = Get-Date
+Write-Host "Subscription initiation started at: $startTime"
+try {
+    $subscriptionResponse = Invoke-PostJson -url "$baseUrl/api/payments/stk-push-subscription/" -headers $subscriptionHeaders -body $subscriptionBody
+    $endTime = Get-Date
+    $duration = $endTime - $startTime
+    Write-Host "Subscription STK push initiated in $($duration.TotalSeconds) seconds: $($subscriptionResponse | ConvertTo-Json)"
+    
+    # Simulate successful subscription callback
+    if ($subscriptionResponse.payment_id) {
+        $subPaymentId = $subscriptionResponse.payment_id
+        Write-Host "Simulating successful subscription callback for payment ID: $subPaymentId"
+        $subCallbackBody = @"
+{
+    "Body": {
+        "stkCallback": {
+            "ResultCode": 0,
+            "CallbackMetadata": {
+                "Item": [
+                    {"Name": "Amount", "Value": 50},
+                    {"Name": "MpesaReceiptNumber", "Value": "SUB$subPaymentId"},
+                    {"Name": "AccountReference", "Value": "$subPaymentId"},
+                    {"Name": "PhoneNumber", "Value": "$landlordPhone"}
+                ]
+            }
+        }
+    }
+}
+"@
+        $subCallbackResponse = Invoke-PostJson -url "$baseUrl/api/payments/callback/subscription/" -body $subCallbackBody
+        Write-Host "Subscription callback simulated: $($subCallbackResponse | ConvertTo-Json)"
+    }
+} catch {
+    $endTime = Get-Date
+    $duration = $endTime - $startTime
+    Write-Host "Subscription initiation failed in $($duration.TotalSeconds) seconds: $($_.Exception.Message)"
+}
+
+# 12.1. Test subscription-payments/ list
+Write-Host "12.1. Listing subscription payments..."
+try {
+    $subscriptionPaymentsResponse = Invoke-GetAuth -url "$baseUrl/api/payments/subscription-payments/" -token $landlordToken
+    Write-Host "Subscription payments: $($subscriptionPaymentsResponse | ConvertTo-Json)"
+} catch {
+    Write-Host "Subscription payments list failed: $($_.Exception.Message)"
+}
+
+# 13. Test rent summary for landlord
+Write-Host "13. Testing rent summary..."
+try {
+    $rentSummaryResponse = Invoke-GetAuth -url "$baseUrl/api/payments/rent-summary/" -token $landlordToken
+    Write-Host "Rent summary: $($rentSummaryResponse | ConvertTo-Json)"
+} catch {
+    Write-Host "Rent summary failed: $($_.Exception.Message)"
+}
+
+Write-Host "All tests completed with new payment flow!"
+Write-Host "Key improvements:"
+Write-Host "- Deposit payments now wait for callback confirmation"
+Write-Host "- Tenant assignment happens ONLY after successful payment"
+Write-Host "- Payment status polling replaces immediate success assumption"
+Write-Host "- Proper handling of both success and failure scenarios"

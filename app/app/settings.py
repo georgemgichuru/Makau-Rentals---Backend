@@ -291,8 +291,9 @@ LOGGING = {
     },
 }
 # Celery configuration
-CELERY_BROKER_URL = "redis://redis:6379/0"   # adjust if your docker-compose uses another host
-CELERY_RESULT_BACKEND = "redis://redis:6379/0"
+REDIS_URL = config('REDIS_URL', default='redis://redis:6379/0')
+CELERY_BROKER_URL = REDIS_URL
+CELERY_RESULT_BACKEND = REDIS_URL
 
 
 # TODO: Run celery using the following commands -> celery -A your_project worker -l info
