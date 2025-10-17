@@ -944,25 +944,26 @@ class InitiateDepositPaymentView(APIView):
         unit_id = request.data.get('unit_id')
         if not unit_id:
             return Response({'error': 'unit_id is required'}, status=400)
-        
+
         try:
-            # Only allow deposit payment for available units
-            unit = Unit.objects.get(id=unit_id, is_available=True)
+            # Allow deposit payment for units that are available OR not assigned to any tenant
+            unit = Unit.objects.get(id=unit_id)
+            if not unit.is_available and unit.tenant is not None:
+                return Response({'error': 'Unit is already occupied by another tenant'}, status=400)
         except Unit.DoesNotExist:
-            return Response({'error': 'Unit not found or not available for deposit payment'}, status=400)
+            return Response({'error': 'Unit not found'}, status=400)
 
         amount = unit.deposit
-        
+
         # Validate amount
         if amount is None or amount <= 0:
             return Response({"error": "Deposit amount is not set or invalid."}, status=400)
-        
-        # Ensure amount is a whole number (M-Pesa requires integer amounts)
-        if not (amount % 1 == 0):
-            return Response({"error": "Deposit amount must be a whole number."}, status=400)
-        
-        # Convert to integer for M-Pesa
-        amount = int(amount)
+
+        # Allow decimal amounts for deposits (M-Pesa can handle decimals)
+        try:
+            amount = Decimal(str(amount))
+        except (ValueError, TypeError):
+            return Response({"error": "Invalid deposit amount format."}, status=400)
         
         # Rate limiting
         rate_limit_key = f"deposit_stk_push_rate_limit:{request.user.id}"
@@ -1006,10 +1007,37 @@ class InitiateDepositPaymentView(APIView):
         
         business_shortcode = settings.MPESA_SHORTCODE
 
-        # Normalize phone number for M-Pesa (remove + if present)
-        phone_number = request.user.phone_number
-        if phone_number.startswith('+'):
-            phone_number = phone_number[1:]
+        # Normalize phone number for M-Pesa API
+        def normalize_phone_for_mpesa(phone_str):
+            """
+            Normalize phone number to M-Pesa compatible format.
+            M-Pesa expects format: 254XXXXXXXXX (without +)
+            Handles various input formats and ensures correct output.
+            """
+            if not phone_str:
+                return phone_str
+
+            # Remove any spaces, hyphens, or other non-digit characters except +
+            phone_str = ''.join(c for c in phone_str if c.isdigit() or c == '+')
+
+            # Handle different formats
+            if phone_str.startswith('+254'):
+                # +254722714334 -> 254722714334
+                return phone_str[1:]
+            elif phone_str.startswith('254'):
+                # Already in correct format: 254722714334
+                return phone_str
+            elif phone_str.startswith('0'):
+                # 0722714334 -> 254722714334
+                return '254' + phone_str[1:]
+            elif len(phone_str) == 9 and phone_str.isdigit():
+                # 722714334 -> 254722714334 (local format without 0)
+                return '254' + phone_str
+            else:
+                # Unknown format, return as-is but remove + if present
+                return phone_str.lstrip('+')
+
+        phone_number = normalize_phone_for_mpesa(request.user.phone_number)
 
         # Build payload for Safaricom API
         payload = {

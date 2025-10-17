@@ -1,13 +1,22 @@
-# Caching Consistency Fix
+# Payment System Fixes
 
-## Overview
-Fix caching consistency issues where updates/deletes to units or properties only clear landlord caches but not related property unit caches, leading to stale data.
+## Critical Issues
+- [ ] Fix deposit payment initiation (allow payments for vacant units)
+- [ ] Improve phone number normalization for Kenyan numbers
+- [ ] Allow decimal amounts for deposits
+- [ ] Fix callback metadata parsing and error handling
+- [ ] Improve user lookup in subscription callbacks
+- [ ] Fix authentication issues causing unauthorized errors
+- [ ] Enhance M-Pesa API error handling and logging
 
-## Tasks
-- [ ] Modify CreateUnitView to clear property units cache after creating a unit
-- [ ] Modify AssignTenantView to clear both landlord properties and property units caches after assigning tenant
-- [ ] Modify UnitTypeListCreateView to clear both caches after creating units for a unit type
-- [ ] Modify AdjustRentView to clear property units caches for affected properties after rent adjustments
-- [ ] Modify TenantUpdateUnitView to clear landlord properties cache after tenant updates unit
-- [ ] Modify UpdatePropertyView to clear property units cache after updating or deleting a property
-- [ ] Modify UserCreateView to clear caches after creating properties and units for new landlord
+## Testing
+- [ ] Test deposit payment initiation
+- [ ] Test rent payment initiation
+- [ ] Test subscription payment initiation
+- [ ] Test callback processing with mock data
+- [ ] Verify authentication works properly
+
+## Files Modified
+- app/payments/views.py
+- app/payments/generate_token.py
+- app/app/settings.py
