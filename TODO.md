@@ -1,12 +1,11 @@
-# M-Pesa Production Readiness Checklist
+# TODO: Enhance test.ps1 for Real M-Pesa Transactions
 
-## Current Status: Sandbox Mode
-- [ ] Switch MPESA_ENV from "sandbox" to "production" in settings.py
-- [ ] Update callback URLs to production endpoints
-- [ ] Configure production M-Pesa credentials
-- [ ] Test B2C disbursement settings
-- [ ] Verify all environment variables are set
-- [ ] Run comprehensive tests
-- [ ] Update logging levels for production
-- [ ] Configure production database and Redis
-- [ ] Set up production monitoring and alerts
+## Steps to Complete
+- [ ] Update phone number variables to prompt user for real phone numbers using Read-Host
+- [ ] Modify rent payment section: Remove callback simulation, add polling for payment status after STK push initiation
+- [ ] Modify subscription payment section: Remove callback simulation, add polling for payment status after STK push initiation
+- [ ] Ensure deposit payment polling is retained and handles real transactions
+- [ ] Add post-payment checks: List rent payments, subscription payments, and rent summary after real transactions
+- [ ] Improve error handling for payment failures (e.g., user cancellation) with appropriate messages
+- [ ] Test the script to ensure real STK pushes are triggered and statuses are polled correctly
+- [ ] Verify minimal amounts (10 KSH deposit, 100 KSH rent, 50 KSH subscription) are used to avoid high costs

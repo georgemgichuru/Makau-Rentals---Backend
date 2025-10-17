@@ -29,7 +29,6 @@ from accounts.permissions import IsLandlord, HasActiveSubscription
 # ------------------------------
 # STK PUSH INITIATION (Tenant Rent Payment) - UPDATED
 # ------------------------------
-@csrf_exempt
 def stk_push(request, unit_id):
     """
     Initiates an M-Pesa STK Push for a tenant's rent payment.
