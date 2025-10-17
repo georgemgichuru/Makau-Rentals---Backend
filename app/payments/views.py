@@ -1033,7 +1033,7 @@ class InitiateDepositPaymentView(APIView):
             response_data = response.json()
             
             if response_data.get("ResponseCode") == "0":
-                return JsonResponse({
+                return Response({
                     "message": "Deposit payment initiated successfully. Please check your phone to complete payment.",
                     "checkout_request_id": response_data.get("CheckoutRequestID"),
                     "payment_id": payment.id
