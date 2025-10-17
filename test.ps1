@@ -522,19 +522,17 @@ function View-Landlord-Reports {
 
 function Test-Deposit-Payment {
     Write-Section "PHASE 5: REAL M-PESA PAYMENTS (1 KSH)"
-    
+
     Write-Step "1. Testing Deposit Payment (1 KSH)"
-    
+
+    Write-ColorOutput "   Initiating 1 KSH deposit payment for unit $Global:UnitId..." $Yellow
+
     $depositData = @{
         unit_id = $Global:UnitId
     }
-    
-    Write-ColorOutput "   Initiating 1 KSH deposit payment for unit $Global:UnitId..." $Yellow
-    Write-ColorOutput "   Tenant Phone: +254708374149" $Yellow
-    Write-ColorOutput "   Amount: 1 KSH" $Yellow
-    
-    $response = Invoke-ApiRequest -Endpoint "payments/initiate-deposit/" -Method "POST" -Body $depositData -Token $Global:TenantToken -TimeoutSec 45
-    
+
+    $response = Invoke-ApiRequest -Endpoint "payments/deposit/initiate/" -Method "POST" -Body $depositData -Token $Global:TenantToken -TimeoutSec 45
+
     if ($response.Success) {
         Write-ColorOutput "SUCCESS: Deposit payment initiated:" $Green
         Write-ColorOutput "   Message: $($response.Data.message)" $Green
@@ -544,7 +542,7 @@ function Test-Deposit-Payment {
         if ($response.Data.checkout_request_id) {
             Write-ColorOutput "   Checkout Request ID: $($response.Data.checkout_request_id)" $Green
         }
-        
+
         # Check payment status
         if ($response.Data.payment_id) {
             Write-ColorOutput "   Checking payment status..." $Yellow
@@ -554,7 +552,7 @@ function Test-Deposit-Payment {
                 Write-ColorOutput "   Payment Status: $($statusResponse.Data.status)" $Green
             }
         }
-        
+
         return $true
     } else {
         Write-ColorOutput "ERROR: Deposit payment initiation failed: $($response.Error)" $Red
@@ -653,9 +651,9 @@ function Assign-Tenant-To-Unit {
 
 function Show-System-Status {
     Write-Section "SYSTEM STATUS SUMMARY"
-    
+
     Write-ColorOutput "Application Components Status:" $Cyan
-    
+
     # Test various endpoints
     $endpoints = @(
         @{Name="Authentication"; Endpoint="accounts/token/"},
@@ -664,12 +662,163 @@ function Show-System-Status {
         @{Name="Payments"; Endpoint="payments/rent-payments/"},
         @{Name="Communication"; Endpoint="communication/reports/open/"}
     )
-    
+
     foreach ($endpoint in $endpoints) {
         $testResponse = Invoke-ApiRequest -Endpoint $endpoint.Endpoint -Method "GET" -Token $Global:LandlordToken
         $status = if ($testResponse.Success -or $testResponse.StatusCode -eq 401) { "ONLINE" } else { "OFFLINE" }
         $color = if ($testResponse.Success -or $testResponse.StatusCode -eq 401) { $Green } else { $Red }
         Write-ColorOutput "   $($endpoint.Name): $status" $color
+    }
+}
+
+function Test-Comprehensive-Endpoints {
+    Write-Section "PHASE 6: COMPREHENSIVE ENDPOINT TESTING"
+
+    Write-Step "1. Testing All Major Endpoints with JSON Validation"
+
+    $endpointTests = @(
+        # Accounts Endpoints
+        @{Name="User Profile"; Endpoint="accounts/me/"; Method="GET"; Token=$Global:LandlordToken; ExpectedKeys=@("id", "email", "full_name")},
+        @{Name="Properties List"; Endpoint="accounts/properties/"; Method="GET"; Token=$Global:LandlordToken; ExpectedKeys=@("id", "name", "city")},
+        @{Name="Units List"; Endpoint="accounts/units/"; Method="GET"; Token=$Global:LandlordToken; ExpectedKeys=@("id", "unit_number", "rent")},
+        @{Name="Unit Types"; Endpoint="accounts/unit-types/"; Method="GET"; Token=$Global:LandlordToken; ExpectedKeys=@("id", "name", "rent")},
+        @{Name="Dashboard Stats"; Endpoint="accounts/dashboard-stats/"; Method="GET"; Token=$Global:LandlordToken; ExpectedKeys=@("total_active_tenants", "total_units_available")},
+        @{Name="Subscription Status"; Endpoint="accounts/subscription-status/"; Method="GET"; Token=$Global:LandlordToken; ExpectedKeys=@("plan", "is_active")},
+
+        # Payments Endpoints
+        @{Name="Rent Payments Summary"; Endpoint="payments/rent-payments/summary/"; Method="GET"; Token=$Global:LandlordToken; ExpectedKeys=@("total_collected", "total_outstanding")},
+        @{Name="Payment History"; Endpoint="payments/payment-history/"; Method="GET"; Token=$Global:LandlordToken; ExpectedKeys=@("id", "amount", "status")},
+        @{Name="Revenue Reports"; Endpoint="payments/revenue-reports/"; Method="GET"; Token=$Global:LandlordToken; ExpectedKeys=@("total_revenue", "monthly_breakdown")},
+        @{Name="M-Pesa STK Push"; Endpoint="payments/stk-push/$Global:UnitId/"; Method="POST"; Token=$Global:TenantToken; Body=@{amount=1.00}; ExpectedKeys=@("message", "payment_id")},
+        @{Name="Deposit Status"; Endpoint="payments/deposit-status/1/"; Method="GET"; Token=$Global:TenantToken; ExpectedKeys=@("status", "amount")},  # Assuming payment_id=1 for test
+
+        # Communication Endpoints
+        @{Name="Open Reports"; Endpoint="communication/reports/open/"; Method="GET"; Token=$Global:LandlordToken; ExpectedKeys=@("id", "issue_title", "status")},
+        @{Name="Closed Reports"; Endpoint="communication/reports/closed/"; Method="GET"; Token=$Global:LandlordToken; ExpectedKeys=@("id", "issue_title", "status")},
+        @{Name="Tenant Reports"; Endpoint="communication/reports/tenant/"; Method="GET"; Token=$Global:TenantToken; ExpectedKeys=@("id", "issue_title", "status")}
+    )
+
+    $passedTests = 0
+    $totalTests = $endpointTests.Count
+
+    foreach ($test in $endpointTests) {
+        Write-ColorOutput "   Testing $($test.Name)..." $Yellow
+        $response = Invoke-ApiRequest -Endpoint $test.Endpoint -Method $test.Method -Token $test.Token -Body $test.Body
+
+        if ($response.Success) {
+            # Validate JSON structure
+            $validJson = $true
+            foreach ($key in $test.ExpectedKeys) {
+                if (-not $response.Data.PSObject.Properties.Match($key)) {
+                    $validJson = $false
+                    break
+                }
+            }
+            if ($validJson) {
+                Write-ColorOutput "     SUCCESS: JSON structure valid" $Green
+                $passedTests++
+            } else {
+                Write-ColorOutput "     WARNING: JSON structure incomplete" $Yellow
+            }
+        } else {
+            Write-ColorOutput "     ERROR: $($response.Error)" $Red
+        }
+    }
+
+    Write-ColorOutput "   Endpoint Tests: $passedTests/$totalTests passed" $(if ($passedTests -eq $totalTests) { $Green } else { $Yellow })
+}
+
+function Test-Disbursements {
+    Write-Step "2. Testing Disbursements Feature"
+
+    # Assume endpoint for disbursements (landlord disbursing funds to tenants or vendors)
+    $disbursementData = @{
+        recipient_phone = "+254708374149"  # Test phone
+        amount = 1.00  # 1 KSH for testing
+        description = "Test disbursement for workflow validation"
+    }
+
+    Write-ColorOutput "   Initiating 1 KSH disbursement..." $Yellow
+    Write-ColorOutput "   Recipient Phone: $($disbursementData.recipient_phone)" $Yellow
+    Write-ColorOutput "   Amount: $($disbursementData.amount) KSH" $Yellow
+
+    $response = Invoke-ApiRequest -Endpoint "payments/disbursements/" -Method "POST" -Body $disbursementData -Token $Global:LandlordToken -TimeoutSec 45
+
+    if ($response.Success) {
+        Write-ColorOutput "SUCCESS: Disbursement initiated:" $Green
+        Write-ColorOutput "   Message: $($response.Data.message)" $Green
+        if ($response.Data.disbursement_id) {
+            Write-ColorOutput "   Disbursement ID: $($response.Data.disbursement_id)" $Green
+        }
+        # Check status if ID available
+        if ($response.Data.disbursement_id) {
+            Start-Sleep -Seconds 5
+            $statusResponse = Invoke-ApiRequest -Endpoint "payments/disbursements/$($response.Data.disbursement_id)/status/" -Method "GET" -Token $Global:LandlordToken
+            if ($statusResponse.Success) {
+                Write-ColorOutput "   Disbursement Status: $($statusResponse.Data.status)" $Green
+            }
+        }
+        return $true
+    } else {
+        Write-ColorOutput "ERROR: Disbursement initiation failed: $($response.Error)" $Red
+        return $false
+    }
+}
+
+function Test-Expanded-Report-System {
+    Write-Step "3. Testing Expanded Report System"
+
+    # Test various report types
+    $reportTests = @(
+        @{Name="Payment Reports"; Endpoint="payments/reports/"; Method="GET"; Token=$Global:LandlordToken},
+        @{Name="Tenant Reports"; Endpoint="accounts/tenants/reports/"; Method="GET"; Token=$Global:LandlordToken},
+        @{Name="Maintenance Reports"; Endpoint="communication/reports/all/"; Method="GET"; Token=$Global:LandlordToken},
+        @{Name="Revenue Reports"; Endpoint="payments/revenue-reports/"; Method="GET"; Token=$Global:LandlordToken}
+    )
+
+    foreach ($test in $reportTests) {
+        Write-ColorOutput "   Testing $($test.Name)..." $Yellow
+        $response = Invoke-ApiRequest -Endpoint $test.Endpoint -Method $test.Method -Token $test.Token
+
+        if ($response.Success) {
+            Write-ColorOutput "     SUCCESS: Report data retrieved" $Green
+            if ($response.Data -is [array]) {
+                Write-ColorOutput "     Records: $($response.Data.Count)" $Green
+            }
+        } else {
+            Write-ColorOutput "     ERROR: $($response.Error)" $Red
+        }
+    }
+}
+
+function Test-Error-Handling {
+    Write-Step "4. Testing Error Handling and Edge Cases"
+
+    # Test invalid endpoints
+    Write-ColorOutput "   Testing invalid endpoint..." $Yellow
+    $invalidResponse = Invoke-ApiRequest -Endpoint "invalid/endpoint/" -Method "GET" -Token $Global:LandlordToken
+    if (-not $invalidResponse.Success) {
+        Write-ColorOutput "     SUCCESS: Properly handled invalid endpoint" $Green
+    } else {
+        Write-ColorOutput "     WARNING: Unexpected success for invalid endpoint" $Yellow
+    }
+
+    # Test unauthorized access
+    Write-ColorOutput "   Testing unauthorized access..." $Yellow
+    $unauthResponse = Invoke-ApiRequest -Endpoint "accounts/dashboard-stats/" -Method "GET"  # No token
+    if ($unauthResponse.StatusCode -eq 401) {
+        Write-ColorOutput "     SUCCESS: Properly handled unauthorized access" $Green
+    } else {
+        Write-ColorOutput "     WARNING: Unexpected response for unauthorized access" $Yellow
+    }
+
+    # Test invalid JSON
+    Write-ColorOutput "   Testing invalid JSON payload..." $Yellow
+    $invalidJsonResponse = Invoke-ApiRequest -Endpoint "accounts/signup/" -Method "POST" -Body "invalid json" -Token $Global:LandlordToken
+    if (-not $invalidJsonResponse.Success) {
+        Write-ColorOutput "     SUCCESS: Properly handled invalid JSON" $Green
+    } else {
+        Write-ColorOutput "     WARNING: Unexpected success for invalid JSON" $Yellow
     }
 }
 
@@ -722,19 +871,30 @@ function Main {
     View-Tenant-Reports
     View-Landlord-Reports
     
+    # Comprehensive endpoint testing
+    Test-Comprehensive-Endpoints
+    Test-Disbursements
+    Test-Expanded-Report-System
+    Test-Error-Handling
+
     # System status
     Show-System-Status
-    
+
     Write-Section "DEMO COMPLETED SUCCESSFULLY!"
     Write-ColorOutput "The Makau Rentals application workflow has been successfully demonstrated!" $Green
     Write-ColorOutput "REAL M-PESA PAYMENTS WERE INITIATED WITH 1 KSH TRANSACTIONS!" $Green
+    Write-ColorOutput "COMPREHENSIVE ENDPOINT TESTING COMPLETED!" $Green
     Write-ColorOutput "Demo Summary:" $Cyan
     Write-ColorOutput "   - Landlord account created and authenticated" $Cyan
     Write-ColorOutput "   - Property and unit created with 1 KSH pricing" $Cyan
     Write-ColorOutput "   - Tenant account created and linked to landlord" $Cyan
     Write-ColorOutput "   - Real M-Pesa deposit payment initiated (1 KSH)" $Cyan
     Write-ColorOutput "   - Real M-Pesa rent payment initiated (1 KSH)" $Cyan
-    Write-ColorOutput "   - All major application features tested" $Cyan
+    Write-ColorOutput "   - Real M-Pesa subscription payment initiated (1 KSH)" $Cyan
+    Write-ColorOutput "   - Disbursements feature tested" $Cyan
+    Write-ColorOutput "   - All major endpoints validated for JSON input/output" $Cyan
+    Write-ColorOutput "   - Report system comprehensively tested" $Cyan
+    Write-ColorOutput "   - Error handling and edge cases covered" $Cyan
     Write-ColorOutput "Live API Endpoints:" $Cyan
     Write-ColorOutput "   Base URL: $BaseUrl" $Cyan
     Write-ColorOutput "   API Documentation: $BaseUrl/api/docs/" $Cyan

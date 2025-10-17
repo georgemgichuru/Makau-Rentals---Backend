@@ -1045,7 +1045,7 @@ class InitiateDepositPaymentView(APIView):
             "Password": password,
             "Timestamp": timestamp,
             "TransactionType": "CustomerPayBillOnline",
-            "Amount": str(payment.amount),
+            "Amount": str(int(amount)),  # Ensure whole number for M-Pesa
             "PartyA": phone_number,
             "PartyB": business_shortcode,
             "PhoneNumber": phone_number,
