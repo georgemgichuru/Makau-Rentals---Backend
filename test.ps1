@@ -67,12 +67,12 @@ function Invoke-PostJson {
     try {
         return Invoke-RestMethod -Uri $url -Method POST -Headers $headers -Body $body -ContentType "application/json"
     } catch {
-        Write-Host "Error in POST to $url`: $($_.Exception.Message)"
+        Write-Host ("Error in POST to " + $url + ": " + $($_.Exception.Message))
         if ($_.Exception.Response) {
             $stream = $_.Exception.Response.GetResponseStream()
             $reader = New-Object System.IO.StreamReader($stream)
             $responseBody = $reader.ReadToEnd()
-            Write-Host "Response body: $responseBody"
+            Write-Host ("Response body: " + $responseBody)
         }
         throw
     }
@@ -88,7 +88,7 @@ function Invoke-GetAuth {
     try {
         return Invoke-RestMethod -Uri $url -Method GET -Headers $headers
     } catch {
-        Write-Host "Error in GET to $url`: $($_.Exception.Message)"
+        Write-Host ("Error in GET to " + $url + ": " + $($_.Exception.Message))
         throw
     }
 }
@@ -278,6 +278,7 @@ function Test-DepositPayment {
     try {
         $body = @{
             unit_id = $global:TestData.UnitId
+            test = $true
         } | ConvertTo-Json
 
         $response = Invoke-PostJson -url "$BaseUrl/api/payments/initiate-deposit/" -headers @{ Authorization = "Bearer $($global:TestData.TenantToken)" } -body $body
