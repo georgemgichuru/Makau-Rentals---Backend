@@ -16,8 +16,13 @@ from decouple import config
 import os
 # For scheduling automatic sending messages to tenants every month
 from celery.schedules import crontab
+from urllib.parse import urlparse, parse_qsl
+import os
+from dotenv import load_dotenv
 
 import os
+
+load_dotenv()
 
 # Auto create superuser on startup
 DJANGO_SUPERUSER_USERNAME = os.environ.get('DJANGO_SUPERUSER_USERNAME')
@@ -124,16 +129,18 @@ AUTH_USER_MODEL = 'accounts.CustomUser'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
 # Commented out for testing - PostgreSQL configuration
+tmpPostgres = urlparse(os.getenv("DATABASE_URL"))
 DATABASES = {
-      'default': {
-          'ENGINE': 'django.db.backends.postgresql',
-          'NAME': config('POSTGRES_DB'),
-          'USER': config('POSTGRES_USER'),
-          'PASSWORD': config('POSTGRES_PASSWORD'),
-          'HOST': config('DB_HOST'),
-          'PORT': '5432',
-     }
-  }
+    'default': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': tmpPostgres.path.replace('/', ''),
+        'USER': tmpPostgres.username,
+        'PASSWORD': tmpPostgres.password,
+        'HOST': tmpPostgres.hostname,
+        'PORT': 5432,
+        'OPTIONS': dict(parse_qsl(tmpPostgres.query)),
+    }
+}
 
 
 REST_FRAMEWORK = {

@@ -12,7 +12,7 @@ from .views import (UserDetailView, UserListView, UserCreateView, PasswordResetV
                     MeView, PasswordResetConfirmView, UnitTypeListCreateView, UnitTypeDetailView,
                     LandlordDashboardStatsView, TenantUpdateUnitView, AdjustRentView,
                     PropertyUnitsView, AssignTenantView, UpdateReminderPreferencesView,
-                    LandlordAvailableUnitsView,
+                    LandlordAvailableUnitsView, WelcomeView,
 )
 
 router = DefaultRouter()
@@ -63,4 +63,5 @@ urlpatterns = [
     # Other endpoints
     path('update-reminder-preferences/', UpdateReminderPreferencesView.as_view(), name='update-reminder-preferences'),
     path('available-units/', LandlordAvailableUnitsView.as_view(), name='available-units'),  # Changed from 'landlord-available-units'
+    path('welcome/', WelcomeView.as_view(), name='welcome'),
 ]
