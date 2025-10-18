@@ -2,19 +2,24 @@
 
 ## Project Overview
 
-**Makao Rentals** is a comprehensive apartment block management system that facilitates seamless communication and operations between landlords and tenants. The system provides automated rent collection, maintenance reporting, tenant management, and communication tools.
+**Makau Rentals** is a comprehensive apartment block management system that facilitates seamless communication and operations between landlords and tenants. The system provides automated rent collection, maintenance reporting, tenant management, and communication tools.
 
 ## Technology Stack
 
 ### Backend
-- **Framework**: Django 4.2+ with Django REST Framework
-- **Database**: PostgreSQL 14+ in cloud AZURE
-- **Authentication**: JWT (djangorestframework-simplejwt)
+- **Framework**: Django 4.2.7 with Django REST Framework 3.14.0
+- **Database**: PostgreSQL 14+ (Azure Cloud)
+- **Authentication**: JWT (djangorestframework-simplejwt 5.2.2)
 - **Payment Integration**: M-Pesa Daraja API
 - **Email**: Django Email with SMTP backend
-- **Documentation**: Django REST Swagger
+- **Task Queue**: Celery with Redis
+- **Caching**: Redis
+- **File Storage**: AWS S3 (optional) or local media files
+- **Documentation**: Django REST Framework browsable API
+
 ### Frontend
-- **Framework**: React 18+ with javascript
+- **Framework**: React 18+ with JavaScript
+- **Build Tool**: Vite
 - **Styling**: Tailwind CSS 3+
 - **State Management**: React Query + Context API
 - **Routing**: React Router v6
@@ -23,137 +28,280 @@
 - **HTTP Client**: Axios
 
 ### Infrastructure & Tools
-- **Deployment**: Docker containers
-- **Web Server**: Nginx
+- **Deployment**: Docker containers, Render
+- **Web Server**: Gunicorn
 - **Database**: PostgreSQL with connection pooling
 - **Caching**: Redis
-- **File Storage**: Cloud storage solution
-- **CI/CD**: Jenkins
-- **API Testing**: Postman (Frontend to use some mock servers)
+- **File Storage**: AWS S3 or local storage
+- **Background Tasks**: Celery beat scheduler
+- **API Testing**: Postman
+- **Environment Management**: python-decouple
 
-## File architecture
+## Installation & Setup
 
-### Backend side
+### Prerequisites
+- Python 3.8+
+- Node.js 16+
+- PostgreSQL 14+
+- Redis (optional, for caching and Celery)
 
+### Backend Setup
+
+1. **Clone the repository and navigate to the backend directory:**
+   ```bash
+   cd "Makau Rentals/app"
+   ```
+
+2. **Create a virtual environment:**
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   ```
+
+3. **Install dependencies:**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+4. **Set up environment variables:**
+   Copy and configure the required environment variables from [docs/environment_variables.md](docs/environment_variables.md)
+
+5. **Run migrations:**
+   ```bash
+   python manage.py migrate
+   ```
+
+6. **Create superuser (optional):**
+   ```bash
+   python manage.py createsuperuser
+   ```
+
+7. **Run the development server:**
+   ```bash
+   python manage.py runserver
+   ```
+
+8. **Run Celery worker (in a separate terminal):**
+   ```bash
+   celery -A app worker -l info
+   ```
+
+9. **Run Celery beat (for scheduled tasks):**
+   ```bash
+   celery -A app beat -l info
+   ```
+
+### Frontend Setup
+
+1. **Navigate to the frontend directory:**
+   ```bash
+   cd "Makao-Center-V4"
+   ```
+
+2. **Install dependencies:**
+   ```bash
+   npm install
+   ```
+
+3. **Start the development server:**
+   ```bash
+   npm run dev
+   ```
+
+## File Architecture
+
+### Backend Structure
 ```
-makao_rentals_backend/
+Makau Rentals/app/
 ├── manage.py
-├── makao_rentals/
+├── app/
 │   ├── __init__.py
 │   ├── settings.py
 │   ├── urls.py
 │   ├── wsgi.py
-│   └── asgi.py
-├── apps/
-│   ├── tenants/
-│   │   ├── models.py
-│   │   ├── views.py
-│   │   ├── serializers.py
-│   │   └── urls.py
-│   ├── landlords/
-│   │   ├── models.py
-│   │   ├── views.py
-│   │   ├── serializers.py
-│   │   └── urls.py
-│   ├── payments/
-│   │   ├── models.py
-│   │   ├── views.py
-│   │   ├── serializers.py
-│   │   └── urls.py
-│   ├── maintenance/
-│   │   ├── models.py
-│   │   ├── views.py
-│   │   ├── serializers.py
-│   │   └── urls.py
-│   └── communication/
-│       ├── models.py
-│       ├── views.py
-│       ├── serializers.py
-│       └── urls.py
+│   ├── asgi.py
+│   ├── celery_app.py
+│   └── tasks.py
+├── accounts/
+│   ├── models.py
+│   ├── views.py
+│   ├── serializers.py
+│   ├── urls.py
+│   ├── admin.py
+│   ├── apps.py
+│   ├── permissions.py
+│   └── tests.py
+├── communication/
+│   ├── models.py
+│   ├── views.py
+│   ├── serializers.py
+│   ├── urls.py
+│   ├── admin.py
+│   ├── apps.py
+│   ├── messaging.py
+│   └── tests.py
+├── payments/
+│   ├── models.py
+│   ├── views.py
+│   ├── serializers.py
+│   ├── urls.py
+│   ├── admin.py
+│   ├── apps.py
+│   ├── generate_token.py
+│   └── tests.py
+├── static/
+│   ├── admin/
+│   └── rest_framework/
 ├── requirements.txt
-├── Dockerfile
-├── docker-compose.yml
-└── README.md
+└── logs/
 ```
-### Project Plan
-For a detailed project plan, refer to [makau_rentals_plan.md](makao_rentals_plan.md).
 
-### Project Timeline
+### Frontend Structure
+```
+Makao-Center-V4/
+├── public/
+├── src/
+│   ├── components/
+│   │   ├── Admin/
+│   │   ├── Tenant/
+│   │   ├── LoginForm.jsx
+│   │   ├── TenantSignUpForm.jsx
+│   │   ├── Toast.jsx
+│   │   └── Errors.jsx
+│   ├── context/
+│   ├── services/
+│   └── assets/
+├── package.json
+├── vite.config.js
+└── index.html
+```
 
-The project timeline is as follows:
+## API Endpoints
 
-| Week | Task |
-| --- | --- |
-| 1   | Set up project infrastructure (Docker, Nginx, PostgreSQL, Redis) |
-| 2   | Set up frontend (React, Tailwind CSS, React Query) |
-| 3   | Set up backend (Django, Django Rest Framework, React Hook Form) |
-| 4   | Implement authentication and authorization |
-| 5   | Implement CRUD operations for landlords and tenants |
-| 6   | Implement CRUD operations for properties, units and payments |
-| 7   | Implement communication features (email, SMS) |
-| 8   | Implement maintenance features (background tasks, notifications) |
-| 9   | Test and debug the application |
-| 10  | Deploy the application to production |
-| 11  | Test and debug the application in production |
-| 12  | Hand over the application to the client |
+### Authentication (`/api/accounts/`)
 
-### URL Endpoints
+- **POST /api/accounts/signup/**: Register a new user
+- **POST /api/accounts/token/**: Obtain JWT token pair
+- **POST /api/accounts/token/refresh/**: Refresh JWT token
+- **GET /api/accounts/me/**: Get current user details
+- **GET /api/accounts/users/**: List all users (admin)
+- **GET /api/accounts/users/<int:user_id>/**: Get user by ID
+- **PUT /api/accounts/users/<int:user_id>/update/**: Update user
+- **POST /api/accounts/password-reset/**: Request password reset
+- **POST /api/accounts/password-reset-confirm/**: Confirm password reset
 
-#### Authentication
+### Properties (`/api/accounts/`)
 
-- **POST /api/v1/auth/token/obtain/**: Obtain a JWT token for authentication
-- **POST /api/v1/auth/token/refresh/**: Refresh a JWT token
-- **POST /api/v1/auth/password/reset/**: Reset a user's password
+- **GET /api/accounts/properties/**: List landlord's properties
+- **POST /api/accounts/properties/create/**: Create new property
+- **GET /api/accounts/properties/<int:property_id>/update/**: Get property for update
+- **PUT /api/accounts/properties/<int:property_id>/update/**: Update property
+- **GET /api/accounts/properties/<int:property_id>/units/**: Get property units
 
-#### Landlords
+### Units (`/api/accounts/`)
 
-- **GET /api/v1/landlords/**: Get a list of all landlords
-- **GET /api/v1/landlords/<int:landlord_id>/**: Get a landlord by ID
-- **POST /api/v1/landlords/**: Create a new landlord
-- **PUT /api/v1/landlords/<int:landlord_id>/**: Update a landlord
-- **DELETE /api/v1/landlords/<int:landlord_id>/**: Delete a landlord
+- **POST /api/accounts/units/create/**: Create new unit
+- **PUT /api/accounts/units/<int:unit_id>/update/**: Update unit
+- **PUT /api/accounts/units/tenant/update/**: Update tenant's unit
+- **PUT /api/accounts/units/<int:unit_id>/assign/<int:tenant_id>/**: Assign tenant to unit
+- **GET /api/accounts/unit-types/**: List unit types
+- **POST /api/accounts/unit-types/**: Create unit type
+- **GET /api/accounts/unit-types/<int:pk>/**: Get unit type details
+- **PUT /api/accounts/unit-types/<int:pk>/**: Update unit type
+- **DELETE /api/accounts/unit-types/<int:pk>/**: Delete unit type
 
-#### Tenants
+### Payments (`/api/payments/`)
 
-- **GET /api/v1/tenants/**: Get a list of all tenants
-- **GET /api/v1/tenants/<int:tenant_id>/**: Get a tenant by ID
-- **POST /api/v1/tenants/**: Create a new tenant
-- **PUT /api/v1/tenants/<int:tenant_id>/**: Update a tenant
-- **DELETE /api/v1/tenants/<int:tenant_id>/**: Delete a tenant
+#### Rent Payments
+- **GET /api/payments/rent-payments/**: List rent payments
+- **POST /api/payments/rent-payments/**: Create rent payment
+- **GET /api/payments/rent-payments/<int:pk>/**: Get rent payment details
+- **PUT /api/payments/rent-payments/<int:pk>/**: Update rent payment
+- **DELETE /api/payments/rent-payments/<int:pk>/**: Delete rent payment
 
-#### Properties
-
-- **GET /api/v1/properties/**: Get a list of all properties
-- **GET /api/v1/properties/<int:property_id>/**: Get a property by ID
-- **POST /api/v1/properties/**: Create a new property
-- **PUT /api/v1/properties/<int:property_id>/**: Update a property
-- **DELETE /api/v1/properties/<int:property_id>/**: Delete a property
-
-#### Units
-
-- **GET /api/v1/units/**: Get a list of all units
-- **GET /api/v1/units/<int:unit_id>/**: Get a unit by ID
-- **POST /api/v1/units/**: Create a new unit
-- **PUT /api/v1/units/<int:unit_id>/**: Update a unit
-- **DELETE /api/v1/units/<int:unit_id>/**: Delete a unit
-
-#### Payments
-/*******  7969e49b-aba0-4acb-be82-d43bc92b85ad  *******/
-- **GET /api/v1/payments/<int:payment_id>/**: Get a payment by ID
-- **POST /api/v1/payments/**: Create a new payment
-- **PUT /api/v1/payments/<int:payment_id>/**: Update a payment
-- **DELETE /api/v1/payments/<int:payment_id>/**: Delete a payment
-/*************  ✨ Windsurf Command ⭐  *************/
 #### Subscription Payments
+- **GET /api/payments/subscription-payments/**: List subscription payments
+- **POST /api/payments/subscription-payments/**: Create subscription payment
+- **GET /api/payments/subscription-payments/<int:pk>/**: Get subscription payment details
+- **PUT /api/payments/subscription-payments/<int:pk>/**: Update subscription payment
+- **DELETE /api/payments/subscription-payments/<int:pk>/**: Delete subscription payment
 
-- **GET /api/v1/subscription_payments/**: Get a list of all subscription payments
-- **GET /api/v1/subscription_payments/<int:subscription_payment_id>/**: Get a subscription payment by ID
-- **POST /api/v1/subscription_payments/**: Create a new subscription payment
-- **PUT /api/v1/subscription_payments/<int:subscription_payment_id>/**: Update a subscription payment
-- **DELETE /api/v1/subscription_payments/<int:subscription_payment_id>/**: Delete a subscription payment
+#### M-Pesa Integration
+- **POST /api/payments/stk-push/<int:unit_id>/**: Initiate rent STK push
+- **POST /api/payments/stk-push-subscription/**: Initiate subscription STK push
+- **POST /api/payments/initiate-deposit/**: Initiate deposit payment
+- **GET /api/payments/deposit-status/<int:payment_id>/**: Check deposit status
+- **GET /api/payments/rent-payments/summary/**: Get rent summary
+- **GET /api/payments/unit-types/**: List payment unit types
 
-#### Communication
-- **POST /api/v1/communication/email/**: Send an email to a user. This endpoint takes in a JSON payload containing the email address of the recipient and the email content. The email content should be a JSON object with the keys "subject" and "body".
-- **POST /api/v1/communication/sms/**: Send an SMS to a user. This endpoint takes in a JSON payload containing the phone number of the recipient and the SMS content. The SMS content should be a JSON object with the key "message".
+#### Callbacks (M-Pesa)
+- **POST /api/payments/callback/rent/**: Rent payment callback
+- **POST /api/payments/callback/subscription/**: Subscription payment callback
+- **POST /api/payments/callback/deposit/**: Deposit payment callback
+- **POST /api/payments/callback/b2c/**: B2C payment callback
 
-For more documentation on the endpoints read [docs.md]
+#### Reports & Cleanup
+- **GET /api/payments/landlord-csv/<int:property_id>/**: Download landlord CSV report
+- **GET /api/payments/tenant-csv/<int:unit_id>/**: Download tenant CSV report
+- **POST /api/payments/cleanup-pending-payments/**: Clean up pending payments
+- **GET /api/payments/test-mpesa/**: Test M-Pesa integration
+
+### Communication (`/api/communication/`)
+
+#### Reports
+- **POST /api/communication/reports/create/**: Create maintenance report
+- **GET /api/communication/reports/open/**: List open reports
+- **GET /api/communication/reports/urgent/**: List urgent reports
+- **GET /api/communication/reports/in-progress/**: List in-progress reports
+- **GET /api/communication/reports/resolved/**: List resolved reports
+- **PUT /api/communication/reports/<int:pk>/update-status/**: Update report status
+
+#### Email
+- **POST /api/communication/reports/send-email/**: Send email to tenants
+
+## Documentation
+
+- [Environment Variables Setup](docs/environment_variables.md)
+- [Migration Plan](docs/migration_plan.md)
+- [M-Pesa Callback URLs](docs/mpesa_callback_urls.md)
+
+## Deployment
+
+The application is configured for deployment on Render with:
+- PostgreSQL database
+- Redis for caching and Celery
+- Static file serving with WhiteNoise
+- Automatic superuser creation on first run
+
+For detailed deployment instructions, refer to the environment variables documentation.
+
+## Development
+
+### Running Tests
+```bash
+# Backend tests
+cd "Makau Rentals/app"
+python manage.py test
+
+# Frontend tests (if configured)
+cd "Makao-Center-V4"
+npm test
+```
+
+### Code Quality
+- Follow Django best practices
+- Use Black for Python code formatting
+- ESLint for JavaScript/React code
+- Pre-commit hooks recommended
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Run tests
+5. Submit a pull request
+
+## License
+
+This project is proprietary software. All rights reserved.
