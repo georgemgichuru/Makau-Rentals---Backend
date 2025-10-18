@@ -40,32 +40,30 @@ function Invoke-GetAuth {
     }
 }
 
-# Function to poll deposit payment status
-function Invoke-PollDepositPaymentStatus {
+# Function to simulate deposit callback and check status
+function Invoke-SimulateDepositCallback {
     param (
         [string]$paymentId,
-        [string]$token,
-        [int]$maxAttempts = 12,
-        [int]$delaySeconds = 10
+        [string]$token
     )
 
-    for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
-        Write-Host "Polling deposit payment status (attempt $attempt of $maxAttempts)..."
-        Start-Sleep -Seconds $delaySeconds
+    Write-Host "Simulating deposit callback for payment ID: $paymentId..."
+    $simulateBody = @{
+        payment_id = $paymentId
+    } | ConvertTo-Json
 
-        try {
-            $statusResponse = Invoke-GetAuth -url "$baseUrl/api/payments/deposit-status/$paymentId/" -token $token
-            Write-Host "Deposit payment status: $($statusResponse.status)"
+    try {
+        $simulateResponse = Invoke-PostJson -url "$baseUrl/api/payments/simulate-deposit-callback/" -headers @{ Authorization = "Bearer $token" } -body $simulateBody
+        Write-Host "Deposit callback simulated successfully."
 
-            if ($statusResponse.status -ne "Pending") {
-                return $statusResponse
-            }
-        } catch {
-            Write-Host "Error polling deposit payment status: $($_.Exception.Message)"
-        }
+        # Now check the final status
+        $statusResponse = Invoke-GetAuth -url "$baseUrl/api/payments/deposit-status/$paymentId/" -token $token
+        Write-Host "Final deposit payment status: $($statusResponse.status)"
+        return $statusResponse
+    } catch {
+        Write-Host "Error simulating deposit callback: $($_.Exception.Message)"
+        return @{ status = "error"; message = $_.Exception.Message }
     }
-
-    return @{ status = "timeout"; message = "Deposit payment status polling timed out" }
 }
 
 # Test data
@@ -216,9 +214,9 @@ try {
         Write-Host "Payment ID: $paymentId"
         Write-Host "Please complete the M-Pesa payment on your phone..."
 
-        # Poll for payment status
-        Write-Host "11.1. Polling for deposit payment status..."
-        $statusResult = Invoke-PollDepositPaymentStatus -paymentId $paymentId -token $tenantToken
+        # Simulate deposit callback
+        Write-Host "11.1. Simulating deposit callback..."
+        $statusResult = Invoke-SimulateDepositCallback -paymentId $paymentId -token $tenantToken
 
         Write-Host "Final deposit payment status: $($statusResult.status)"
         if ($statusResult.status -eq "Success") {
@@ -368,7 +366,7 @@ Write-Host "All API endpoints tested with real M-Pesa integration"
 Write-Host "Key endpoints tested:"
 Write-Host "- Authentication (signup, login, token refresh)"
 Write-Host "- Property and Unit management"
-Write-Host "- Deposit payment flow with status polling"
+Write-Host "- Deposit payment flow with callback simulation"
 Write-Host "- Rent payment initiation"
 Write-Host "- Subscription payment initiation"
 Write-Host "- Report creation"

@@ -125,15 +125,16 @@ AUTH_USER_MODEL = 'accounts.CustomUser'
 
 # Commented out for testing - PostgreSQL configuration
 DATABASES = {
-     'default': {
-         'ENGINE': 'django.db.backends.postgresql',
-         'NAME': config('POSTGRES_DB'),
-         'USER': config('POSTGRES_USER'),
-         'PASSWORD': config('POSTGRES_PASSWORD'),
-         'HOST': config('DB_HOST'),
-         'PORT': '5432',
-    }
- }
+      'default': {
+          'ENGINE': 'django.db.backends.postgresql',
+          'NAME': config('POSTGRES_DB'),
+          'USER': config('POSTGRES_USER'),
+          'PASSWORD': config('POSTGRES_PASSWORD'),
+          'HOST': config('DB_HOST'),
+          'PORT': '5432',
+     }
+  }
+
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
@@ -222,13 +223,13 @@ LOGGING = {
 
 # Email Configuration
 EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
-# EMAIL_HOST = 'smtp.gmail.com'
-# EMAIL_PORT = 587
-# EMAIL_USE_TLS = True
+EMAIL_HOST = 'smtp.gmail.com'
+EMAIL_PORT = 587
+EMAIL_USE_TLS = True
 # TODO: Use environment variables or Django decouple to manage sensitive info
 # TODO: Creaete a dedicated email for the application
-# EMAIL_HOST_USER = config('EMAIL_HOST_USER')
-# EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD')
+EMAIL_HOST_USER = config('EMAIL_HOST_USER')
+EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD')
 
 # Mpesa Configuration
 # TODO: Update these settings with your actual Mpesa credentials
