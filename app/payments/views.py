@@ -29,6 +29,7 @@ from accounts.permissions import IsLandlord, HasActiveSubscription
 # ------------------------------
 # STK PUSH INITIATION (Tenant Rent Payment) - UPDATED
 # ------------------------------
+@csrf_exempt
 def stk_push(request, unit_id):
     """
     Initiates an M-Pesa STK Push for a tenant's rent payment.
@@ -274,7 +275,8 @@ def stk_push_subscription(request):
             user=user,
             amount=amount,
             mpesa_receipt_number="",
-            subscription_type=plan
+            subscription_type=plan,
+            status="Pending"
         )
         
         # Mark payment as pending in Redis (5-minute expiry)
@@ -598,12 +600,17 @@ def mpesa_subscription_callback(request):
                                 'user': user,
                                 'amount': amount,
                                 'subscription_type': subscription_type,
+                                'status': 'Success',
                             }
                         )
 
                         if created:
                             logger.info(f"✅ Created new subscription payment: {subscription_payment.id}")
                         else:
+                            # Update status if it was pending
+                            if subscription_payment.status == 'Pending':
+                                subscription_payment.status = 'Success'
+                                subscription_payment.save()
                             logger.warning(f"⚠️ Subscription payment with receipt {receipt} already exists, skipping duplicate")
 
                         # Update or create subscription

@@ -115,7 +115,7 @@ function Invoke-PollRentPaymentStatus {
         Start-Sleep -Seconds $delaySeconds
 
         try {
-            $statusResponse = Invoke-GetAuth -url "$baseUrl/api/payments/rent-status/$paymentId/" -token $token
+            $statusResponse = Invoke-GetAuth -url "$baseUrl/api/payments/rent-payments/$paymentId/" -token $token
             Write-Host "Rent payment status: $($statusResponse.status)"
 
             if ($statusResponse.status -ne "Pending") {
@@ -143,7 +143,7 @@ function Invoke-PollSubscriptionPaymentStatus {
         Start-Sleep -Seconds $delaySeconds
 
         try {
-            $statusResponse = Invoke-GetAuth -url "$baseUrl/api/payments/subscription-status/$paymentId/" -token $token
+            $statusResponse = Invoke-GetAuth -url "$baseUrl/api/payments/subscription-payments/$paymentId/" -token $token
             Write-Host "Subscription payment status: $($statusResponse.status)"
 
             if ($statusResponse.status -ne "Pending") {
@@ -162,12 +162,12 @@ $timestamp = Get-Date -Format 'yyyyMMddHHmmss'
 $landlordEmail = "test_landlord_$timestamp@example.com"
 $landlordPassword = "testpass123"
 $landlordFullName = "Test Landlord"
-$landlordPhone = Read-Host "Enter landlord's real phone number (e.g., 254722714334)"
+$landlordPhone = "254722714334"
 
 $tenantEmail = "test_tenant_$timestamp@example.com"
 $tenantPassword = "testpass123"
 $tenantFullName = "Test Tenant"
-$tenantPhone = Read-Host "Enter tenant's real phone number (e.g., 254722714334)"
+$tenantPhone = "254722714334"
 
 # 1. Signup Landlord (no properties)
 Write-Host "1. Signing up landlord..."
@@ -343,48 +343,8 @@ try {
     Write-Host "Deposit initiation failed in $($duration.TotalSeconds) seconds: $($_.Exception.Message)"
 }
 
-# 8.3. Test failed payment scenario
-Write-Host "8.3. Testing failed payment scenario..."
-try {
-    $failedDepositBody = @{
-        unit_id = $unitId
-    } | ConvertTo-Json
-    
-    $failedDepositResponse = Invoke-PostJson -url "$baseUrl/api/payments/initiate-deposit/" -headers $tenantHeaders -body $failedDepositBody
-    
-    if ($failedDepositResponse.payment_id) {
-        $failedPaymentId = $failedDepositResponse.payment_id
-        Write-Host "Created payment for failure test: $failedPaymentId"
-        
-        # Simulate failed callback
-        Write-Host "Simulating failed deposit callback..."
-        $failedCallbackBody = @"
-{
-    "Body": {
-        "stkCallback": {
-            "MerchantRequestID": "test-failed-request",
-            "CheckoutRequestID": "ws_CO_test_failed",
-            "ResultCode": 1032,
-            "ResultDesc": "Request Cancelled by user."
-        }
-    }
-}
-"@
-        $failedCallbackResponse = Invoke-PostJson -url "$baseUrl/api/payments/callback/deposit/" -body $failedCallbackBody
-        Write-Host "Failed callback response: $($failedCallbackResponse | ConvertTo-Json)"
-        
-        # Check status of failed payment
-        Start-Sleep -Seconds 2
-        $failedStatus = Invoke-GetAuth -url "$baseUrl/api/payments/deposit-status/$failedPaymentId/" -token $tenantToken
-        Write-Host "Failed payment status: $($failedStatus.status)"
-        
-        if ($failedStatus.status -eq "failed") {
-            Write-Host "SUCCESS: Failed payment properly handled - tenant not assigned"
-        }
-    }
-} catch {
-    Write-Host "Failed payment test error: $($_.Exception.Message)"
-}
+# 8.3. Test failed payment scenario (removed simulation - now relies on real M-Pesa responses)
+Write-Host "8.3. Failed payment testing removed to ensure only real Daraja callbacks are used"
 
 # 9. Verify tenant assignment by checking unit status
 Write-Host "9. Verifying unit assignment status..."

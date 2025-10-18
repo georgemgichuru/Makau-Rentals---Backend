@@ -50,6 +50,11 @@ class SubscriptionPayment(models.Model):
     )
     transaction_date = models.DateTimeField(auto_now_add=True)
     subscription_type = models.CharField(max_length=20, choices=Subscription.PLAN_CHOICES)
+    status = models.CharField(
+        max_length=20,
+        choices=[("Pending", "Pending"), ("Success", "Success"), ("Failed", "Failed")],
+        default="Pending"
+    )
 
     class Meta:
         # Remove or modify the unique constraint to allow empty strings
