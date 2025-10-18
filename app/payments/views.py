@@ -534,16 +534,16 @@ class InitiateDepositPaymentView(APIView):
         # Prepare STK push request
         timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
         password = settings.MPESA_SHORTCODE + settings.MPESA_PASSKEY + timestamp
-
+#TODO: change hardcoded values THIS IS JUST FOR TESTING !!!!
         payload = {
-            "BusinessShortCode": settings.MPESA_SHORTCODE,
-            "Password": password,
+            "BusinessShortCode": 174379,#settings.MPESA_SHORTCODE,
+            "Password": 'Safaricom123!!',#password,
             "Timestamp": timestamp,
             "TransactionType": "CustomerPayBillOnline",
             "Amount": int(amount),
-            "PartyA": phone_number,
-            "PartyB": settings.MPESA_SHORTCODE,
-            "PhoneNumber": phone_number,
+            "PartyA": 600986,#phone_number,
+            "PartyB": 600000,#settings.MPESA_SHORTCODE,
+            "PhoneNumber": 254708374149,#phone_number,
             "CallBackURL": settings.MPESA_DEPOSIT_CALLBACK_URL,
             "AccountReference": f"Deposit-{unit.unit_code}",
             "TransactionDesc": f"Deposit payment for {unit.unit_number}"
