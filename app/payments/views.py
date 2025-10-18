@@ -12,7 +12,6 @@ from django.utils import timezone
 from django.db.models import Sum, Q
 from django.http import HttpResponse
 import json
-import logging
 import requests
 from decimal import Decimal
 from datetime import datetime, timedelta
@@ -23,8 +22,6 @@ from accounts.models import CustomUser, Unit, UnitType, Property, Subscription
 from .models import Payment, SubscriptionPayment
 from .generate_token import generate_access_token
 from .serializers import PaymentSerializer, SubscriptionPaymentSerializer
-
-logger = logging.getLogger(__name__)
 
 
 # ------------------------------
@@ -124,7 +121,6 @@ def stk_push(request, unit_id):
             }, status=status.HTTP_400_BAD_REQUEST)
 
     except Exception as e:
-        logger.error(f"STK push error: {str(e)}")
         return Response({"error": "Internal server error"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
@@ -223,7 +219,6 @@ def stk_push_subscription(request):
             }, status=status.HTTP_400_BAD_REQUEST)
 
     except Exception as e:
-        logger.error(f"Subscription STK push error: {str(e)}")
         return Response({"error": "Internal server error"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
@@ -238,7 +233,6 @@ def mpesa_rent_callback(request):
     """
     try:
         callback_data = json.loads(request.body)
-        logger.info(f"Rent callback received: {callback_data}")
 
         stk_callback = callback_data.get("Body", {}).get("stkCallback", {})
 
@@ -271,12 +265,10 @@ def mpesa_rent_callback(request):
                 unit.save()
 
                 cache.delete(f"stk_{checkout_request_id}")
-                logger.info(f"Rent payment successful: {payment.id}")
 
         return JsonResponse({"ResultCode": 0, "ResultDesc": "Accepted"})
 
     except Exception as e:
-        logger.error(f"Rent callback error: {str(e)}")
         return JsonResponse({"ResultCode": 1, "ResultDesc": "Error"})
 
 
@@ -287,7 +279,6 @@ def mpesa_subscription_callback(request):
     """
     try:
         callback_data = json.loads(request.body)
-        logger.info(f"Subscription callback received: {callback_data}")
 
         stk_callback = callback_data.get("Body", {}).get("stkCallback", {})
 
@@ -322,12 +313,10 @@ def mpesa_subscription_callback(request):
                 subscription.save()
 
                 cache.delete(f"stk_sub_{checkout_request_id}")
-                logger.info(f"Subscription payment successful: {subscription_payment.id}")
 
         return JsonResponse({"ResultCode": 0, "ResultDesc": "Accepted"})
 
     except Exception as e:
-        logger.error(f"Subscription callback error: {str(e)}")
         return JsonResponse({"ResultCode": 1, "ResultDesc": "Error"})
 
 
@@ -340,8 +329,36 @@ def mpesa_b2c_callback(request):
         callback_data = json.loads(request.body)
         logger.info(f"B2C callback received: {callback_data}")
 
-        # Handle B2C callback logic here
-        # This would typically update payment status for B2C transactions
+        result = callback_data.get("Result", {})
+
+        if result.get("ResultCode") == 0:
+            # Successful B2C payment
+            result_parameters = result.get("ResultParameters", {}).get("ResultParameter", [])
+
+            transaction_receipt = None
+            transaction_amount = None
+            conversation_id = result.get("ConversationID")
+
+            # Extract relevant parameters
+            for param in result_parameters:
+                if param["Key"] == "TransactionReceipt":
+                    transaction_receipt = param["Value"]
+                elif param["Key"] == "TransactionAmount":
+                    transaction_amount = param["Value"]
+
+            # Get cached B2C payment data if exists
+            cached_data = cache.get(f"b2c_{conversation_id}")
+            if cached_data:
+                # Update payment status or perform business logic here
+                # For example, mark disbursement as successful
+                logger.info(f"B2C payment successful: Receipt {transaction_receipt}, Amount {transaction_amount}")
+                cache.delete(f"b2c_{conversation_id}")
+            else:
+                logger.info(f"B2C payment successful (no cached data): Receipt {transaction_receipt}, Amount {transaction_amount}")
+
+        else:
+            # Failed B2C payment
+            logger.error(f"B2C payment failed: {result.get('ResultDesc')}")
 
         return JsonResponse({"ResultCode": 0, "ResultDesc": "Accepted"})
 
@@ -609,29 +626,6 @@ class InitiateDepositPaymentView(APIView):
             }, status=status.HTTP_400_BAD_REQUEST)
 
 
-class TriggerDepositCallbackView(APIView):
-    """
-    Manually trigger deposit callback for testing
-    """
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request):
-        payment_id = request.data.get('payment_id')
-        payment = get_object_or_404(Payment, id=payment_id)
-
-        # Simulate successful callback
-        payment.status = "Success"
-        payment.mpesa_receipt = f"SIM-{payment_id}"
-        payment.save()
-
-        # Mark unit as occupied
-        unit = payment.unit
-        unit.is_available = False
-        unit.tenant = payment.tenant
-        unit.save()
-
-        return Response({"message": "Deposit callback triggered successfully"})
-
 
 class DepositPaymentStatusView(APIView):
     """
@@ -672,43 +666,6 @@ class CleanupPendingPaymentsView(APIView):
         ).delete()
 
         return Response({"message": f"Cleaned up {deleted_count[0]} pending payments"})
-
-
-class SimulateDepositCallbackView(APIView):
-    """
-    Simulate deposit callback for testing
-    """
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request):
-        payment_id = request.data.get('payment_id')
-        payment = get_object_or_404(Payment, id=payment_id)
-
-        # Simulate successful callback
-        callback_data = {
-            "Body": {
-                "stkCallback": {
-                    "ResultCode": 0,
-                    "ResultDesc": "The service request is processed successfully.",
-                    "CallbackMetadata": {
-                        "Item": [
-                            {"Name": "Amount", "Value": float(payment.amount)},
-                            {"Name": "MpesaReceiptNumber", "Value": f"SIM-{payment_id}"},
-                            {"Name": "PhoneNumber", "Value": "254712345678"}
-                        ]
-                    }
-                }
-            }
-        }
-
-        # Process the callback
-        from django.test import RequestFactory
-        factory = RequestFactory()
-        callback_request = factory.post('/payments/callback/deposit/', data=json.dumps(callback_data), content_type='application/json')
-
-        # Call the callback function
-        response = mpesa_deposit_callback(callback_request)
-        return Response({"message": "Deposit callback simulated", "response": response.content.decode()})
 
 
 # ------------------------------

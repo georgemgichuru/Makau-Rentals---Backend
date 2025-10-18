@@ -5,7 +5,7 @@ from rest_framework import status
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 from datetime import timedelta
-from ..models import Subscription, Property
+from .models import Subscription, Property
 
 CustomUser = get_user_model()
 

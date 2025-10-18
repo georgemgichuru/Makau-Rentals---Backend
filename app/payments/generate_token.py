@@ -2,7 +2,8 @@ import requests
 from django.conf import settings
 from requests.auth import HTTPBasicAuth
 import logging
-
+import datetime
+import base64
 logger = logging.getLogger(__name__)
 
 def generate_access_token():
