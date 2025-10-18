@@ -46,6 +46,7 @@ class SubscriptionPayment(models.Model):
     mpesa_receipt_number = models.CharField(
         max_length=50,
         blank=True,  # Allow empty strings
+        null=True,
         default=""
     )
     transaction_date = models.DateTimeField(auto_now_add=True)
