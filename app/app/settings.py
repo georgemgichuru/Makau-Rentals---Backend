@@ -191,10 +191,10 @@ SIMPLE_JWT = {
     'BLACKLIST_AFTER_ROTATION': True,
 }
 
-# Cache Configuration - Using LocMem for simplicity, no external Redis needed
+# Cache Configuration - Use DummyCache for Render deployment
 CACHES = {
     "default": {
-        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "BACKEND": "django.core.cache.backends.dummy.DummyCache",
     }
 }
 

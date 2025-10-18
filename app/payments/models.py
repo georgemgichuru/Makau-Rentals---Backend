@@ -58,12 +58,12 @@ class SubscriptionPayment(models.Model):
     )
 
     class Meta:
-        # Remove or modify the unique constraint to allow empty strings
+        # Simple unique constraint for non-empty receipt numbers
         constraints = [
             models.UniqueConstraint(
                 fields=['mpesa_receipt_number'],
                 name='unique_mpesa_receipt',
-                condition=~models.Q(mpesa_receipt_number='')  # Only enforce uniqueness for non-empty values
+                condition=~models.Q(mpesa_receipt_number='')
             )
         ]
 

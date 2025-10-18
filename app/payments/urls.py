@@ -77,4 +77,9 @@ urlpatterns = [
     # ------------------------------
     path("cleanup-pending-payments/", CleanupPendingPaymentsView.as_view(), name="cleanup-pending-payments"),
     path("simulate-deposit-callback/", SimulateDepositCallbackView.as_view(), name="simulate-deposit-callback"),
+
+    # ------------------------------
+    # TEST ENDPOINTS
+    # ------------------------------
+    path("test-mpesa/", TestMpesaView.as_view(), name="test-mpesa"),
 ]

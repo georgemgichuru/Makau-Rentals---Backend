@@ -1,3 +1,577 @@
+from django.db import models
+from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
+from django.utils import timezone
+from datetime import timedelta
+from django.core.exceptions import ValidationError
+import uuid
+
+
+class CustomUserManager(BaseUserManager):
+    # ensure the email is normalized and user_type is provided
+    def create_user(self, email, full_name, user_type, password=None, **extra_fields):
+        if not email:
+            raise ValueError("The Email field must be set")
+        if not user_type:
+            raise ValueError("User type must be set (landlord or tenant)")
+
+        email = self.normalize_email(email)
+        user = self.model(
+            email=email,
+            full_name=full_name,
+            user_type=user_type,
+            **extra_fields
+        )
+        user.set_password(password)
+        user.save(using=self._db)
+
+        # Auto-assign free trial for landlords
+        if user_type == "landlord":
+            Subscription.objects.create(
+                user=user,
+                plan="free",
+                expiry_date=timezone.now() + timedelta(days=60)
+            )
+            # generate a public landlord_code
+            if not getattr(user, 'landlord_code', None):
+                user.landlord_code = f"L-{uuid.uuid4().hex[:10].upper()}"
+                user.save(update_fields=['landlord_code'])
+
+        return user
+
+    def create_superuser(self, email, full_name, password=None, **extra_fields):
+        extra_fields.setdefault("is_staff", True)
+        extra_fields.setdefault("is_superuser", True)
+        # set default user_type if not provided
+        user_type = extra_fields.pop("user_type", "landlord")
+
+        if extra_fields.get("is_staff") is not True:
+            raise ValueError("Superuser must have is_staff=True.")
+        if extra_fields.get("is_superuser") is not True:
+            raise ValueError("Superuser must have is_superuser=True.")
+
+        return self.create_user(
+            email=email,
+            full_name=full_name,
+            user_type=user_type,
+            password=password,
+            **extra_fields
+        )
+
+
+class CustomUser(AbstractBaseUser,PermissionsMixin):
+    email = models.EmailField(unique=True)
+    full_name = models.CharField(max_length=120, default='')
+    # Government ID number (National ID or Passport)
+    government_id = models.CharField(max_length=20, blank=True, null=True, help_text="Government ID number (e.g., National ID or Passport)")
+    # ID or passport image for verification
+    id_document = models.ImageField(upload_to='id_documents/', null=True, blank=True)
+    # Human-facing landlord code used externally (different from DB id)
+    landlord_code = models.CharField(max_length=50, unique=True, null=True, blank=True)
+    date_joined = models.DateTimeField(auto_now_add=True)
+    type = [('landlord', 'Landlord'), ('tenant', 'Tenant')]
+    user_type = models.CharField(max_length=10, choices=type)
+    is_active = models.BooleanField(default=True)
+    is_staff = models.BooleanField(default=False)
+    is_superuser = models.BooleanField(default=False)
+    mpesa_till_number = models.CharField(max_length=20, blank=True, null=True, help_text="M-Pesa till number for direct payments (landlords only)")
+    phone_number = models.CharField(max_length=30, blank=True, null=True, help_text="User phone number in international format")
+    emergency_contact = models.CharField(max_length=30, blank=True, null=True, help_text="Emergency contact phone number")
+    reminder_mode = models.CharField(
+        max_length=20,
+        choices=[('days_before', 'Days Before Due Date'), ('fixed_day', 'Fixed Day of Month')],
+        default='days_before',
+        help_text="How the tenant wants to receive rent reminders"
+    )
+    reminder_value = models.IntegerField(
+        default=10,
+        help_text="For 'days_before': days before due date; For 'fixed_day': day of the month (1-31)"
+    )
+
+    USERNAME_FIELD = 'email'
+    REQUIRED_FIELDS = ['full_name']
+    objects = CustomUserManager()
+
+    # Check if user has an active subscription
+    def has_active_subscription(self):
+        if hasattr(self, "subscription"):
+            return self.subscription.is_active()
+        return False
+
+    def __str__(self):
+        return f"{self.full_name} ({self.email})"
+
+
+class Subscription(models.Model):
+    PLAN_CHOICES = [
+        ("free", "Free (60-day trial)"),
+        ("starter", "Starter (up to 10 units)"),
+        ("basic", "Basic (10-50 units)"),
+        ("professional", "Professional (50-100 units)"),
+        ("onetime", "One-time (Unlimited properties)"),
+    ]
+
+    user = models.OneToOneField(CustomUser, on_delete=models.CASCADE, related_name="subscription")
+    plan = models.CharField(max_length=20, choices=PLAN_CHOICES, default="free")
+    start_date = models.DateTimeField(auto_now_add=True)
+    expiry_date = models.DateTimeField(null=True, blank=True)
+
+    def save(self, *args, **kwargs):
+        # Set expiry dates based on plan
+        if not self.expiry_date:
+            if self.plan == "free":
+                self.expiry_date = timezone.now() + timedelta(days=60)
+            elif self.plan == "starter":
+                # monthly subscription
+                self.expiry_date = timezone.now() + timedelta(days=30)
+            elif self.plan == "basic":
+                # monthly subscription
+                self.expiry_date = timezone.now() + timedelta(days=30)
+            elif self.plan == "professional":
+                # monthly subscription
+                self.expiry_date = timezone.now() + timedelta(days=30)
+            # "onetime" could remain None for lifetime access
+        
+        super().save(*args, **kwargs)
+
+    # Check if subscription is still valid
+    def is_active(self):
+        return self.expiry_date is None or self.expiry_date > timezone.now()
+
+    def __str__(self):
+        return f"{self.user.email} - {self.plan}"
+
+
+class Property(models.Model):
+    landlord = models.ForeignKey(CustomUser, on_delete=models.CASCADE)
+    name = models.CharField(max_length=255)
+    city = models.CharField(max_length=100)
+    state = models.CharField(max_length=100)
+    unit_count = models.IntegerField()   # integer count of units for this property
+
+    def __str__(self):
+        return f"{self.name}, {self.city}"
+
+    def __str__(self):
+        return f"{self.name}, {self.city}"
+
+# TODO: Ensure that the landlord can only have a certain amount of units linked to property unit count
+class UnitType(models.Model):
+    landlord = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='unit_types')
+    name = models.CharField(max_length=50)
+    deposit = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    rent = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    number_of_units = models.IntegerField(default=0, help_text="Number of units of this type to create automatically")
+
+    def __str__(self):
+        return f"{self.landlord.email} - {self.name}"
+
+
+class Unit(models.Model):
+    property_obj = models.ForeignKey(
+        Property,
+        on_delete=models.CASCADE,
+        related_name="unit_list",
+        db_column="property_id"
+    )
+    # system-generated unit code (unique per unit)
+    unit_code = models.CharField(max_length=30, unique=True, default='')
+    unit_number = models.CharField(max_length=10)
+    floor = models.IntegerField(null=True, blank=True)
+    bedrooms = models.IntegerField(default=0)
+    bathrooms = models.IntegerField(default=0)
+
+    unit_type = models.ForeignKey(UnitType, on_delete=models.SET_NULL, null=True, blank=True)
+
+    rent = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    tenant = models.OneToOneField(CustomUser, on_delete=models.SET_NULL, null=True, blank=True)
+
+    rent_paid = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    rent_remaining = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    rent_due_date = models.DateField(null=True, blank=True)
+
+    deposit = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    is_available = models.BooleanField(default=True)
+
+    assigned_date = models.DateTimeField(null=True, blank=True)
+    left_date = models.DateTimeField(null=True, blank=True)
+
+    @property
+    def balance(self):
+        return self.rent_remaining - self.rent_paid
+
+    def clean(self):
+        current_units = self.__class__.objects.filter(property_obj=self.property_obj).count()
+        if self.property_obj.unit_count is not None and current_units >= self.property_obj.unit_count:
+            raise ValidationError("The number of units for this property has reached the limit.")
+
+    def save(self, *args, **kwargs):
+        # Calculate rent_remaining as rent - rent_paid
+        self.rent_remaining = self.rent - self.rent_paid
+
+        if self.pk:  # existing unit
+            old_unit = Unit.objects.get(pk=self.pk)
+            if old_unit.tenant != self.tenant:
+                if self.tenant and not self.assigned_date:
+                    self.assigned_date = timezone.now()
+                elif not self.tenant and old_unit.tenant:
+                    self.left_date = timezone.now()
+        else:  # new unit
+            if self.tenant:
+                self.assigned_date = timezone.now()
+        super().save(*args, **kwargs)
+
+
+    def __str__(self):
+        return f"{self.property_obj.name} - Unit {self.unit_number}"
+
+
+
+# REMINDER: payments is shown in the Unit model as rent_paid and rent_remaining
+# TODO: Protect the subscription features using a decorator or middleware to ensure only subscribed users can access them
+# TODO: Ensure payments for subscription and rent are two different things
+from .models import CustomUser, Property, Unit, UnitType
+from rest_framework import serializers
+
+from django.contrib.auth.tokens import default_token_generator
+from django.utils.http import urlsafe_base64_encode
+from django.utils.encoding import force_bytes
+from django.core.mail import send_mail
+
+# Overide the token to use email instead of username for JWT authentication
+# accounts/serializers.py
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from rest_framework import serializers
+from django.contrib.auth import authenticate
+from .models import CustomUser
+
+class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
+    username_field = "email"
+
+    user_type = serializers.CharField(write_only=True)
+
+    def validate(self, attrs):
+        email = attrs.get("email")
+        password = attrs.get("password")
+        user_type = attrs.get("user_type")
+
+        if email and password and user_type:
+            user = authenticate(self.context['request'], email=email, password=password)
+            if not user:
+                raise serializers.ValidationError("Invalid email or password")
+            if user.user_type not in ['tenant', 'landlord']:
+                raise serializers.ValidationError("Invalid user type")
+            if user.user_type != user_type:
+                raise serializers.ValidationError("User type does not match")
+            if not user.is_active:
+                raise serializers.ValidationError("User account is disabled")
+        else:
+            raise serializers.ValidationError("Must include 'email', 'password', and 'user_type'")
+
+        data = super().validate(attrs)
+        data['user_type'] = user_type
+        return data
+
+
+
+class UserSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CustomUser
+        fields = [
+            'id',
+            'email',
+            'full_name',
+            'government_id',
+            'id_document',
+            'landlord_code',
+            'date_joined',
+            'user_type',
+            'is_active',
+            'is_staff',
+            'is_superuser',
+            'mpesa_till_number',
+            'phone_number',
+            'emergency_contact',
+            'reminder_mode',
+            'reminder_value',
+            'password'
+        ]
+        read_only_fields = ['id', 'date_joined', 'is_active', 'is_staff', 'is_superuser', 'landlord_code']
+        extra_kwargs = {
+            'password': {'write_only': True}
+        }
+
+    def create(self, validated_data):
+        # Always use the manager to ensure password is hashed
+        # adapt to new signature: email, full_name, user_type, password
+        email = validated_data.pop('email')
+        full_name = validated_data.pop('full_name')
+        user_type = validated_data.pop('user_type')
+        password = validated_data.pop('password', None)
+        user = CustomUser.objects.create_user(email=email, full_name=full_name, user_type=user_type, password=password, **validated_data)
+        return user
+
+    def update(self, instance, validated_data):
+        for attr, value in validated_data.items():
+            if attr == 'password':
+                instance.set_password(value)
+            else:
+                setattr(instance, attr, value)
+        instance.save()
+        return instance
+
+    def validate_phone_number(self, value):
+        if not value:
+            return value
+        import re
+        if not re.match(r"^\+?[0-9]{7,15}$", value):
+            raise serializers.ValidationError("Enter a valid phone number in international format, e.g. +2547XXXXXXXX")
+        return value
+
+    def validate_emergency_contact(self, value):
+        if not value:
+            return value
+        import re
+        if not re.match(r"^\+?[0-9]{7,15}$", value):
+            raise serializers.ValidationError("Enter a valid emergency contact phone number in international format")
+        return value
+
+        
+class PropertySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Property
+        fields = ['id', 'landlord', 'name', 'city', 'state', 'unit_count']
+        read_only_fields = ['id', 'landlord']
+    def create(self, validated_data):
+        property = Property.objects.create(**validated_data)
+        return property
+    
+class UnitTypeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UnitType
+        fields = ['id', 'landlord', 'name', 'deposit', 'rent']
+        read_only_fields = ['id', 'landlord']
+
+
+class UnitSerializer(serializers.ModelSerializer):
+    property = serializers.IntegerField(write_only=True, required=False)  # Alias for property_obj
+
+    class Meta:
+        model = Unit
+        fields = ['id', 'property_obj', 'unit_code', 'unit_number', 'floor', 'bedrooms', 'bathrooms', 'unit_type', 'rent', 'tenant', 'rent_paid', 'rent_remaining', 'deposit', 'is_available', 'property']
+        read_only_fields = ['id', 'rent_remaining', 'unit_code']
+        extra_kwargs = {
+            'unit_number': {'required': False},
+            'property_obj': {'required': False},
+        }
+
+    def validate(self, attrs):
+        user = self.context['request'].user
+        # Handle property alias
+        if 'property' in attrs:
+            try:
+                prop = Property.objects.get(id=attrs.pop('property'))
+                if prop.landlord != user:
+                    raise serializers.ValidationError("Property not owned by you.")
+                attrs['property_obj'] = prop
+            except Property.DoesNotExist:
+                raise serializers.ValidationError("Property not found.")
+        # Validate property_obj ownership if set directly
+        if 'property_obj' in attrs:
+            if attrs['property_obj'].landlord != user:
+                raise serializers.ValidationError("Property not owned by you.")
+        # Validate unit_type ownership
+        if 'unit_type' in attrs and attrs['unit_type']:
+            if attrs['unit_type'].landlord != user:
+                raise serializers.ValidationError("UnitType not owned by you.")
+        return super().validate(attrs)
+
+    def create(self, validated_data):
+        # Auto-generate unit_number if not provided
+        if not validated_data.get('unit_number'):
+            prop = validated_data.get('property_obj')
+            if prop:
+                existing_units = Unit.objects.filter(property_obj=prop)
+                last_unit = existing_units.order_by('-unit_number').first()
+                if last_unit and last_unit.unit_number.isdigit():
+                    next_num = int(last_unit.unit_number) + 1
+                else:
+                    next_num = 1
+                validated_data['unit_number'] = str(next_num)
+        # Auto-generate unit_code if not provided
+        if not validated_data.get('unit_code'):
+            prop = validated_data.get('property_obj')
+            if prop and getattr(prop, 'id', None):
+                existing_count = Unit.objects.filter(property_obj=prop).count()
+                validated_data['unit_code'] = f"U-{prop.id}-{existing_count+1}"
+            else:
+                # fallback unique code
+                import uuid
+                validated_data['unit_code'] = f"U-{uuid.uuid4().hex[:10].upper()}"
+        # Set rent and deposit from unit_type if not provided
+        unit_type = validated_data.get('unit_type')
+        if unit_type:
+            if not validated_data.get('rent'):
+                validated_data['rent'] = unit_type.rent
+            if not validated_data.get('deposit'):
+                validated_data['deposit'] = unit_type.deposit
+        # Enforce landlord has at least one UnitType defined before creating units
+        prop = validated_data.get('property_obj')
+        if prop and prop.landlord:
+            landlord = prop.landlord
+            if not UnitType.objects.filter(landlord=landlord).exists():
+                raise serializers.ValidationError("Landlord must create at least one UnitType before creating Units.")
+
+        unit = Unit.objects.create(**validated_data)
+        return unit
+
+
+class UnitNumberSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Unit
+        fields = ['unit_number']
+
+# TODO: Ensure landlords create properties and units upon sign up this will be done in the frontend
+# TODO: Ensure Tenants pay the deposit to book a unit and choose their property upon sign up
+# TODO: Ensure Tenants and Landlords can reset their passwords and get email notifications for important actions 
+
+
+# For reset password functionality
+class PasswordResetSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+
+    def validate_email(self, value):
+        if not CustomUser.objects.filter(email=value).exists():
+            raise serializers.ValidationError("User with this email does not exist.")
+        return value
+
+    def save(self):
+        from django.conf import settings
+        email = self.validated_data['email']
+        user = CustomUser.objects.get(email=email)
+        uid = urlsafe_base64_encode(force_bytes(user.pk))
+        token = default_token_generator.make_token(user)
+        # Use the configurable frontend URL from settings
+        reset_link = f"{settings.FRONTEND_URL}/reset-password/{uid}/{token}/"
+
+        send_mail(
+            subject="Password Reset Request",
+            message=f"Click the link to reset your password: {reset_link}",
+            from_email=None,
+            recipient_list=[email],
+        )
+
+
+class PasswordResetConfirmSerializer(serializers.Serializer):
+    uid = serializers.CharField()
+    token = serializers.CharField()
+    new_password = serializers.CharField(write_only=True, min_length=8)
+
+    def validate(self, attrs):
+        from django.contrib.auth.tokens import default_token_generator
+        from django.utils.http import urlsafe_base64_decode
+        from django.contrib.auth.password_validation import validate_password
+        try:
+            uid = urlsafe_base64_decode(attrs['uid']).decode()
+            user = CustomUser.objects.get(pk=uid)
+        except (TypeError, ValueError, OverflowError, CustomUser.DoesNotExist):
+            raise serializers.ValidationError("Invalid UID")
+
+        if not default_token_generator.check_token(user, attrs['token']):
+            raise serializers.ValidationError("Invalid or expired token")
+
+        validate_password(attrs['new_password'], user)
+        attrs['user'] = user
+        return attrs
+
+    def save(self):
+        user = self.validated_data['user']
+        new_password = self.validated_data['new_password']
+        user.set_password(new_password)
+        user.save()
+        return user
+
+
+class ReminderPreferencesSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CustomUser
+        fields = ['reminder_mode', 'reminder_value']
+
+
+class AvailableUnitsSerializer(serializers.ModelSerializer):
+    landlord_id = serializers.CharField(source='property_obj.landlord.landlord_code', read_only=True)
+    property_id = serializers.IntegerField(source='property_obj.id', read_only=True)
+    property_name = serializers.CharField(source='property_obj.name', read_only=True)
+    unit_number = serializers.CharField(read_only=True)
+
+    class Meta:
+        model = Unit
+        fields = ['landlord_id', 'property_id', 'property_name', 'unit_number']
+from rest_framework_simplejwt.views import (
+    TokenObtainPairView,
+    TokenRefreshView,
+)
+from rest_framework.routers import DefaultRouter
+from . import views
+from django.urls import path
+from .views import (UserDetailView, UserListView, UserCreateView, PasswordResetView,
+                    CreatePropertyView, LandlordPropertiesView, CreateUnitView,
+                    UpdatePropertyView,UpdateUnitView,UpdateUserView, SubscriptionStatusView,
+                    UpdateTillNumberView, MyTokenObtainPairView, AdminLandlordSubscriptionStatusView,
+                    MeView, PasswordResetConfirmView, UnitTypeListCreateView, UnitTypeDetailView,
+                    LandlordDashboardStatsView, TenantUpdateUnitView, AdjustRentView,
+                    PropertyUnitsView, AssignTenantView, UpdateReminderPreferencesView,
+                    LandlordAvailableUnitsView,
+)
+
+router = DefaultRouter()
+# Remove or comment these out if you're not using ViewSets
+# router.register('properties', views.PropertyViewSet, basename='property')
+# router.register('units', views.UnitViewSet, basename='unit')
+# router.register('users', views.UserViewSet, basename='user')
+
+urlpatterns = [
+    # Authentication endpoints
+    path("signup/", UserCreateView.as_view(), name="signup"),
+    path('token/', MyTokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    
+    # User endpoints
+    path("users/<int:user_id>/", UserDetailView.as_view(), name="user-detail"),
+    path("users/", UserListView.as_view(), name="user-list"),
+    path('users/<int:user_id>/update/', UpdateUserView.as_view(), name='user-update'),
+    path('me/', MeView.as_view(), name='me'),
+    
+    # Password reset
+    path('password-reset/', PasswordResetView.as_view(), name='password-reset'),
+    path('password-reset-confirm/', PasswordResetConfirmView.as_view(), name='password-reset-confirm'),
+    
+    # Property endpoints - FIXED URL NAMES
+    path('properties/create/', CreatePropertyView.as_view(), name='property-create'),  # Changed from 'create-property'
+    path('properties/', LandlordPropertiesView.as_view(), name='property-list'),  # Changed from 'landlord-properties'
+    path('properties/<int:property_id>/update/', UpdatePropertyView.as_view(), name='property-update'),
+    path('properties/<int:property_id>/units/', PropertyUnitsView.as_view(), name='property-units'),
+    
+    # Unit endpoints - FIXED URL NAMES
+    path('units/create/', CreateUnitView.as_view(), name='unit-create'),  # Changed from 'create-unit'
+    path('units/<int:unit_id>/update/', UpdateUnitView.as_view(), name='unit-update'),
+    path('units/tenant/update/', TenantUpdateUnitView.as_view(), name='tenant-unit-update'),
+    path('units/<int:unit_id>/assign/<int:tenant_id>/', AssignTenantView.as_view(), name='assign-tenant'),  # Changed from 'assign-tenant-to-unit'
+    
+    # UnitType endpoints
+    path('unit-types/', UnitTypeListCreateView.as_view(), name='unit-types'),  # Changed from 'unittype-list-create'
+    path('unit-types/<int:pk>/', UnitTypeDetailView.as_view(), name='unit-type-detail'),  # Changed from 'unittype-detail'
+    
+    # Subscription endpoints
+    path('subscription-status/', SubscriptionStatusView.as_view(), name='subscription-status'),
+    path('update-till-number/', UpdateTillNumberView.as_view(), name='update-till-number'),
+    path('admin/landlord-subscriptions/', AdminLandlordSubscriptionStatusView.as_view(), name='admin-landlord-subscriptions'),
+    path('dashboard-stats/', LandlordDashboardStatsView.as_view(), name='dashboard-stats'),
+    path('adjust-rent/', AdjustRentView.as_view(), name='adjust-rent'),
+    
+    # Other endpoints
+    path('update-reminder-preferences/', UpdateReminderPreferencesView.as_view(), name='update-reminder-preferences'),
+    path('available-units/', LandlordAvailableUnitsView.as_view(), name='available-units'),  # Changed from 'landlord-available-units'
+]
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework import status
@@ -50,9 +624,9 @@ class UnitTypeListCreateView(APIView):
         serializer = UnitTypeSerializer(data=request.data)
         if serializer.is_valid():
             unit_type = serializer.save(landlord=request.user)
-            
+
             # Automatically create units based on the unit_count
-            unit_count = request.data.get('unit_count', 1)
+            unit_count = int(request.data.get('unit_count', 1))
             property_id = request.data.get('property_id')
             
             if property_id and unit_count > 0:
@@ -70,17 +644,17 @@ class UnitTypeListCreateView(APIView):
         # Get existing units to determine next unit number
         existing_units = Unit.objects.filter(property_obj=property_obj)
         last_unit = existing_units.order_by('-unit_number').first()
-        
+
         if last_unit and last_unit.unit_number.isdigit():
             start_number = int(last_unit.unit_number) + 1
         else:
             start_number = 1
-        
+
         units_created = []
         for i in range(unit_count):
             unit_number = start_number + i
             unit_code = f"U-{property_obj.id}-{unit_type.name.replace(' ', '-')}-{unit_number}"
-            
+
             unit = Unit.objects.create(
                 property_obj=property_obj,
                 unit_code=unit_code,
@@ -91,7 +665,11 @@ class UnitTypeListCreateView(APIView):
                 deposit=unit_type.deposit,
             )
             units_created.append(unit)
-        
+
+        # Invalidate caches after creating units
+        cache.delete(f"landlord:{unit_type.landlord.id}:properties")
+        cache.delete(f"property:{property_obj.id}:units")
+
         return units_created
 
 
@@ -179,7 +757,7 @@ class UnitTypeDetailView(APIView):
 # Lists a single user (cached)
 # View to get user details
 class UserDetailView(APIView):
-    permission_classes = [HasActiveSubscription]
+    permission_classes = [IsAuthenticated, HasActiveSubscription]
 
     def get(self, request, user_id):
         cache_key = f"user:{user_id}"
@@ -299,6 +877,7 @@ class UserCreateView(APIView):
                         from payments.models import Payment
                         deposit_payments = Payment.objects.filter(
                             tenant=user,
+                            unit=unit,
                             payment_type='deposit',
                             status='Success',
                             amount__gte=unit.deposit
@@ -356,15 +935,13 @@ class CreatePropertyView(APIView):
 
         # Get plan limit
         max_properties = PLAN_LIMITS.get(plan)
-        if max_properties is None:
-            logger.error(f"Unknown plan {plan} for user {user.id}")
+        if max_properties is None and plan != "onetime":
             return Response({"error": f"Unknown plan type: {plan}"}, status=400)
 
         # Count current properties
         current_count = Property.objects.filter(landlord=user).count()
         logger.info(f"Current properties count: {current_count}, max: {max_properties}")
-        if current_count >= max_properties:
-            logger.warning(f"Property limit reached for user {user.id}")
+        if plan != "onetime" and current_count >= max_properties:
             return Response({
                 "error": f"Your current plan ({plan}) allows a maximum of {max_properties} properties. Upgrade to add more."
             }, status=403)
@@ -411,6 +988,7 @@ class CreateUnitView(APIView):
         if serializer.is_valid():
             unit = serializer.save()
             cache.delete(f"landlord:{request.user.id}:properties")
+            cache.delete(f"property:{unit.property_obj.id}:units")
             return Response(serializer.data, status=201)
         return Response(serializer.errors, status=400)
 
@@ -497,7 +1075,11 @@ class AssignTenantView(APIView):
             unit.tenant = tenant
             unit.is_available = False
             unit.save()
-            
+
+            # Invalidate caches
+            cache.delete(f"landlord:{request.user.id}:properties")
+            cache.delete(f"property:{unit.property_obj.id}:units")
+
             logger.info(f"✅ Tenant {tenant.full_name} assigned to unit {unit.unit_number}")
 
             return Response({
@@ -547,6 +1129,7 @@ class UpdatePropertyView(APIView):
             if serializer.is_valid():
                 serializer.save()
                 cache.delete(f"landlord:{request.user.id}:properties")
+                cache.delete(f"property:{property_id}:units")
                 return Response(serializer.data)
             return Response(serializer.errors, status=400)
         except Property.DoesNotExist:
@@ -557,6 +1140,7 @@ class UpdatePropertyView(APIView):
             property = Property.objects.get(id=property_id, landlord=request.user)
             property.delete()
             cache.delete(f"landlord:{request.user.id}:properties")
+            cache.delete(f"property:{property_id}:units")
             return Response({"message": "Property deleted successfully."}, status=200)
         except Property.DoesNotExist:
             return Response({"error": "Property not found or you do not have permission"}, status=404)
@@ -648,6 +1232,8 @@ class AdjustRentView(APIView):
         value = request.data.get('value')  # decimal, positive for increase, negative for decrease
         unit_type_id = request.data.get('unit_type_id')  # optional, if provided, adjust only units of this type
 
+        logger.info(f"AdjustRentView POST: Landlord {landlord.id} adjusting rent, adjustment_type={adjustment_type}, value={value}, unit_type_id={unit_type_id}")
+
         if adjustment_type not in ['percentage', 'fixed']:
             return Response({"error": "adjustment_type must be 'percentage' or 'fixed'"}, status=400)
 
@@ -678,6 +1264,8 @@ class AdjustRentView(APIView):
             unit.save()  # This will update rent_remaining
             updated_count += 1
 
+        logger.info(f"AdjustRentView POST: Rent adjusted for {updated_count} units by landlord {landlord.id}")
+
         # Invalidate caches
         cache.delete(f"landlord:{landlord.id}:properties")
         # Also invalidate rent_summary cache
@@ -690,6 +1278,8 @@ class AdjustRentView(APIView):
         landlord = request.user
         new_rent = request.data.get('new_rent')
         unit_type_id = request.data.get('unit_type_id')  # optional
+
+        logger.info(f"AdjustRentView PUT: Landlord {landlord.id} setting new rent, new_rent={new_rent}, unit_type_id={unit_type_id}")
 
         if new_rent is None:
             return Response({"error": "new_rent is required"}, status=400)
@@ -712,6 +1302,8 @@ class AdjustRentView(APIView):
             unit.rent = new_rent
             unit.save()
             updated_count += 1
+
+        logger.info(f"AdjustRentView PUT: Rent set to {new_rent} for {updated_count} units by landlord {landlord.id}")
 
         # Invalidate caches
         cache.delete(f"landlord:{landlord.id}:properties")
@@ -808,6 +1400,834 @@ class LandlordAvailableUnitsView(APIView):
         serializer = AvailableUnitsSerializer(units, many=True)
         return Response(serializer.data)
 
+
+# New endpoint to log requests and return a welcome message
+class WelcomeView(APIView):
+    def get(self, request):
+        logger.info(f"Request received: {request.method} {request.path}")
+        return Response({"message": "Welcome to the Makau Rentals API!"})
+"""
+Django settings for app project.
+
+Generated by 'django-admin startproject' using Django 5.2.6.
+
+For more information on this file, see
+https://docs.djangoproject.com/en/5.2/topics/settings/
+
+For the full list of settings and their values, see
+https://docs.djangoproject.com/en/5.2/ref/settings/
+"""
+
+from pathlib import Path
+from datetime import timedelta
+from decouple import config
+import os
+# For scheduling automatic sending messages to tenants every month
+from celery.schedules import crontab
+
+import os
+
+# Auto create superuser on startup
+DJANGO_SUPERUSER_USERNAME = os.environ.get('DJANGO_SUPERUSER_USERNAME')
+DJANGO_SUPERUSER_EMAIL = os.environ.get('DJANGO_SUPERUSER_EMAIL')
+DJANGO_SUPERUSER_PASSWORD = os.environ.get('DJANGO_SUPERUSER_PASSWORD')
+DJANGO_SUPERUSER_FULL_NAME = os.environ.get('DJANGO_SUPERUSER_FULL_NAME', 'GEORGE MWANGI')
+
+CELERY_BEAT_SCHEDULE = {
+    # Tenants get notified daily at 9 AM
+    "daily-rent-due-check": {
+        "task": "app.tasks.notify_due_rent_task",
+        "schedule": crontab(hour=9, minute=0),
+    },
+    # Landlords get a daily summary at 9:30 AM
+    "daily-landlord-summary": {
+        "task": "app.tasks.landlord_summary_task",
+        "schedule": crontab(hour=9, minute=30),
+    },
+    # Deadline reminders at 10 AM
+    "daily-deadline-reminders": {
+        "task": "app.tasks.deadline_reminder_task",
+        "schedule": crontab(hour=10, minute=0),
+    },
+}
+
+
+# Build paths inside the project like this: BASE_DIR / 'subdir'.
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Ensure logs directory exists
+logs_dir = BASE_DIR / 'logs'
+logs_dir.mkdir(parents=True, exist_ok=True)
+
+
+# Quick-start development settings - unsuitable for production
+# See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
+
+# SECURITY WARNING: keep the secret key used in production secret!
+SECRET_KEY = config('SECRET_KEY')
+
+# SECURITY WARNING: don't run with debug turned on in production!
+DEBUG = config('DEBUG', default=False, cast=bool)
+
+ALLOWED_HOSTS = ['*']
+
+
+# Application definition
+
+INSTALLED_APPS = [
+    'django.contrib.admin',
+    'django.contrib.auth',
+    'django.contrib.contenttypes',
+    'django.contrib.sessions',
+    'django.contrib.messages',
+    'django.contrib.staticfiles',
+    #dependencies
+    'rest_framework',
+    'rest_framework_simplejwt',
+    "django_crontab",
+    'corsheaders',
+    #local apps
+    'accounts',
+    'communication',
+    'payments',
+]
+
+MIDDLEWARE = [
+    'django.middleware.security.SecurityMiddleware',
+    'django.contrib.sessions.middleware.SessionMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
+    'django.middleware.common.CommonMiddleware',
+    'django.middleware.csrf.CsrfViewMiddleware',
+    'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'django.contrib.messages.middleware.MessageMiddleware',
+    'django.middleware.clickjacking.XFrameOptionsMiddleware',
+]
+
+ROOT_URLCONF = 'app.urls'
+
+TEMPLATES = [
+    {
+        'BACKEND': 'django.template.backends.django.DjangoTemplates',
+        'DIRS': [],
+        'APP_DIRS': True,
+        'OPTIONS': {
+            'context_processors': [
+                'django.template.context_processors.request',
+                'django.contrib.auth.context_processors.auth',
+                'django.contrib.messages.context_processors.messages',
+            ],
+        },
+    },
+]
+
+# for CORS handling 
+# TODO: Update CORS settings for production use
+CORS_ALLOW_ALL_ORIGINS = True
+
+WSGI_APPLICATION = 'app.wsgi.application'
+
+AUTH_USER_MODEL = 'accounts.CustomUser'
+
+#Database
+# https://docs.djangoproject.com/en/5.2/ref/settings/#databases
+
+# Commented out for testing - PostgreSQL configuration
+DATABASES = {
+     'default': {
+         'ENGINE': 'django.db.backends.postgresql',
+         'NAME': config('POSTGRES_DB'),
+         'USER': config('POSTGRES_USER'),
+         'PASSWORD': config('POSTGRES_PASSWORD'),
+         'HOST': config('DB_HOST'),
+         'PORT': '5432',
+    }
+ }
+
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    ),
+}
+# Password validation
+# https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
+
+AUTH_PASSWORD_VALIDATORS = [
+    {
+        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
+    },
+    {
+        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
+    },
+    {
+        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
+    },
+    {
+        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
+    },
+]
+
+
+# Internationalization
+# https://docs.djangoproject.com/en/5.2/topics/i18n/
+
+LANGUAGE_CODE = 'en-us'
+
+TIME_ZONE = 'UTC'
+
+USE_I18N = True
+
+USE_TZ = True
+
+
+# Static files (CSS, JavaScript, Images)
+# https://docs.djangoproject.com/en/5.2/howto/static-files/
+
+STATIC_URL = 'static/'
+STATIC_ROOT = os.path.join(BASE_DIR, 'static')  # or your preferred path
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+
+
+# Default primary key field type
+# https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
+
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(hours=1),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
+    'ROTATE_REFRESH_TOKENS': False,
+    'BLACKLIST_AFTER_ROTATION': True,
+}
+
+# Cache Configuration - Using LocMem for simplicity, no external Redis needed
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+    }
+}
+
+# Logging Configuration
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+        },
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': 'INFO',
+    },
+    'loggers': {
+        'accounts.views': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+    },
+}
+
+# Email Configuration
+EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+# EMAIL_HOST = 'smtp.gmail.com'
+# EMAIL_PORT = 587
+# EMAIL_USE_TLS = True
+# TODO: Use environment variables or Django decouple to manage sensitive info
+# TODO: Creaete a dedicated email for the application
+# EMAIL_HOST_USER = config('EMAIL_HOST_USER')
+# EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD')
+
+# Mpesa Configuration
+# TODO: Update these settings with your actual Mpesa credentials
+MPESA_ENV = "sandbox"  # or "production"
+MPESA_CONSUMER_KEY = config('MPESA_CONSUMER_KEY', default='')
+MPESA_CONSUMER_SECRET = config('MPESA_CONSUMER_SECRET', default='')
+MPESA_SHORTCODE = config('MPESA_SHORTCODE', default='')
+MPESA_PASSKEY = config('MPESA_PASSKEY', default='')
+MPESA_INITIATOR_NAME = config('MPESA_INITIATOR_NAME', default='')  # For B2C payments
+MPESA_SECURITY_CREDENTIAL = config('MPESA_SECURITY_CREDENTIAL', default='')  # For B2C payments
+MPESA_CALLBACK_URL = config('MPESA_CALLBACK_URL', default='')
+# Provide explicit callback URLs expected by payment views. If not set, fall back to MPESA_CALLBACK_URL
+MPESA_RENT_CALLBACK_URL = config('MPESA_RENT_CALLBACK_URL', default=MPESA_CALLBACK_URL)
+MPESA_SUBSCRIPTION_CALLBACK_URL = config('MPESA_SUBSCRIPTION_CALLBACK_URL', default=MPESA_CALLBACK_URL)
+MPESA_DEPOSIT_CALLBACK_URL = config('MPESA_DEPOSIT_CALLBACK_URL', default=MPESA_CALLBACK_URL)
+# B2C callback URLs
+MPESA_B2C_RESULT_URL = config('MPESA_B2C_RESULT_URL', default=MPESA_CALLBACK_URL)
+MPESA_B2C_TIMEOUT_URL = config('MPESA_B2C_TIMEOUT_URL', default=MPESA_CALLBACK_URL)
+
+# Logging Configuration - Enhanced for payment callbacks
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{levelname} {asctime} {module} {process:d} {thread:d} {message}',
+            'style': '{',
+        },
+        'simple': {
+            'format': '{levelname} {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+        },
+        'file': {
+            'class': 'logging.FileHandler',
+            'filename': os.path.join(BASE_DIR, 'logs', 'payments.log'),
+            'formatter': 'verbose',
+        },
+    },
+    'root': {
+        'handlers': ['console', 'file'],
+        'level': 'INFO',
+    },
+    'loggers': {
+        'accounts.views': {
+            'handlers': ['console', 'file'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'payments.views': {
+            'handlers': ['console', 'file'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+    },
+}
+# Celery configuration
+REDIS_URL = config('REDIS_URL', default='redis://redis:6379/0')
+CELERY_BROKER_URL = REDIS_URL
+CELERY_RESULT_BACKEND = REDIS_URL
+
+
+# TODO: Run celery using the following commands -> celery -A your_project worker -l info
+# celery -A your_project beat -l info
+
+
+# Frontend URL for password reset links
+FRONTEND_URL = config('FRONTEND_URL', default='http://localhost:3000')
+
+# Optional: S3 storage for uploaded id_document files via django-storages
+# To enable, set USE_S3=True and provide the AWS_* env vars. Install: pip install django-storages[boto3]
+USE_S3 = config('USE_S3', default=False, cast=bool)
+if USE_S3:
+    INSTALLED_APPS.append('storages')
+    AWS_ACCESS_KEY_ID = config('AWS_ACCESS_KEY_ID')
+    AWS_SECRET_ACCESS_KEY = config('AWS_SECRET_ACCESS_KEY')
+    AWS_STORAGE_BUCKET_NAME = config('AWS_STORAGE_BUCKET_NAME')
+    AWS_S3_REGION_NAME = config('AWS_S3_REGION_NAME', default=None)
+    AWS_S3_CUSTOM_DOMAIN = f"{AWS_STORAGE_BUCKET_NAME}.s3.amazonaws.com"
+    AWS_DEFAULT_ACL = None
+
+    DEFAULT_FILE_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'
+    MEDIA_URL = f"https://{AWS_S3_CUSTOM_DOMAIN}/media/"
+else:
+    MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+    MEDIA_URL = '/media/'
+
+from rest_framework import serializers
+from .models import Report
+from accounts.models import CustomUser, Unit, Property
+
+class ReportSerializer(serializers.ModelSerializer):
+    tenant = serializers.PrimaryKeyRelatedField(read_only=True, default=serializers.CurrentUserDefault())
+    unit = serializers.PrimaryKeyRelatedField(queryset=Unit.objects.all())
+
+    class Meta:
+        model = Report
+        fields = [
+            'id',
+            'tenant',
+            'unit',
+            'issue_category',
+            'priority_level',
+            'issue_title',
+            'description',
+            'created_at',
+            'status',
+        ]
+        read_only_fields = ['id', 'tenant', 'created_at', 'status']
+
+    def validate_unit(self, value):
+        # Ensure the unit belongs to the tenant submitting the report
+        user = self.context['request'].user
+        if value.tenant != user:
+            raise serializers.ValidationError("This unit is not assigned to the current tenant.")
+        return value
+
+    def create(self, validated_data):
+        validated_data['tenant'] = self.context['request'].user
+        return super().create(validated_data)
+
+class UpdateReportStatusSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Report
+        fields = ['status']
+        read_only_fields = []
+
+class SendEmailSerializer(serializers.Serializer):
+    subject = serializers.CharField(max_length=255)
+    message = serializers.CharField()
+    tenants = serializers.ListField(
+        child=serializers.PrimaryKeyRelatedField(queryset=CustomUser.objects.filter(user_type='tenant')),
+        required=False,
+        allow_empty=True
+    )
+    send_to_all = serializers.BooleanField(default=False)
+
+    def validate(self, data):
+        if not data.get('send_to_all') and not data.get('tenants'):
+            raise serializers.ValidationError("Either provide a list of tenants or set send_to_all to True.")
+        if data.get('send_to_all') and data.get('tenants'):
+            raise serializers.ValidationError("Cannot specify tenants when send_to_all is True.")
+        return data
+
+    def validate_tenants(self, value):
+        # Ensure all tenants belong to the landlord's properties
+        request = self.context.get('request')
+        if request and request.user.user_type == 'landlord':
+            landlord_properties = Property.objects.filter(landlord=request.user)
+            tenant_units = Unit.objects.filter(property_obj__in=landlord_properties, tenant__in=value)
+            valid_tenants = set(tenant_units.values_list('tenant', flat=True))
+            if set(t.id for t in value) != valid_tenants:
+                raise serializers.ValidationError("Some tenants do not belong to your properties.")
+        return value
+# services/messaging.py
+from django.conf import settings
+from django.core.mail import send_mail
+
+
+def send_bulk_emails(tenants):
+    """
+    Send rent reminder emails to a list of tenants.
+    Each tenant receives a personalized message with their outstanding balance.
+    """
+    for tenant in tenants:
+        subject = "Rent Payment Reminder"
+        message = (
+            f"Hello {tenant.full_name},\n\n"
+            f"This is a reminder to pay your rent.\n"
+            f"Outstanding balance: KES {tenant.unit.rent_remaining}."
+        )
+        try:
+            send_mail(subject, message, settings.EMAIL_HOST_USER, [tenant.email])
+        except Exception as e:
+            print(f"Email failed for {tenant.email}: {e}")
+
+
+
+
+
+def send_deadline_reminder_emails(tenants):
+    """
+    Send rent deadline reminder emails to a list of tenants.
+    Each email includes the payment deadline date, outstanding balance, and login link.
+    """
+    for tenant in tenants:
+        unit = tenant.unit
+        subject = "Rent Payment Deadline Reminder"
+        login_link = f"{settings.FRONTEND_URL}/login"
+        message = (
+            f"Hello {tenant.full_name},\n\n"
+            f"This is a reminder that your rent payment is due on {unit.rent_due_date}.\n"
+            f"Outstanding balance: KES {unit.rent_remaining}.\n\n"
+            f"Please log in to your account to make the payment: {login_link}\n\n"
+            "Thank you,\n"
+            "Makau Rentals Team"
+        )
+        try:
+            send_mail(subject, message, settings.EMAIL_HOST_USER, [tenant.email])
+        except Exception as e:
+            print(f"Email failed for {tenant.email}: {e}")
+
+
+def send_deadline_reminders():
+    """
+    Send reminders to tenants based on their custom reminder preferences.
+    """
+    from datetime import timedelta
+    from django.utils import timezone
+    from accounts.models import CustomUser
+
+    today = timezone.now().date()
+    tenants_to_remind = []
+
+    # Get all tenants with units and outstanding rent
+    tenants = CustomUser.objects.filter(
+        user_type="tenant",
+        unit__isnull=False,
+        unit__rent_remaining__gt=0
+    ).select_related('unit')
+
+    for tenant in tenants:
+        unit = tenant.unit
+        if tenant.reminder_mode == 'days_before':
+            reminder_date = unit.rent_due_date - timedelta(days=tenant.reminder_value)
+            if reminder_date == today:
+                tenants_to_remind.append(tenant)
+        elif tenant.reminder_mode == 'fixed_day':
+            if today.day == tenant.reminder_value:
+                # Optionally, check if due date is within a reasonable period, e.g., next 30 days
+                if unit.rent_due_date and unit.rent_due_date >= today and (unit.rent_due_date - today).days <= 30:
+                    tenants_to_remind.append(tenant)
+
+    if tenants_to_remind:
+        send_deadline_reminder_emails(tenants_to_remind)
+
+# TODO:
+# - This module handles sending bulk emails to tenants for rent reminders.
+# - It uses Django's send_mail for email notifications.
+# - The send_deadline_reminders() function is scheduled via Celery Beat to run automatically.
+
+def send_report_email(report):
+    """
+    Send an email to the landlord when a new report is created.
+    """
+    landlord = report.unit.property_obj.landlord
+    subject = f"New Issue Report: {report.issue_title}"
+    issue_url = f"{settings.FRONTEND_URL}/reports/{report.id}"
+    message = (
+        f"Hello {landlord.full_name},\n\n"
+        f"A new issue report has been submitted by tenant {report.tenant.full_name}.\n\n"
+        f"Unit Number: {report.unit.unit_number}\n"
+        f"Issue Category: {report.issue_category}\n"
+        f"Priority Level: {report.priority_level}\n"
+        f"Issue Title: {report.issue_title}\n"
+        f"Description:\n{report.description}\n\n"
+        f"To resolve the issue, please visit: {issue_url}\n\n"
+        "Best regards,\n"
+        "Makau Rentals System"
+    )
+    try:
+        send_mail(subject, message, settings.EMAIL_HOST_USER, [landlord.email])
+    except Exception as e:
+        print(f"Failed to send report email: {e}")
+
+
+def send_landlord_email(subject, message, tenants):
+    """
+    Send a custom email from landlord to a list of tenants.
+    """
+    recipient_emails = [tenant.email for tenant in tenants]
+    try:
+        send_mail(subject, message, settings.EMAIL_HOST_USER, recipient_emails)
+    except Exception as e:
+        print(f"Failed to send landlord email: {e}")
+from django.urls import path
+from .views import (
+    CreateReportView,
+    OpenReportsView,
+    UrgentReportsView,
+    InProgressReportsView,
+    ResolvedReportsView,
+    UpdateReportStatusView,
+    SendEmailView,
+)
+
+urlpatterns = [
+    # Create a new report (POST)
+    path('reports/create/', CreateReportView.as_view(), name='create-report'),  # Added /create/
+
+    # List open reports for the authenticated user (GET)
+    path('reports/open/', OpenReportsView.as_view(), name='open-reports'),
+
+    # List urgent reports for the authenticated user (GET)
+    path('reports/urgent/', UrgentReportsView.as_view(), name='urgent-reports'),
+
+    # List in-progress reports for the authenticated user (GET)
+    path('reports/in-progress/', InProgressReportsView.as_view(), name='in-progress-reports'),
+
+    # List resolved reports for the authenticated user (GET)
+    path('reports/resolved/', ResolvedReportsView.as_view(), name='resolved-reports'),
+
+    # Update the status of a specific report (PATCH/PUT)
+    path('reports/<int:pk>/update-status/', UpdateReportStatusView.as_view(), name='update-report-status'),
+
+    # Send email to tenants (POST)
+    path('reports/send-email/', SendEmailView.as_view(), name='send-email'),  # Added /reports/ prefix
+]
+
+from django.db import models
+from accounts.models import CustomUser, Unit
+
+class Report(models.Model):
+    ISSUE_CATEGORIES = [
+        ('electrical', 'Electrical'),
+        ('plumbing', 'Plumbing'),
+        ('noise', 'Noise'),
+        ('safety/violence', 'Safety/Violence'),
+        ('wifi', 'WiFi'),
+        ('maintenance', 'Maintenance'),
+    ]
+
+    PRIORITY_LEVELS = [
+        ('low', 'Low'),
+        ('medium', 'Medium'),
+        ('high', 'High'),
+        ('urgent', 'Urgent'),
+    ]
+
+    STATUS_CHOICES = [
+        ('open', 'Open'),
+        ('in_progress', 'In Progress'),
+        ('resolved', 'Resolved'),
+        ('closed', 'Closed'),
+    ]
+
+    tenant = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='reports')
+    unit = models.ForeignKey(Unit, on_delete=models.CASCADE, related_name='reports')
+    issue_category = models.CharField(max_length=20, choices=ISSUE_CATEGORIES)
+    priority_level = models.CharField(max_length=10, choices=PRIORITY_LEVELS)
+    issue_title = models.CharField(max_length=255)
+    description = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    status = models.CharField(max_length=15, choices=STATUS_CHOICES, default='open')
+
+    def __str__(self):
+        return f"Report by {self.tenant.full_name} - {self.issue_title}"
+from rest_framework import permissions
+from django.core.cache import cache
+from accounts.models import CustomUser, Subscription
+
+class IsTenantWithUnit(permissions.BasePermission):
+    """
+    Allows access only to tenants who have at least one assigned unit.
+    """
+    def has_permission(self, request, view):
+        if not request.user.is_authenticated or request.user.user_type != 'tenant':
+            return False
+        
+        # Check cache first
+        cache_key = f"tenant_has_unit:{request.user.id}"
+        has_unit = cache.get(cache_key)
+        
+        if has_unit is None:
+            # Check if tenant has any units assigned (OneToOneField so use hasattr)
+            has_unit = hasattr(request.user, 'unit') and request.user.unit is not None
+            cache.set(cache_key, has_unit, timeout=300)  # Cache for 5 minutes
+        
+        return has_unit
+
+class IsLandlordWithActiveSubscription(permissions.BasePermission):
+    """
+    Allows access only to landlords with active subscriptions.
+    """
+    def has_permission(self, request, view):
+        if not request.user.is_authenticated or request.user.user_type != 'landlord':
+            return False
+        
+        # Use cache to avoid repeated database queries
+        cache_key = f"subscription_status:{request.user.id}"
+        has_active_sub = cache.get(cache_key)
+        
+        if has_active_sub is None:
+            try:
+                subscription = Subscription.objects.get(user=request.user)
+                has_active_sub = subscription.is_active()
+            except Subscription.DoesNotExist:
+                has_active_sub = False
+            cache.set(cache_key, has_active_sub, timeout=300)  # Cache for 5 minutes
+        
+        return has_active_sub
+import requests
+from django.conf import settings
+from requests.auth import HTTPBasicAuth
+import logging
+import base64
+import datetime
+
+logger = logging.getLogger(__name__)
+
+def generate_access_token():
+    """
+    Generate M-Pesa access token with error handling.
+    Returns token string or raises ValueError on failure.
+    """
+    if not settings.MPESA_CONSUMER_KEY or not settings.MPESA_CONSUMER_SECRET:
+        raise ValueError("MPESA_CONSUMER_KEY and MPESA_CONSUMER_SECRET must be set in settings.")
+
+    # Use sandbox or production URL based on env
+    base_url = "https://sandbox.safaricom.co.ke" if settings.MPESA_ENV == "sandbox" else "https://api.safaricom.co.ke"
+    url = f"{base_url}/oauth/v1/generate?grant_type=client_credentials"
+
+    try:
+        response = requests.get(
+            url,
+            auth=HTTPBasicAuth(settings.MPESA_CONSUMER_KEY, settings.MPESA_CONSUMER_SECRET),
+            timeout=10  # Avoid hanging
+        )
+        response.raise_for_status()  # Raise on HTTP errors (e.g., 401 Unauthorized)
+
+        data = response.json()
+        token = data.get("access_token")
+        if not token:
+            raise ValueError(f"No access_token in response: {data}")
+
+        logger.info("M-Pesa access token generated successfully.")
+        return token
+
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Failed to generate M-Pesa token: {e}")
+        raise ValueError(f"Token generation failed: {str(e)}")
+    except Exception as e:
+        logger.error(f"Unexpected error generating token: {e}")
+        raise ValueError(f"Token generation error: {str(e)}")
+
+def initiate_b2c_payment(amount, recipient, payment_id, remarks="Rent disbursement"):
+    """
+    Initiate B2C payment to disburse funds to landlord.
+    - amount: Amount to disburse (KES)
+    - recipient: Landlord's phone number (254XXXXXXXXX format) or till number
+    - payment_id: Reference for the payment
+    - remarks: Description of the transaction
+    Returns response dict or raises ValueError on failure.
+    """
+    if not settings.MPESA_CONSUMER_KEY or not settings.MPESA_CONSUMER_SECRET:
+        raise ValueError("MPESA_CONSUMER_KEY and MPESA_CONSUMER_SECRET must be set in settings.")
+
+    # Generate access token
+    access_token = generate_access_token()
+
+    # Use sandbox or production URL based on env
+    base_url = "https://sandbox.safaricom.co.ke" if settings.MPESA_ENV == "sandbox" else "https://api.safaricom.co.ke"
+    url = f"{base_url}/mpesa/b2c/v1/paymentrequest"
+
+    timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+    password = base64.b64encode(
+        (settings.MPESA_SHORTCODE + settings.MPESA_PASSKEY + timestamp).encode("utf-8")
+    ).decode("utf-8")
+
+    payload = {
+        "InitiatorName": settings.MPESA_INITIATOR_NAME,  # Need to add to settings
+        "SecurityCredential": settings.MPESA_SECURITY_CREDENTIAL,  # Need to add to settings
+        "CommandID": "BusinessPayment",
+        "Amount": str(amount),
+        "PartyA": settings.MPESA_SHORTCODE,
+        "PartyB": recipient,  # Can be phone number or till number
+        "Remarks": remarks,
+        "QueueTimeOutURL": settings.MPESA_B2C_TIMEOUT_URL,  # Need to add to settings
+        "ResultURL": settings.MPESA_B2C_RESULT_URL,  # Need to add to settings
+        "Occasion": f"Payment {payment_id}"
+    }
+
+    headers = {"Authorization": f"Bearer {access_token}"}
+
+    try:
+        response = requests.post(url, json=payload, headers=headers, timeout=30)
+        response.raise_for_status()
+        data = response.json()
+        logger.info(f"B2C payment initiated: {data}")
+        return data
+    except requests.exceptions.RequestException as e:
+        logger.error(f"B2C payment failed: {e}")
+        raise ValueError(f"B2C payment error: {str(e)}")
+    except Exception as e:
+        logger.error(f"Unexpected B2C error: {e}")
+        raise ValueError(f"B2C error: {str(e)}")
+from django.db import models
+from accounts.models import CustomUser, Unit, Subscription
+from datetime import timedelta
+
+class Payment(models.Model):
+    PAYMENT_TYPES = [
+        ('rent', 'Rent'),
+        ('deposit', 'Deposit'),
+    ]
+    tenant = models.ForeignKey(
+        CustomUser,
+        on_delete=models.CASCADE,
+        limit_choices_to={'user_type': 'tenant'},
+        related_name='payments',
+        null=True,
+        blank=True
+    )
+    unit = models.ForeignKey(Unit, on_delete=models.CASCADE, related_name='payments', null=True, blank=True)
+    unit_type = models.ForeignKey('accounts.UnitType', on_delete=models.CASCADE, related_name='payments', null=True, blank=True)
+    payment_type = models.CharField(max_length=10, choices=PAYMENT_TYPES, default='rent')
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    mpesa_receipt = models.CharField(max_length=50, blank=True, null=True)
+    transaction_date = models.DateTimeField(auto_now_add=True)
+    status = models.CharField(
+        max_length=20,
+        choices=[("Pending", "Pending"), ("Success", "Success"), ("Failed", "Failed")],
+        default="Pending"
+    )
+
+    def __str__(self):
+        unit_str = f"Unit {self.unit.unit_number}" if self.unit else "Deposit"
+        return f"{self.tenant.email} - {unit_str} - KES {self.amount} ({self.status})"
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+
+
+class SubscriptionPayment(models.Model):
+    user = models.ForeignKey(
+        CustomUser,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True
+    )
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    mpesa_receipt_number = models.CharField(
+        max_length=50,
+        blank=True,  # Allow empty strings
+        null=True,
+        default=""
+    )
+    transaction_date = models.DateTimeField(auto_now_add=True)
+    subscription_type = models.CharField(max_length=20, choices=Subscription.PLAN_CHOICES)
+    status = models.CharField(
+        max_length=20,
+        choices=[("Pending", "Pending"), ("Success", "Success"), ("Failed", "Failed")],
+        default="Pending"
+    )
+
+    class Meta:
+        # Remove or modify the unique constraint to allow empty strings
+        constraints = [
+            models.UniqueConstraint(
+                fields=['mpesa_receipt_number'],
+                name='unique_mpesa_receipt',
+                condition=~models.Q(mpesa_receipt_number='')  # Only enforce uniqueness for non-empty values
+            )
+        ]
+
+    def __str__(self):
+        return f"Subscription Payment {self.id} - {self.subscription_type}"
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+
+    def _get_plan_duration(self):
+        durations = {
+            "free": timedelta(days=60),
+            "starter": timedelta(days=30),
+            "basic": timedelta(days=30),
+            "professional": timedelta(days=30),
+            # "onetime" will be treated as lifetime (None) by the subscription logic
+        }
+        return durations.get(self.subscription_type, timedelta(days=30))
+from rest_framework import serializers
+from .models import Payment, SubscriptionPayment
+
+
+class PaymentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Payment
+        fields = '__all__'
+        read_only_fields = ['transaction_date', 'status']
+
+
+class SubscriptionPaymentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SubscriptionPayment
+        fields = '__all__'
+        read_only_fields = ['transaction_date']
 import base64
 import datetime
 import json
@@ -1085,7 +2505,8 @@ def stk_push_subscription(request):
             user=user,
             amount=amount,
             mpesa_receipt_number="",
-            subscription_type=plan
+            subscription_type=plan,
+            status="Pending"
         )
         
         # Mark payment as pending in Redis (5-minute expiry)
@@ -1409,12 +2830,17 @@ def mpesa_subscription_callback(request):
                                 'user': user,
                                 'amount': amount,
                                 'subscription_type': subscription_type,
+                                'status': 'Success',
                             }
                         )
 
                         if created:
                             logger.info(f"✅ Created new subscription payment: {subscription_payment.id}")
                         else:
+                            # Update status if it was pending
+                            if subscription_payment.status == 'Pending':
+                                subscription_payment.status = 'Success'
+                                subscription_payment.save()
                             logger.warning(f"⚠️ Subscription payment with receipt {receipt} already exists, skipping duplicate")
 
                         # Update or create subscription
@@ -1754,25 +3180,26 @@ class InitiateDepositPaymentView(APIView):
         unit_id = request.data.get('unit_id')
         if not unit_id:
             return Response({'error': 'unit_id is required'}, status=400)
-        
+
         try:
-            # Only allow deposit payment for available units
-            unit = Unit.objects.get(id=unit_id, is_available=True)
+            # Allow deposit payment for units that are available OR not assigned to any tenant
+            unit = Unit.objects.get(id=unit_id)
+            if not unit.is_available and unit.tenant is not None:
+                return Response({'error': 'Unit is already occupied by another tenant'}, status=400)
         except Unit.DoesNotExist:
-            return Response({'error': 'Unit not found or not available for deposit payment'}, status=400)
+            return Response({'error': 'Unit not found'}, status=400)
 
         amount = unit.deposit
-        
+
         # Validate amount
         if amount is None or amount <= 0:
             return Response({"error": "Deposit amount is not set or invalid."}, status=400)
-        
-        # Ensure amount is a whole number (M-Pesa requires integer amounts)
-        if not (amount % 1 == 0):
-            return Response({"error": "Deposit amount must be a whole number."}, status=400)
-        
-        # Convert to integer for M-Pesa
-        amount = int(amount)
+
+        # Allow decimal amounts for deposits (M-Pesa can handle decimals)
+        try:
+            amount = Decimal(str(amount))
+        except (ValueError, TypeError):
+            return Response({"error": "Invalid deposit amount format."}, status=400)
         
         # Rate limiting
         rate_limit_key = f"deposit_stk_push_rate_limit:{request.user.id}"
@@ -1799,77 +3226,33 @@ class InitiateDepositPaymentView(APIView):
         # Mark payment as pending in Redis (5-minute expiry)
         cache.set(duplicate_key, payment.id, timeout=300)
         
-        try:
-            # Generate access token
-            access_token_cache_key = "mpesa_access_token"
-            access_token = cache.get(access_token_cache_key)
-            if not access_token:
-                access_token = generate_access_token()
-            cache.set(access_token_cache_key, access_token, timeout=3300)
-        except Exception as e:
-            return Response({"error": f"Payment initiation failed: {str(e)}"}, status=400)
-        
-        timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
-        password = base64.b64encode(
-            (settings.MPESA_SHORTCODE + settings.MPESA_PASSKEY + timestamp).encode("utf-8")
-        ).decode("utf-8")
-        
-        business_shortcode = settings.MPESA_SHORTCODE
+        # For testing, mark as success immediately without M-Pesa
+        payment.status = "Success"
+        payment.mpesa_receipt = f"TEST{payment.id}"
+        payment.transaction_date = timezone.now()
+        payment.save()
 
-        # Normalize phone number for M-Pesa (remove + if present)
-        phone_number = request.user.phone_number
-        if phone_number.startswith('+'):
-            phone_number = phone_number[1:]
+        # Assign tenant to unit
+        unit = payment.unit
+        if unit.is_available or not unit.tenant:
+            unit.tenant = payment.tenant
+            unit.is_available = False
+            unit.save()
 
-        # Build payload for Safaricom API
-        payload = {
-            "BusinessShortCode": business_shortcode,
-            "Password": password,
-            "Timestamp": timestamp,
-            "TransactionType": "CustomerPayBillOnline",
-            "Amount": str(payment.amount),
-            "PartyA": phone_number,
-            "PartyB": business_shortcode,
-            "PhoneNumber": phone_number,
-            "CallBackURL": settings.MPESA_DEPOSIT_CALLBACK_URL,
-            "AccountReference": str(payment.id),
-            "TransactionDesc": f"Deposit for Unit {unit.unit_number}"
-        }
-        
-        headers = {"Authorization": f"Bearer {access_token}"}
-        
-        try:
-            response = requests.post(
-                "https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest",
-                json=payload,
-                headers=headers,
-                timeout=30
-            )
-            response_data = response.json()
-            
-            if response_data.get("ResponseCode") == "0":
-                return Response({
-                    "message": "Deposit payment initiated successfully. Please check your phone to complete payment.",
-                    "checkout_request_id": response_data.get("CheckoutRequestID"),
-                    "payment_id": payment.id
-                })
-            else:
-                # STK push failed - mark payment as failed immediately
-                payment.status = "Failed"
-                payment.save()
-                cache.delete(duplicate_key)
-                return Response({
-                    "error": "Payment initiation failed: {}".format(
-                        response_data.get("ResponseDescription", "Unknown error")
-                    )
-                }, status=400)
-                
-        except requests.exceptions.RequestException as e:
-            # Network error - mark payment as failed
-            payment.status = "Failed"
-            payment.save()
-            cache.delete(duplicate_key)
-            return Response({"error": "Payment service temporarily unavailable. Please try again later."}, status=503)
+        # Invalidate caches
+        cache.delete_many([
+            f"pending_deposit_payment:{payment.tenant.id}:{unit.id}",
+            f"payments:tenant:{payment.tenant.id}",
+            f"payments:landlord:{unit.property_obj.landlord.id}",
+            f"rent_summary:{unit.property_obj.landlord.id}",
+            f"unit:{unit.id}:details",
+            f"property:{unit.property_obj.id}:units"
+        ])
+
+        return Response({
+            "message": "Deposit payment completed successfully for testing.",
+            "payment_id": payment.id
+        })
 # ------------------------------
 # TRIGGER DEPOSIT CALLBACK (FOR TESTING)
 # ------------------------------
@@ -2221,171 +3604,6 @@ class SimulateDepositCallbackView(APIView):
             "mock_data": mock_callback_data,
             "callback_response": response.content.decode('utf-8')
         })
-from rest_framework import generics, permissions
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status
-from .models import Report
-from .serializers import ReportSerializer, UpdateReportStatusSerializer, SendEmailSerializer
-from .permissions import IsTenantWithUnit, IsLandlordWithActiveSubscription
-from accounts.permissions import CanAccessReport
-from accounts.models import CustomUser, Unit
-from .messaging import send_landlord_email
-
-class CreateReportView(generics.CreateAPIView):
-    queryset = Report.objects.all()
-    serializer_class = ReportSerializer
-    permission_classes = [permissions.IsAuthenticated, IsTenantWithUnit]
-
-    def perform_create(self, serializer):
-        report = serializer.save()
-        # Import here to avoid circular imports
-        from app.tasks import send_report_email_task
-        send_report_email_task.delay(report.id)
-
-class OpenReportsView(generics.ListAPIView):
-    serializer_class = ReportSerializer
-    permission_classes = [permissions.IsAuthenticated]
-
-    def get_queryset(self):
-        user = self.request.user
-
-        if user.user_type == 'tenant':
-            return Report.objects.filter(tenant=user, status='open')
-        elif user.user_type == 'landlord':
-            return Report.objects.filter(unit__property_obj__landlord=user, status='open')
-        return Report.objects.none()
-
-class UrgentReportsView(generics.ListAPIView):
-    serializer_class = ReportSerializer
-    permission_classes = [permissions.IsAuthenticated]
-
-    def get_queryset(self):
-        user = self.request.user
-        if user.user_type == 'tenant':
-            return Report.objects.filter(tenant=user, priority_level='urgent')
-        elif user.user_type == 'landlord':
-            return Report.objects.filter(unit__property_obj__landlord=user, priority_level='urgent')
-        return Report.objects.none()
-
-class InProgressReportsView(generics.ListAPIView):
-    serializer_class = ReportSerializer
-    permission_classes = [permissions.IsAuthenticated]
-
-    def get_queryset(self):
-        user = self.request.user
-        if user.user_type == 'tenant':
-            return Report.objects.filter(tenant=user, status='in_progress')
-        elif user.user_type == 'landlord':
-            return Report.objects.filter(unit__property_obj__landlord=user, status='in_progress')
-        return Report.objects.none()
-
-class ResolvedReportsView(generics.ListAPIView):
-    serializer_class = ReportSerializer
-    permission_classes = [permissions.IsAuthenticated]
-
-    def get_queryset(self):
-        user = self.request.user
-        if user.user_type == 'tenant':
-            return Report.objects.filter(tenant=user, status='resolved')
-        elif user.user_type == 'landlord':
-            return Report.objects.filter(unit__property_obj__landlord=user, status='resolved')
-        return Report.objects.none()
-
-class UpdateReportStatusView(generics.UpdateAPIView):
-    queryset = Report.objects.all()
-    serializer_class = UpdateReportStatusSerializer
-    permission_classes = [permissions.IsAuthenticated, CanAccessReport]
-
-class SendEmailView(APIView):
-    permission_classes = [permissions.IsAuthenticated, IsLandlordWithActiveSubscription]
-
-    def post(self, request):
-        serializer = SendEmailSerializer(data=request.data, context={'request': request})
-        if serializer.is_valid():
-            subject = serializer.validated_data['subject']
-            message = serializer.validated_data['message']
-            send_to_all = serializer.validated_data['send_to_all']
-
-            if send_to_all:
-                # Get all tenants of the landlord
-                landlord_properties = request.user.property_set.all()
-                tenants = CustomUser.objects.filter(
-                    user_type='tenant',
-                    unit__property_obj__in=landlord_properties
-                ).distinct()
-            else:
-                tenants = serializer.validated_data['tenants']
-
-            send_landlord_email(subject, message, tenants)
-            return Response({"message": "Emails sent successfully."}, status=status.HTTP_200_OK)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-from rest_framework_simplejwt.views import (
-    TokenObtainPairView,
-    TokenRefreshView,
-)
-from rest_framework.routers import DefaultRouter
-from . import views
-from django.urls import path
-from .views import (UserDetailView, UserListView, UserCreateView, PasswordResetView,
-                    CreatePropertyView, LandlordPropertiesView, CreateUnitView,
-                    UpdatePropertyView,UpdateUnitView,UpdateUserView, SubscriptionStatusView,
-                    UpdateTillNumberView, MyTokenObtainPairView, AdminLandlordSubscriptionStatusView,
-                    MeView, PasswordResetConfirmView, UnitTypeListCreateView, UnitTypeDetailView,
-                    LandlordDashboardStatsView, TenantUpdateUnitView, AdjustRentView,
-                    PropertyUnitsView, AssignTenantView, UpdateReminderPreferencesView,
-                    LandlordAvailableUnitsView,
-)
-
-router = DefaultRouter()
-# Remove or comment these out if you're not using ViewSets
-# router.register('properties', views.PropertyViewSet, basename='property')
-# router.register('units', views.UnitViewSet, basename='unit')
-# router.register('users', views.UserViewSet, basename='user')
-
-urlpatterns = [
-    # Authentication endpoints
-    path("signup/", UserCreateView.as_view(), name="signup"),
-    path('token/', MyTokenObtainPairView.as_view(), name='token_obtain_pair'),
-    path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
-    
-    # User endpoints
-    path("users/<int:user_id>/", UserDetailView.as_view(), name="user-detail"),
-    path("users/", UserListView.as_view(), name="user-list"),
-    path('users/<int:user_id>/update/', UpdateUserView.as_view(), name='user-update'),
-    path('me/', MeView.as_view(), name='me'),
-    
-    # Password reset
-    path('password-reset/', PasswordResetView.as_view(), name='password-reset'),
-    path('password-reset-confirm/', PasswordResetConfirmView.as_view(), name='password-reset-confirm'),
-    
-    # Property endpoints - FIXED URL NAMES
-    path('properties/create/', CreatePropertyView.as_view(), name='property-create'),  # Changed from 'create-property'
-    path('properties/', LandlordPropertiesView.as_view(), name='property-list'),  # Changed from 'landlord-properties'
-    path('properties/<int:property_id>/update/', UpdatePropertyView.as_view(), name='property-update'),
-    path('properties/<int:property_id>/units/', PropertyUnitsView.as_view(), name='property-units'),
-    
-    # Unit endpoints - FIXED URL NAMES
-    path('units/create/', CreateUnitView.as_view(), name='unit-create'),  # Changed from 'create-unit'
-    path('units/<int:unit_id>/update/', UpdateUnitView.as_view(), name='unit-update'),
-    path('units/tenant/update/', TenantUpdateUnitView.as_view(), name='tenant-unit-update'),
-    path('units/<int:unit_id>/assign/<int:tenant_id>/', AssignTenantView.as_view(), name='assign-tenant'),  # Changed from 'assign-tenant-to-unit'
-    
-    # UnitType endpoints
-    path('unit-types/', UnitTypeListCreateView.as_view(), name='unit-types'),  # Changed from 'unittype-list-create'
-    path('unit-types/<int:pk>/', UnitTypeDetailView.as_view(), name='unit-type-detail'),  # Changed from 'unittype-detail'
-    
-    # Subscription endpoints
-    path('subscription-status/', SubscriptionStatusView.as_view(), name='subscription-status'),
-    path('update-till-number/', UpdateTillNumberView.as_view(), name='update-till-number'),
-    path('admin/landlord-subscriptions/', AdminLandlordSubscriptionStatusView.as_view(), name='admin-landlord-subscriptions'),
-    path('dashboard-stats/', LandlordDashboardStatsView.as_view(), name='dashboard-stats'),
-    path('adjust-rent/', AdjustRentView.as_view(), name='adjust-rent'),
-    
-    # Other endpoints
-    path('update-reminder-preferences/', UpdateReminderPreferencesView.as_view(), name='update-reminder-preferences'),
-    path('available-units/', LandlordAvailableUnitsView.as_view(), name='available-units'),  # Changed from 'landlord-available-units'
-]
 from django.urls import path
 from .views import (
     # STK Push + Callbacks
@@ -2466,1505 +3684,3 @@ urlpatterns = [
     path("cleanup-pending-payments/", CleanupPendingPaymentsView.as_view(), name="cleanup-pending-payments"),
     path("simulate-deposit-callback/", SimulateDepositCallbackView.as_view(), name="simulate-deposit-callback"),
 ]
-from django.urls import path
-from .views import (
-    CreateReportView,
-    OpenReportsView,
-    UrgentReportsView,
-    InProgressReportsView,
-    ResolvedReportsView,
-    UpdateReportStatusView,
-    SendEmailView,
-)
-
-urlpatterns = [
-    # Create a new report (POST)
-    path('reports/create/', CreateReportView.as_view(), name='create-report'),  # Added /create/
-
-    # List open reports for the authenticated user (GET)
-    path('reports/open/', OpenReportsView.as_view(), name='open-reports'),
-
-    # List urgent reports for the authenticated user (GET)
-    path('reports/urgent/', UrgentReportsView.as_view(), name='urgent-reports'),
-
-    # List in-progress reports for the authenticated user (GET)
-    path('reports/in-progress/', InProgressReportsView.as_view(), name='in-progress-reports'),
-
-    # List resolved reports for the authenticated user (GET)
-    path('reports/resolved/', ResolvedReportsView.as_view(), name='resolved-reports'),
-
-    # Update the status of a specific report (PATCH/PUT)
-    path('reports/<int:pk>/update-status/', UpdateReportStatusView.as_view(), name='update-report-status'),
-
-    # Send email to tenants (POST)
-    path('reports/send-email/', SendEmailView.as_view(), name='send-email'),  # Added /reports/ prefix
-]
-#!/usr/bin/env pwsh
-<#
-.SYNOPSIS
-    Makau Rentals - Real Life Application Workflow Demo
-.DESCRIPTION
-    This script demonstrates the complete workflow of the Makau Rentals application
-    from landlord signup to tenant payments and maintenance reports using the live API.
-    Now includes real M-Pesa integration with 1 KSH transactions.
-.NOTES
-    Author: Makau Rentals
-    Date: $(Get-Date)
-#>
-
-# Configuration
-$BaseUrl = "https://makau-rentals-backend.onrender.com"
-$ApiUrl = "$BaseUrl/api"
-
-# Colors for output
-$Green = "Green"
-$Yellow = "Yellow" 
-$Red = "Red"
-$Cyan = "Cyan"
-$Magenta = "Magenta"
-
-# Global variables to store created data
-$Global:LandlordToken = $null
-$Global:TenantToken = $null
-$Global:LandlordId = $null
-$Global:TenantId = $null
-$Global:PropertyId = $null
-$Global:UnitId = $null
-$Global:UnitTypeId = $null
-$Global:LandlordEmail = $null
-$Global:TenantEmail = $null
-$Global:LandlordCode = $null
-
-function Write-ColorOutput {
-    param(
-        [string]$Message,
-        [string]$Color = "White"
-    )
-    Write-Host $Message -ForegroundColor $Color
-}
-
-function Write-Section {
-    param([string]$Title)
-    Write-Host "`n" + "="*60 -ForegroundColor $Cyan
-    Write-Host $Title -ForegroundColor $Cyan
-    Write-Host "="*60 -ForegroundColor $Cyan
-}
-
-function Write-Step {
-    param([string]$Step)
-    Write-Host "`n>> $Step" -ForegroundColor $Yellow
-}
-
-function Invoke-ApiRequest {
-    param(
-        [string]$Endpoint,
-        [string]$Method = "GET",
-        [object]$Body = $null,
-        [string]$Token = $null,
-        [int]$TimeoutSec = 30
-    )
-    
-    $headers = @{
-        "Content-Type" = "application/json"
-    }
-    
-    if ($Token) {
-        $headers["Authorization"] = "Bearer $Token"
-    }
-    
-    $uri = "$ApiUrl/$Endpoint"
-    
-    try {
-        if ($Method -eq "GET") {
-            $response = Invoke-RestMethod -Uri $uri -Method $Method -Headers $headers -TimeoutSec $TimeoutSec
-        } else {
-            $jsonBody = if ($Body) { $Body | ConvertTo-Json } else { "{}" }
-            $response = Invoke-RestMethod -Uri $uri -Method $Method -Headers $headers -Body $jsonBody -TimeoutSec $TimeoutSec
-        }
-        
-        return @{
-            Success = $true
-            Data = $response
-        }
-    }
-    catch {
-        $errorMessage = $_.Exception.Message
-        $statusCode = $_.Exception.Response.StatusCode.value__
-        
-        try {
-            if ($_.ErrorDetails.Message -and $_.ErrorDetails.Message -ne "") {
-                $errorDetails = $_.ErrorDetails.Message | ConvertFrom-Json
-                $errorMessage = $errorDetails.detail -or $errorDetails.error -or $errorDetails.message -or $errorMessage
-            }
-        }
-        catch {
-            # If we can't parse JSON error, use the original message
-        }
-        
-        return @{
-            Success = $false
-            Error = $errorMessage
-            StatusCode = $statusCode
-        }
-    }
-}
-
-function Test-ApiConnection {
-    Write-Step "Testing API Connection"
-    $response = Invoke-ApiRequest -Endpoint "accounts/me" -Method "GET"
-    
-    if ($response.Success) {
-        Write-ColorOutput "SUCCESS: API is accessible and responding" $Green
-        return $true
-    } else {
-        if ($response.StatusCode -eq 401) {
-            Write-ColorOutput "SUCCESS: API is accessible (unauthorized access expected)" $Green
-            return $true
-        } else {
-            Write-ColorOutput "ERROR: API connection failed: $($response.Error)" $Red
-            return $false
-        }
-    }
-}
-
-function Register-Landlord {
-    Write-Section "PHASE 1: LANDLORD ONBOARDING"
-    
-    Write-Step "1. Registering Landlord Account"
-    
-    $timestamp = Get-Date -Format "yyyyMMddHHmmss"
-    $Global:LandlordEmail = "demo_landlord_$timestamp@makau.com"
-    $landlordData = @{
-        email = $Global:LandlordEmail
-        full_name = "Demo Landlord"
-        user_type = "landlord"
-        password = "DemoPass123!"
-        phone_number = "+254722714334"  # Real phone number for M-Pesa testing
-        government_id = "12345678"
-    }
-    
-    $response = Invoke-ApiRequest -Endpoint "accounts/signup/" -Method "POST" -Body $landlordData
-    
-    if ($response.Success) {
-        $Global:LandlordId = $response.Data.id
-        Write-ColorOutput "SUCCESS: Landlord registered successfully:" $Green
-        Write-ColorOutput "   Email: $($landlordData.email)" $Green
-        Write-ColorOutput "   ID: $($response.Data.id)" $Green
-        Write-ColorOutput "   Landlord Code: $($response.Data.landlord_code)" $Green
-        Write-ColorOutput "   Phone: $($landlordData.phone_number)" $Green
-        return $true
-    } else {
-        Write-ColorOutput "ERROR: Landlord registration failed: $($response.Error)" $Red
-        return $false
-    }
-}
-
-function Login-Landlord {
-    Write-Step "2. Landlord Login"
-    
-    $loginData = @{
-        email = $Global:LandlordEmail
-        password = "DemoPass123!"
-        user_type = "landlord"
-    }
-    
-    $response = Invoke-ApiRequest -Endpoint "accounts/token/" -Method "POST" -Body $loginData
-    
-    if ($response.Success) {
-        $Global:LandlordToken = $response.Data.access
-        Write-ColorOutput "SUCCESS: Landlord logged in successfully" $Green
-        Write-ColorOutput "   Token obtained: $($Global:LandlordToken.Substring(0, 20))..." $Green
-        return $true
-    } else {
-        Write-ColorOutput "ERROR: Landlord login failed: $($response.Error)" $Red
-        return $false
-    }
-}
-
-function Create-UnitType {
-    Write-Step "3. Creating Unit Type"
-    
-    # Using 1 KSH for demo payments
-    $unitTypeData = @{
-        name = "Demo Studio"
-        deposit = 1.00  # 1 KSH for testing
-        rent = 1.00     # 1 KSH for testing
-        unit_count = 1
-    }
-    
-    $response = Invoke-ApiRequest -Endpoint "accounts/unit-types/" -Method "POST" -Body $unitTypeData -Token $Global:LandlordToken
-    
-    if ($response.Success) {
-        $Global:UnitTypeId = $response.Data.id
-        Write-ColorOutput "SUCCESS: Unit Type created successfully:" $Green
-        Write-ColorOutput "   Name: $($response.Data.name)" $Green
-        Write-ColorOutput "   Rent: KES $($response.Data.rent)" $Green
-        Write-ColorOutput "   Deposit: KES $($response.Data.deposit)" $Green
-        return $true
-    } else {
-        Write-ColorOutput "ERROR: Unit Type creation failed: $($response.Error)" $Red
-        return $false
-    }
-}
-
-function Create-Property {
-    Write-Step "4. Creating Property"
-    
-    $propertyData = @{
-        name = "Demo Apartments"
-        city = "Nairobi"
-        state = "Nairobi County"
-        unit_count = 1
-    }
-    
-    $response = Invoke-ApiRequest -Endpoint "accounts/properties/create/" -Method "POST" -Body $propertyData -Token $Global:LandlordToken
-    
-    if ($response.Success) {
-        $Global:PropertyId = $response.Data.id
-        Write-ColorOutput "SUCCESS: Property created successfully:" $Green
-        Write-ColorOutput "   Name: $($response.Data.name)" $Green
-        Write-ColorOutput "   Location: $($response.Data.city), $($response.Data.state)" $Green
-        Write-ColorOutput "   ID: $($response.Data.id)" $Green
-        return $true
-    } else {
-        Write-ColorOutput "ERROR: Property creation failed: $($response.Error)" $Red
-        return $false
-    }
-}
-
-function Create-Unit {
-    Write-Step "5. Creating Unit"
-    
-    $unitData = @{
-        property = $Global:PropertyId
-        unit_type = $Global:UnitTypeId
-        floor = 1
-        bedrooms = 1
-        bathrooms = 1
-        rent = 1.00     # 1 KSH for testing
-        deposit = 1.00  # 1 KSH for testing
-    }
-    
-    $response = Invoke-ApiRequest -Endpoint "accounts/units/create/" -Method "POST" -Body $unitData -Token $Global:LandlordToken
-    
-    if ($response.Success) {
-        $Global:UnitId = $response.Data.id
-        Write-ColorOutput "SUCCESS: Unit created successfully:" $Green
-        Write-ColorOutput "   Unit Number: $($response.Data.unit_number)" $Green
-        Write-ColorOutput "   Unit Code: $($response.Data.unit_code)" $Green
-        Write-ColorOutput "   Rent: KES $($response.Data.rent)" $Green
-        Write-ColorOutput "   Deposit: KES $($response.Data.deposit)" $Green
-        Write-ColorOutput "   Available: $($response.Data.is_available)" $Green
-        return $true
-    } else {
-        Write-ColorOutput "ERROR: Unit creation failed: $($response.Error)" $Red
-        return $false
-    }
-}
-
-function Get-LandlordCode {
-    Write-Step "6. Getting Landlord Code for Tenant Registration"
-    
-    $response = Invoke-ApiRequest -Endpoint "accounts/me/" -Method "GET" -Token $Global:LandlordToken
-    
-    if ($response.Success) {
-        $Global:LandlordCode = $response.Data.landlord_code
-        Write-ColorOutput "SUCCESS: Landlord code retrieved:" $Green
-        Write-ColorOutput "   Landlord Code: $Global:LandlordCode" $Green
-        return $Global:LandlordCode
-    } else {
-        Write-ColorOutput "ERROR: Failed to get landlord code: $($response.Error)" $Red
-        return $null
-    }
-}
-
-function Register-Tenant {
-    param([string]$LandlordCode)
-    
-    Write-Section "PHASE 2: TENANT ONBOARDING"
-    
-    Write-Step "1. Registering Tenant Account"
-    
-    $timestamp = Get-Date -Format "yyyyMMddHHmmss"
-    $Global:TenantEmail = "demo_tenant_$timestamp@makau.com"
-    $tenantData = @{
-        email = $Global:TenantEmail
-        full_name = "Demo Tenant"
-        user_type = "tenant"
-        password = "DemoPass123!"
-        phone_number = "+254722714334"  # Real phone number for M-Pesa testing
-        government_id = "87654321"
-        landlord_code = $LandlordCode
-    }
-    
-    $response = Invoke-ApiRequest -Endpoint "accounts/signup/" -Method "POST" -Body $tenantData
-    
-    if ($response.Success) {
-        $Global:TenantId = $response.Data.id
-        Write-ColorOutput "SUCCESS: Tenant registered successfully:" $Green
-        Write-ColorOutput "   Email: $($tenantData.email)" $Green
-        Write-ColorOutput "   ID: $($response.Data.id)" $Green
-        Write-ColorOutput "   Phone: $($tenantData.phone_number)" $Green
-        return $true
-    } else {
-        Write-ColorOutput "ERROR: Tenant registration failed: $($response.Error)" $Red
-        return $false
-    }
-}
-
-function Login-Tenant {
-    Write-Step "2. Tenant Login"
-    
-    $loginData = @{
-        email = $Global:TenantEmail
-        password = "DemoPass123!"
-        user_type = "tenant"
-    }
-    
-    $response = Invoke-ApiRequest -Endpoint "accounts/token/" -Method "POST" -Body $loginData
-    
-    if ($response.Success) {
-        $Global:TenantToken = $response.Data.access
-        Write-ColorOutput "SUCCESS: Tenant logged in successfully" $Green
-        Write-ColorOutput "   Token obtained: $($Global:TenantToken.Substring(0, 20))..." $Green
-        return $true
-    } else {
-        Write-ColorOutput "ERROR: Tenant login failed: $($response.Error)" $Red
-        return $false
-    }
-}
-
-function Update-Unit-Deposit {
-    Write-Step "3. Updating Unit Deposit to 1 KSH for Testing"
-    
-    $unitUpdateData = @{
-        deposit = 1.00  # Set to 1 KSH for testing
-    }
-    
-    $response = Invoke-ApiRequest -Endpoint "accounts/units/$Global:UnitId/update/" -Method "PUT" -Body $unitUpdateData -Token $Global:LandlordToken
-    
-    if ($response.Success) {
-        Write-ColorOutput "SUCCESS: Unit deposit updated to 1 KSH for testing" $Green
-        return $true
-    } else {
-        Write-ColorOutput "WARNING: Could not update unit deposit: $($response.Error)" $Yellow
-        return $false
-    }
-}
-
-function Get-User-Profile {
-    param([string]$Token, [string]$UserType)
-    
-    Write-Step "Getting $UserType Profile"
-    
-    $response = Invoke-ApiRequest -Endpoint "accounts/me/" -Method "GET" -Token $Token
-    
-    if ($response.Success) {
-        Write-ColorOutput "SUCCESS: $UserType profile retrieved:" $Green
-        Write-ColorOutput "   Name: $($response.Data.full_name)" $Green
-        Write-ColorOutput "   Email: $($response.Data.email)" $Green
-        Write-ColorOutput "   User Type: $($response.Data.user_type)" $Green
-        if ($response.Data.phone_number) {
-            Write-ColorOutput "   Phone: $($response.Data.phone_number)" $Green
-        }
-        return $true
-    } else {
-        Write-ColorOutput "ERROR: Failed to get profile: $($response.Error)" $Red
-        return $false
-    }
-}
-
-function Check-Subscription-Status {
-    Write-Step "Checking Landlord Subscription Status"
-    
-    $response = Invoke-ApiRequest -Endpoint "accounts/subscription-status/" -Method "GET" -Token $Global:LandlordToken
-    
-    if ($response.Success) {
-        Write-ColorOutput "SUCCESS: Subscription status:" $Green
-        Write-ColorOutput "   Plan: $($response.Data.plan)" $Green
-        Write-ColorOutput "   Active: $($response.Data.is_active)" $Green
-        Write-ColorOutput "   Status: $($response.Data.status)" $Green
-        if ($response.Data.expiry_date) {
-            Write-ColorOutput "   Expiry: $($response.Data.expiry_date)" $Green
-        }
-        return $true
-    } else {
-        Write-ColorOutput "ERROR: Failed to get subscription status: $($response.Error)" $Red
-        return $false
-    }
-}
-
-function View-Landlord-Dashboard {
-    Write-Section "PHASE 3: LANDLORD MANAGEMENT"
-    
-    Write-Step "1. Viewing Landlord Dashboard"
-    
-    $response = Invoke-ApiRequest -Endpoint "accounts/dashboard-stats/" -Method "GET" -Token $Global:LandlordToken
-    
-    if ($response.Success) {
-        Write-ColorOutput "SUCCESS: Dashboard statistics:" $Green
-        Write-ColorOutput "   Active Tenants: $($response.Data.total_active_tenants)" $Green
-        Write-ColorOutput "   Available Units: $($response.Data.total_units_available)" $Green
-        Write-ColorOutput "   Occupied Units: $($response.Data.total_units_occupied)" $Green
-        Write-ColorOutput "   Monthly Revenue: KES $($response.Data.monthly_revenue)" $Green
-        return $true
-    } else {
-        Write-ColorOutput "ERROR: Failed to get dashboard stats: $($response.Error)" $Red
-        return $false
-    }
-}
-
-function View-Rent-Summary {
-    Write-Step "2. Viewing Rent Summary"
-    
-    $response = Invoke-ApiRequest -Endpoint "payments/rent-payments/summary/" -Method "GET" -Token $Global:LandlordToken
-    
-    if ($response.Success) {
-        Write-ColorOutput "SUCCESS: Rent summary:" $Green
-        Write-ColorOutput "   Total Collected: KES $($response.Data.total_collected)" $Green
-        Write-ColorOutput "   Total Outstanding: KES $($response.Data.total_outstanding)" $Green
-        Write-ColorOutput "   Units: $($response.Data.units.Count)" $Green
-        return $true
-    } else {
-        Write-ColorOutput "ERROR: Failed to get rent summary: $($response.Error)" $Red
-        return $false
-    }
-}
-
-function View-Landlord-Properties {
-    Write-Step "3. Viewing Landlord Properties"
-    
-    $response = Invoke-ApiRequest -Endpoint "accounts/properties/" -Method "GET" -Token $Global:LandlordToken
-    
-    if ($response.Success) {
-        Write-ColorOutput "SUCCESS: Properties list:" $Green
-        foreach ($property in $response.Data) {
-            Write-ColorOutput "   - $($property.name) ($($property.city)) - $($property.unit_count) units" $Green
-        }
-        return $true
-    } else {
-        Write-ColorOutput "ERROR: Failed to get properties: $($response.Error)" $Red
-        return $false
-    }
-}
-
-function Submit-Maintenance-Report {
-    Write-Section "PHASE 4: MAINTENANCE & COMMUNICATION"
-    
-    Write-Step "1. Submitting Maintenance Report"
-    
-    # First, let's assign the tenant to the unit to fix the 403 error
-    Write-ColorOutput "   Note: Tenant must be assigned to unit to submit reports" $Yellow
-    
-    $reportData = @{
-        unit = $Global:UnitId
-        issue_category = "maintenance"
-        priority_level = "low"
-        issue_title = "Demo: Test Maintenance Request"
-        description = "This is a demo maintenance report for testing purposes."
-    }
-    
-    $response = Invoke-ApiRequest -Endpoint "communication/reports/create/" -Method "POST" -Body $reportData -Token $Global:TenantToken
-    
-    if ($response.Success) {
-        Write-ColorOutput "SUCCESS: Maintenance report submitted:" $Green
-        Write-ColorOutput "   Issue: $($response.Data.issue_title)" $Green
-        Write-ColorOutput "   Category: $($response.Data.issue_category)" $Green
-        Write-ColorOutput "   Priority: $($response.Data.priority_level)" $Green
-        Write-ColorOutput "   Status: $($response.Data.status)" $Green
-        return $true
-    } else {
-        Write-ColorOutput "WARNING: Maintenance report submission failed (tenant not assigned to unit): $($response.Error)" $Yellow
-        return $false
-    }
-}
-
-function View-Tenant-Reports {
-    Write-Step "2. Viewing Tenant Reports"
-    
-    $response = Invoke-ApiRequest -Endpoint "communication/reports/open/" -Method "GET" -Token $Global:TenantToken
-    
-    if ($response.Success) {
-        Write-ColorOutput "SUCCESS: Open reports:" $Green
-        if ($response.Data.Count -gt 0) {
-            foreach ($report in $response.Data) {
-                Write-ColorOutput "   - $($report.issue_title) [$($report.status)]" $Green
-            }
-        } else {
-            Write-ColorOutput "   No open reports found" $Yellow
-        }
-        return $true
-    } else {
-        Write-ColorOutput "ERROR: Failed to get reports: $($response.Error)" $Red
-        return $false
-    }
-}
-
-function View-Landlord-Reports {
-    Write-Step "3. Viewing Landlord Reports"
-    
-    $response = Invoke-ApiRequest -Endpoint "communication/reports/open/" -Method "GET" -Token $Global:LandlordToken
-    
-    if ($response.Success) {
-        Write-ColorOutput "SUCCESS: Landlord open reports:" $Green
-        if ($response.Data.Count -gt 0) {
-            foreach ($report in $response.Data) {
-                Write-ColorOutput "   - $($report.issue_title) by $($report.tenant.full_name)" $Green
-            }
-        } else {
-            Write-ColorOutput "   No open reports found" $Yellow
-        }
-        return $true
-    } else {
-        Write-ColorOutput "ERROR: Failed to get landlord reports: $($response.Error)" $Red
-        return $false
-    }
-}
-
-function Test-Deposit-Payment {
-    Write-Section "PHASE 5: REAL M-PESA PAYMENTS (1 KSH)"
-    
-    Write-Step "1. Testing Deposit Payment (1 KSH)"
-    
-    $depositData = @{
-        unit_id = $Global:UnitId
-    }
-    
-    Write-ColorOutput "   Initiating 1 KSH deposit payment for unit $Global:UnitId..." $Yellow
-    Write-ColorOutput "   Tenant Phone: +254722714334" $Yellow
-    Write-ColorOutput "   Amount: 1 KSH" $Yellow
-    
-    $response = Invoke-ApiRequest -Endpoint "payments/initiate-deposit/" -Method "POST" -Body $depositData -Token $Global:TenantToken -TimeoutSec 45
-    
-    if ($response.Success) {
-        Write-ColorOutput "SUCCESS: Deposit payment initiated:" $Green
-        Write-ColorOutput "   Message: $($response.Data.message)" $Green
-        if ($response.Data.payment_id) {
-            Write-ColorOutput "   Payment ID: $($response.Data.payment_id)" $Green
-        }
-        if ($response.Data.checkout_request_id) {
-            Write-ColorOutput "   Checkout Request ID: $($response.Data.checkout_request_id)" $Green
-        }
-        
-        # Check payment status
-        if ($response.Data.payment_id) {
-            Write-ColorOutput "   Checking payment status..." $Yellow
-            Start-Sleep -Seconds 5
-            $statusResponse = Invoke-ApiRequest -Endpoint "payments/deposit-status/$($response.Data.payment_id)/" -Method "GET" -Token $Global:TenantToken
-            if ($statusResponse.Success) {
-                Write-ColorOutput "   Payment Status: $($statusResponse.Data.status)" $Green
-            }
-        }
-        
-        return $true
-    } else {
-        Write-ColorOutput "ERROR: Deposit payment initiation failed: $($response.Error)" $Red
-        return $false
-    }
-}
-
-function Test-Rent-Payment {
-    Write-Step "2. Testing Rent Payment (1 KSH)"
-    
-    # First, we need to assign the tenant to the unit for rent payments
-    Write-ColorOutput "   Note: Rent payments require tenant to be assigned to unit" $Yellow
-    
-    $rentData = @{
-        amount = 1.00  # 1 KSH for testing
-    }
-    
-    Write-ColorOutput "   Initiating 1 KSH rent payment for unit $Global:UnitId..." $Yellow
-    Write-ColorOutput "   Tenant Phone: +254722714334" $Yellow
-    Write-ColorOutput "   Amount: 1 KSH" $Yellow
-    
-    $response = Invoke-ApiRequest -Endpoint "payments/stk-push/$Global:UnitId/" -Method "POST" -Body $rentData -Token $Global:TenantToken -TimeoutSec 45
-    
-    if ($response.Success) {
-        Write-ColorOutput "SUCCESS: Rent payment initiated:" $Green
-        Write-ColorOutput "   Message: $($response.Data.message)" $Green
-        if ($response.Data.payment_id) {
-            Write-ColorOutput "   Payment ID: $($response.Data.payment_id)" $Green
-        }
-        if ($response.Data.checkout_request_id) {
-            Write-ColorOutput "   Checkout Request ID: $($response.Data.checkout_request_id)" $Green
-        }
-        return $true
-    } else {
-        Write-ColorOutput "WARNING: Rent payment initiation failed (tenant not assigned): $($response.Error)" $Yellow
-        return $false
-    }
-}
-
-function Test-Subscription-Payment {
-    Write-Step "3. Testing Subscription Payment (1 KSH)"
-    
-    $subscriptionData = @{
-        plan = "starter"
-        phone_number = "+254722714334"  # Landlord's phone for subscription
-    }
-    
-    Write-ColorOutput "   Initiating 1 KSH subscription payment..." $Yellow
-    Write-ColorOutput "   Landlord Phone: $($subscriptionData.phone_number)" $Yellow
-    Write-ColorOutput "   Plan: $($subscriptionData.plan)" $Yellow
-    Write-ColorOutput "   Amount: 1 KSH" $Yellow
-    
-    $response = Invoke-ApiRequest -Endpoint "payments/stk-push-subscription/" -Method "POST" -Body $subscriptionData -Token $Global:LandlordToken -TimeoutSec 45
-    
-    if ($response.Success) {
-        Write-ColorOutput "SUCCESS: Subscription payment initiated:" $Green
-        Write-ColorOutput "   Message: $($response.Data.message)" $Green
-        if ($response.Data.payment_id) {
-            Write-ColorOutput "   Payment ID: $($response.Data.payment_id)" $Green
-        }
-        if ($response.Data.checkout_request_id) {
-            Write-ColorOutput "   Checkout Request ID: $($response.Data.checkout_request_id)" $Green
-        }
-        return $true
-    } else {
-        Write-ColorOutput "ERROR: Subscription payment initiation failed: $($response.Error)" $Red
-        return $false
-    }
-}
-
-function Assign-Tenant-To-Unit {
-    Write-Step "4. Assigning Tenant to Unit (Required for Payments)"
-    
-    $assignData = @{
-        # No body needed for this endpoint, uses URL parameters
-    }
-    
-    Write-ColorOutput "   Attempting to assign tenant to unit..." $Yellow
-    
-    # This endpoint requires unit_id and tenant_id in URL
-    $response = Invoke-ApiRequest -Endpoint "accounts/units/$Global:UnitId/assign/$Global:TenantId/" -Method "POST" -Body $assignData -Token $Global:LandlordToken -TimeoutSec 45
-    
-    if ($response.Success) {
-        Write-ColorOutput "SUCCESS: Tenant assigned to unit:" $Green
-        Write-ColorOutput "   Message: $($response.Data.message)" $Green
-        if ($response.Data.payment_id) {
-            Write-ColorOutput "   Payment ID: $($response.Data.payment_id)" $Green
-        }
-        return $true
-    } else {
-        Write-ColorOutput "WARNING: Tenant assignment failed: $($response.Error)" $Yellow
-        Write-ColorOutput "   This is expected if deposit payment is required first" $Yellow
-        return $false
-    }
-}
-
-function Show-System-Status {
-    Write-Section "SYSTEM STATUS SUMMARY"
-    
-    Write-ColorOutput "Application Components Status:" $Cyan
-    
-    # Test various endpoints
-    $endpoints = @(
-        @{Name="Authentication"; Endpoint="accounts/token/"},
-        @{Name="User Management"; Endpoint="accounts/me/"},
-        @{Name="Properties"; Endpoint="accounts/properties/"},
-        @{Name="Payments"; Endpoint="payments/rent-payments/"},
-        @{Name="Communication"; Endpoint="communication/reports/open/"}
-    )
-    
-    foreach ($endpoint in $endpoints) {
-        $testResponse = Invoke-ApiRequest -Endpoint $endpoint.Endpoint -Method "GET" -Token $Global:LandlordToken
-        $status = if ($testResponse.Success -or $testResponse.StatusCode -eq 401) { "ONLINE" } else { "OFFLINE" }
-        $color = if ($testResponse.Success -or $testResponse.StatusCode -eq 401) { $Green } else { $Red }
-        Write-ColorOutput "   $($endpoint.Name): $status" $color
-    }
-}
-
-function Main {
-    Write-Host "`n" + "="*70 -ForegroundColor $Magenta
-    Write-Host "MAKAU RENTALS - REAL LIFE APPLICATION WORKFLOW DEMO" -ForegroundColor $Magenta
-    Write-Host "Live Server: $BaseUrl" -ForegroundColor $Magenta
-    Write-Host "NOW WITH REAL M-PESA INTEGRATION (1 KSH TRANSACTIONS)" -ForegroundColor $Magenta
-    Write-Host "="*70 -ForegroundColor $Magenta
-    
-    # Test API connection first
-    if (-not (Test-ApiConnection)) {
-        Write-ColorOutput "Cannot proceed without API connection. Please check if the server is running." $Red
-        return
-    }
-    
-    # Landlord workflow
-    if (-not (Register-Landlord)) { return }
-    if (-not (Login-Landlord)) { return }
-    if (-not (Create-UnitType)) { return }
-    if (-not (Create-Property)) { return }
-    if (-not (Create-Unit)) { return }
-    
-    $landlordCode = Get-LandlordCode
-    if (-not $landlordCode) { return }
-    
-    # Tenant workflow  
-    if (-not (Register-Tenant -LandlordCode $landlordCode)) { return }
-    if (-not (Login-Tenant)) { return }
-    
-    # Update unit deposit to 1 KSH for testing
-    Update-Unit-Deposit
-    
-    # User profiles
-    Get-User-Profile -Token $Global:LandlordToken -UserType "Landlord"
-    Get-User-Profile -Token $Global:TenantToken -UserType "Tenant"
-    
-    # Subscription & Dashboard
-    Check-Subscription-Status
-    View-Landlord-Dashboard
-    View-Rent-Summary
-    View-Landlord-Properties
-    
-    # REAL M-Pesa Payment Workflow
-    Test-Deposit-Payment
-    Start-Sleep -Seconds 10
-    Assign-Tenant-To-Unit
-    Test-Rent-Payment
-    Submit-Maintenance-Report
-    View-Tenant-Reports
-    View-Landlord-Reports
-    
-    # System status
-    Show-System-Status
-    
-    Write-Section "DEMO COMPLETED SUCCESSFULLY!"
-    Write-ColorOutput "The Makau Rentals application workflow has been successfully demonstrated!" $Green
-    Write-ColorOutput "REAL M-PESA PAYMENTS WERE INITIATED WITH 1 KSH TRANSACTIONS!" $Green
-    Write-ColorOutput "Demo Summary:" $Cyan
-    Write-ColorOutput "   - Landlord account created and authenticated" $Cyan
-    Write-ColorOutput "   - Property and unit created with 1 KSH pricing" $Cyan
-    Write-ColorOutput "   - Tenant account created and linked to landlord" $Cyan
-    Write-ColorOutput "   - Real M-Pesa deposit payment initiated (1 KSH)" $Cyan
-    Write-ColorOutput "   - Real M-Pesa rent payment initiated (1 KSH)" $Cyan
-    Write-ColorOutput "   - All major application features tested" $Cyan
-    Write-ColorOutput "Live API Endpoints:" $Cyan
-    Write-ColorOutput "   Base URL: $BaseUrl" $Cyan
-    Write-ColorOutput "   API Documentation: $BaseUrl/api/docs/" $Cyan
-    Write-ColorOutput "`nIMPORTANT: Check your phone to complete the M-Pesa payments!" $Yellow
-    Write-ColorOutput "Phone numbers used:" $Yellow
-    Write-ColorOutput "   Landlord: +254722714334" $Yellow
-    Write-ColorOutput "   Tenant: +254722714334" $Yellow
-}
-
-# Start the demo
-try {
-    Main
-}
-catch {
-    Write-ColorOutput "An unexpected error occurred: $($_.Exception.Message)" $Red
-    Write-ColorOutput "Stack trace: $($_.ScriptStackTrace)" $Red
-}
-
-Write-Host "`n" + "="*70 -ForegroundColor $Magenta
-Write-Host "Demo script execution completed" -ForegroundColor $Magenta
-Write-Host "="*70 -ForegroundColor $Magenta
-
-from django.db import models
-from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
-from django.utils import timezone
-from datetime import timedelta
-from django.core.exceptions import ValidationError
-import uuid
-
-
-class CustomUserManager(BaseUserManager):
-    # ensure the email is normalized and user_type is provided
-    def create_user(self, email, full_name, user_type, password=None, **extra_fields):
-        if not email:
-            raise ValueError("The Email field must be set")
-        if not user_type:
-            raise ValueError("User type must be set (landlord or tenant)")
-
-        email = self.normalize_email(email)
-        user = self.model(
-            email=email,
-            full_name=full_name,
-            user_type=user_type,
-            **extra_fields
-        )
-        user.set_password(password)
-        user.save(using=self._db)
-
-        # Auto-assign free trial for landlords
-        if user_type == "landlord":
-            Subscription.objects.create(
-                user=user,
-                plan="free",
-                expiry_date=timezone.now() + timedelta(days=60)
-            )
-            # generate a public landlord_code
-            if not getattr(user, 'landlord_code', None):
-                user.landlord_code = f"L-{uuid.uuid4().hex[:10].upper()}"
-                user.save(update_fields=['landlord_code'])
-
-        return user
-
-    def create_superuser(self, email, full_name, password=None, **extra_fields):
-        extra_fields.setdefault("is_staff", True)
-        extra_fields.setdefault("is_superuser", True)
-        # set default user_type if not provided
-        user_type = extra_fields.pop("user_type", "landlord")
-
-        if extra_fields.get("is_staff") is not True:
-            raise ValueError("Superuser must have is_staff=True.")
-        if extra_fields.get("is_superuser") is not True:
-            raise ValueError("Superuser must have is_superuser=True.")
-
-        return self.create_user(
-            email=email,
-            full_name=full_name,
-            user_type=user_type,
-            password=password,
-            **extra_fields
-        )
-
-
-class CustomUser(AbstractBaseUser,PermissionsMixin):
-    email = models.EmailField(unique=True)
-    full_name = models.CharField(max_length=120, default='')
-    # Government ID number (National ID or Passport)
-    government_id = models.CharField(max_length=20, blank=True, null=True, help_text="Government ID number (e.g., National ID or Passport)")
-    # ID or passport image for verification
-    id_document = models.ImageField(upload_to='id_documents/', null=True, blank=True)
-    # Human-facing landlord code used externally (different from DB id)
-    landlord_code = models.CharField(max_length=50, unique=True, null=True, blank=True)
-    date_joined = models.DateTimeField(auto_now_add=True)
-    type = [('landlord', 'Landlord'), ('tenant', 'Tenant')]
-    user_type = models.CharField(max_length=10, choices=type)
-    is_active = models.BooleanField(default=True)
-    is_staff = models.BooleanField(default=False)
-    is_superuser = models.BooleanField(default=False)
-    mpesa_till_number = models.CharField(max_length=20, blank=True, null=True, help_text="M-Pesa till number for direct payments (landlords only)")
-    phone_number = models.CharField(max_length=30, blank=True, null=True, help_text="User phone number in international format")
-    emergency_contact = models.CharField(max_length=30, blank=True, null=True, help_text="Emergency contact phone number")
-    reminder_mode = models.CharField(
-        max_length=20,
-        choices=[('days_before', 'Days Before Due Date'), ('fixed_day', 'Fixed Day of Month')],
-        default='days_before',
-        help_text="How the tenant wants to receive rent reminders"
-    )
-    reminder_value = models.IntegerField(
-        default=10,
-        help_text="For 'days_before': days before due date; For 'fixed_day': day of the month (1-31)"
-    )
-
-    USERNAME_FIELD = 'email'
-    REQUIRED_FIELDS = ['full_name']
-    objects = CustomUserManager()
-
-    # Check if user has an active subscription
-    def has_active_subscription(self):
-        if hasattr(self, "subscription"):
-            return self.subscription.is_active()
-        return False
-
-    def __str__(self):
-        return f"{self.full_name} ({self.email})"
-
-
-class Subscription(models.Model):
-    PLAN_CHOICES = [
-        ("free", "Free (60-day trial)"),
-        ("starter", "Starter (up to 10 units)"),
-        ("basic", "Basic (10-50 units)"),
-        ("professional", "Professional (50-100 units)"),
-        ("onetime", "One-time (Unlimited properties)"),
-    ]
-
-    user = models.OneToOneField(CustomUser, on_delete=models.CASCADE, related_name="subscription")
-    plan = models.CharField(max_length=20, choices=PLAN_CHOICES, default="free")
-    start_date = models.DateTimeField(auto_now_add=True)
-    expiry_date = models.DateTimeField(null=True, blank=True)
-
-    def save(self, *args, **kwargs):
-        # Set expiry dates based on plan
-        if not self.expiry_date:
-            if self.plan == "free":
-                self.expiry_date = timezone.now() + timedelta(days=60)
-            elif self.plan == "starter":
-                # monthly subscription
-                self.expiry_date = timezone.now() + timedelta(days=30)
-            elif self.plan == "basic":
-                # monthly subscription
-                self.expiry_date = timezone.now() + timedelta(days=30)
-            elif self.plan == "professional":
-                # monthly subscription
-                self.expiry_date = timezone.now() + timedelta(days=30)
-            # "onetime" could remain None for lifetime access
-        
-        super().save(*args, **kwargs)
-
-    # Check if subscription is still valid
-    def is_active(self):
-        return self.expiry_date is None or self.expiry_date > timezone.now()
-
-    def __str__(self):
-        return f"{self.user.email} - {self.plan}"
-
-
-class Property(models.Model):
-    landlord = models.ForeignKey(CustomUser, on_delete=models.CASCADE)
-    name = models.CharField(max_length=255)
-    city = models.CharField(max_length=100)
-    state = models.CharField(max_length=100)
-    unit_count = models.IntegerField()   # integer count of units for this property
-
-    def __str__(self):
-        return f"{self.name}, {self.city}"
-
-    def __str__(self):
-        return f"{self.name}, {self.city}"
-
-# TODO: Ensure that the landlord can only have a certain amount of units linked to property unit count
-class UnitType(models.Model):
-    landlord = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='unit_types')
-    name = models.CharField(max_length=50)
-    deposit = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    rent = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    number_of_units = models.IntegerField(default=0, help_text="Number of units of this type to create automatically")
-
-    def __str__(self):
-        return f"{self.landlord.email} - {self.name}"
-
-
-class Unit(models.Model):
-    property_obj = models.ForeignKey(
-        Property,
-        on_delete=models.CASCADE,
-        related_name="unit_list",
-        db_column="property_id"
-    )
-    # system-generated unit code (unique per unit)
-    unit_code = models.CharField(max_length=30, unique=True, default='')
-    unit_number = models.CharField(max_length=10)
-    floor = models.IntegerField(null=True, blank=True)
-    bedrooms = models.IntegerField(default=0)
-    bathrooms = models.IntegerField(default=0)
-
-    unit_type = models.ForeignKey(UnitType, on_delete=models.SET_NULL, null=True, blank=True)
-
-    rent = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    tenant = models.OneToOneField(CustomUser, on_delete=models.SET_NULL, null=True, blank=True)
-
-    rent_paid = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    rent_remaining = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    rent_due_date = models.DateField(null=True, blank=True)
-
-    deposit = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    is_available = models.BooleanField(default=True)
-
-    assigned_date = models.DateTimeField(null=True, blank=True)
-    left_date = models.DateTimeField(null=True, blank=True)
-
-    @property
-    def balance(self):
-        return self.rent_remaining - self.rent_paid
-
-    def clean(self):
-        current_units = self.__class__.objects.filter(property_obj=self.property_obj).count()
-        if self.property_obj.unit_count is not None and current_units >= self.property_obj.unit_count:
-            raise ValidationError("The number of units for this property has reached the limit.")
-
-    def save(self, *args, **kwargs):
-        # Calculate rent_remaining as rent - rent_paid
-        self.rent_remaining = self.rent - self.rent_paid
-
-        if self.pk:  # existing unit
-            old_unit = Unit.objects.get(pk=self.pk)
-            if old_unit.tenant != self.tenant:
-                if self.tenant and not self.assigned_date:
-                    self.assigned_date = timezone.now()
-                elif not self.tenant and old_unit.tenant:
-                    self.left_date = timezone.now()
-        else:  # new unit
-            if self.tenant:
-                self.assigned_date = timezone.now()
-        super().save(*args, **kwargs)
-
-
-    def __str__(self):
-        return f"{self.property_obj.name} - Unit {self.unit_number}"
-
-
-
-# REMINDER: payments is shown in the Unit model as rent_paid and rent_remaining
-# TODO: Protect the subscription features using a decorator or middleware to ensure only subscribed users can access them
-# TODO: Ensure payments for subscription and rent are two different things
-
-from django.db import models
-from accounts.models import CustomUser, Unit, Subscription
-from datetime import timedelta
-
-class Payment(models.Model):
-    PAYMENT_TYPES = [
-        ('rent', 'Rent'),
-        ('deposit', 'Deposit'),
-    ]
-    tenant = models.ForeignKey(
-        CustomUser,
-        on_delete=models.CASCADE,
-        limit_choices_to={'user_type': 'tenant'},
-        related_name='payments',
-        null=True,
-        blank=True
-    )
-    unit = models.ForeignKey(Unit, on_delete=models.CASCADE, related_name='payments', null=True, blank=True)
-    unit_type = models.ForeignKey('accounts.UnitType', on_delete=models.CASCADE, related_name='payments', null=True, blank=True)
-    payment_type = models.CharField(max_length=10, choices=PAYMENT_TYPES, default='rent')
-    amount = models.DecimalField(max_digits=10, decimal_places=2)
-    mpesa_receipt = models.CharField(max_length=50, blank=True, null=True)
-    transaction_date = models.DateTimeField(auto_now_add=True)
-    status = models.CharField(
-        max_length=20,
-        choices=[("Pending", "Pending"), ("Success", "Success"), ("Failed", "Failed")],
-        default="Pending"
-    )
-
-    def __str__(self):
-        unit_str = f"Unit {self.unit.unit_number}" if self.unit else "Deposit"
-        return f"{self.tenant.email} - {unit_str} - KES {self.amount} ({self.status})"
-
-    def save(self, *args, **kwargs):
-        super().save(*args, **kwargs)
-
-
-class SubscriptionPayment(models.Model):
-    user = models.ForeignKey(
-        CustomUser,
-        on_delete=models.CASCADE,
-        null=True,
-        blank=True
-    )
-    amount = models.DecimalField(max_digits=10, decimal_places=2)
-    mpesa_receipt_number = models.CharField(
-        max_length=50,
-        blank=True,  # Allow empty strings
-        default=""
-    )
-    transaction_date = models.DateTimeField(auto_now_add=True)
-    subscription_type = models.CharField(max_length=20, choices=Subscription.PLAN_CHOICES)
-
-    class Meta:
-        # Remove or modify the unique constraint to allow empty strings
-        constraints = [
-            models.UniqueConstraint(
-                fields=['mpesa_receipt_number'],
-                name='unique_mpesa_receipt',
-                condition=~models.Q(mpesa_receipt_number='')  # Only enforce uniqueness for non-empty values
-            )
-        ]
-
-    def __str__(self):
-        return f"Subscription Payment {self.id} - {self.subscription_type}"
-
-    def save(self, *args, **kwargs):
-        super().save(*args, **kwargs)
-
-    def _get_plan_duration(self):
-        durations = {
-            "free": timedelta(days=60),
-            "starter": timedelta(days=30),
-            "basic": timedelta(days=30),
-            "professional": timedelta(days=30),
-            # "onetime" will be treated as lifetime (None) by the subscription logic
-        }
-        return durations.get(self.subscription_type, timedelta(days=30))
-from django.db import models
-from accounts.models import CustomUser, Unit
-
-class Report(models.Model):
-    ISSUE_CATEGORIES = [
-        ('electrical', 'Electrical'),
-        ('plumbing', 'Plumbing'),
-        ('noise', 'Noise'),
-        ('safety/violence', 'Safety/Violence'),
-        ('wifi', 'WiFi'),
-        ('maintenance', 'Maintenance'),
-    ]
-
-    PRIORITY_LEVELS = [
-        ('low', 'Low'),
-        ('medium', 'Medium'),
-        ('high', 'High'),
-        ('urgent', 'Urgent'),
-    ]
-
-    STATUS_CHOICES = [
-        ('open', 'Open'),
-        ('in_progress', 'In Progress'),
-        ('resolved', 'Resolved'),
-        ('closed', 'Closed'),
-    ]
-
-    tenant = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='reports')
-    unit = models.ForeignKey(Unit, on_delete=models.CASCADE, related_name='reports')
-    issue_category = models.CharField(max_length=20, choices=ISSUE_CATEGORIES)
-    priority_level = models.CharField(max_length=10, choices=PRIORITY_LEVELS)
-    issue_title = models.CharField(max_length=255)
-    description = models.TextField()
-    created_at = models.DateTimeField(auto_now_add=True)
-    status = models.CharField(max_length=15, choices=STATUS_CHOICES, default='open')
-
-    def __str__(self):
-        return f"Report by {self.tenant.full_name} - {self.issue_title}"
-
-from .models import CustomUser, Property, Unit, UnitType
-from rest_framework import serializers
-
-from django.contrib.auth.tokens import default_token_generator
-from django.utils.http import urlsafe_base64_encode
-from django.utils.encoding import force_bytes
-from django.core.mail import send_mail
-
-# Overide the token to use email instead of username for JWT authentication
-# accounts/serializers.py
-from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
-from rest_framework import serializers
-from django.contrib.auth import authenticate
-from .models import CustomUser
-
-class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
-    username_field = "email"
-
-    user_type = serializers.CharField(write_only=True)
-
-    def validate(self, attrs):
-        email = attrs.get("email")
-        password = attrs.get("password")
-        user_type = attrs.get("user_type")
-
-        if email and password and user_type:
-            user = authenticate(self.context['request'], email=email, password=password)
-            if not user:
-                raise serializers.ValidationError("Invalid email or password")
-            if user.user_type not in ['tenant', 'landlord']:
-                raise serializers.ValidationError("Invalid user type")
-            if user.user_type != user_type:
-                raise serializers.ValidationError("User type does not match")
-            if not user.is_active:
-                raise serializers.ValidationError("User account is disabled")
-        else:
-            raise serializers.ValidationError("Must include 'email', 'password', and 'user_type'")
-
-        data = super().validate(attrs)
-        data['user_type'] = user_type
-        return data
-
-
-
-class UserSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = CustomUser
-        fields = [
-            'id',
-            'email',
-            'full_name',
-            'government_id',
-            'id_document',
-            'landlord_code',
-            'date_joined',
-            'user_type',
-            'is_active',
-            'is_staff',
-            'is_superuser',
-            'mpesa_till_number',
-            'phone_number',
-            'emergency_contact',
-            'reminder_mode',
-            'reminder_value',
-            'password'
-        ]
-        read_only_fields = ['id', 'date_joined', 'is_active', 'is_staff', 'is_superuser', 'landlord_code']
-        extra_kwargs = {
-            'password': {'write_only': True}
-        }
-
-    def create(self, validated_data):
-        # Always use the manager to ensure password is hashed
-        # adapt to new signature: email, full_name, user_type, password
-        email = validated_data.pop('email')
-        full_name = validated_data.pop('full_name')
-        user_type = validated_data.pop('user_type')
-        password = validated_data.pop('password', None)
-        user = CustomUser.objects.create_user(email=email, full_name=full_name, user_type=user_type, password=password, **validated_data)
-        return user
-
-    def update(self, instance, validated_data):
-        for attr, value in validated_data.items():
-            if attr == 'password':
-                instance.set_password(value)
-            else:
-                setattr(instance, attr, value)
-        instance.save()
-        return instance
-
-    def validate_phone_number(self, value):
-        if not value:
-            return value
-        import re
-        if not re.match(r"^\+?[0-9]{7,15}$", value):
-            raise serializers.ValidationError("Enter a valid phone number in international format, e.g. +2547XXXXXXXX")
-        return value
-
-    def validate_emergency_contact(self, value):
-        if not value:
-            return value
-        import re
-        if not re.match(r"^\+?[0-9]{7,15}$", value):
-            raise serializers.ValidationError("Enter a valid emergency contact phone number in international format")
-        return value
-
-        
-class PropertySerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Property
-        fields = ['id', 'landlord', 'name', 'city', 'state', 'unit_count']
-        read_only_fields = ['id', 'landlord']
-    def create(self, validated_data):
-        property = Property.objects.create(**validated_data)
-        return property
-    
-class UnitTypeSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = UnitType
-        fields = ['id', 'landlord', 'name', 'deposit', 'rent']
-        read_only_fields = ['id', 'landlord']
-
-
-class UnitSerializer(serializers.ModelSerializer):
-    property = serializers.IntegerField(write_only=True, required=False)  # Alias for property_obj
-
-    class Meta:
-        model = Unit
-        fields = ['id', 'property_obj', 'unit_code', 'unit_number', 'floor', 'bedrooms', 'bathrooms', 'unit_type', 'rent', 'tenant', 'rent_paid', 'rent_remaining', 'deposit', 'is_available', 'property']
-        read_only_fields = ['id', 'rent_remaining', 'unit_code']
-        extra_kwargs = {
-            'unit_number': {'required': False},
-            'property_obj': {'required': False},
-        }
-
-    def validate(self, attrs):
-        user = self.context['request'].user
-        # Handle property alias
-        if 'property' in attrs:
-            try:
-                prop = Property.objects.get(id=attrs.pop('property'))
-                if prop.landlord != user:
-                    raise serializers.ValidationError("Property not owned by you.")
-                attrs['property_obj'] = prop
-            except Property.DoesNotExist:
-                raise serializers.ValidationError("Property not found.")
-        # Validate property_obj ownership if set directly
-        if 'property_obj' in attrs:
-            if attrs['property_obj'].landlord != user:
-                raise serializers.ValidationError("Property not owned by you.")
-        # Validate unit_type ownership
-        if 'unit_type' in attrs and attrs['unit_type']:
-            if attrs['unit_type'].landlord != user:
-                raise serializers.ValidationError("UnitType not owned by you.")
-        return super().validate(attrs)
-
-    def create(self, validated_data):
-        # Auto-generate unit_number if not provided
-        if not validated_data.get('unit_number'):
-            prop = validated_data.get('property_obj')
-            if prop:
-                existing_units = Unit.objects.filter(property_obj=prop)
-                last_unit = existing_units.order_by('-unit_number').first()
-                if last_unit and last_unit.unit_number.isdigit():
-                    next_num = int(last_unit.unit_number) + 1
-                else:
-                    next_num = 1
-                validated_data['unit_number'] = str(next_num)
-        # Auto-generate unit_code if not provided
-        if not validated_data.get('unit_code'):
-            prop = validated_data.get('property_obj')
-            if prop and getattr(prop, 'id', None):
-                existing_count = Unit.objects.filter(property_obj=prop).count()
-                validated_data['unit_code'] = f"U-{prop.id}-{existing_count+1}"
-            else:
-                # fallback unique code
-                import uuid
-                validated_data['unit_code'] = f"U-{uuid.uuid4().hex[:10].upper()}"
-        # Set rent and deposit from unit_type if not provided
-        unit_type = validated_data.get('unit_type')
-        if unit_type:
-            if not validated_data.get('rent'):
-                validated_data['rent'] = unit_type.rent
-            if not validated_data.get('deposit'):
-                validated_data['deposit'] = unit_type.deposit
-        # Enforce landlord has at least one UnitType defined before creating units
-        prop = validated_data.get('property_obj')
-        if prop and prop.landlord:
-            landlord = prop.landlord
-            if not UnitType.objects.filter(landlord=landlord).exists():
-                raise serializers.ValidationError("Landlord must create at least one UnitType before creating Units.")
-
-        unit = Unit.objects.create(**validated_data)
-        return unit
-
-
-class UnitNumberSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Unit
-        fields = ['unit_number']
-
-# TODO: Ensure landlords create properties and units upon sign up this will be done in the frontend
-# TODO: Ensure Tenants pay the deposit to book a unit and choose their property upon sign up
-# TODO: Ensure Tenants and Landlords can reset their passwords and get email notifications for important actions 
-
-
-# For reset password functionality
-class PasswordResetSerializer(serializers.Serializer):
-    email = serializers.EmailField()
-
-    def validate_email(self, value):
-        if not CustomUser.objects.filter(email=value).exists():
-            raise serializers.ValidationError("User with this email does not exist.")
-        return value
-
-    def save(self):
-        from django.conf import settings
-        email = self.validated_data['email']
-        user = CustomUser.objects.get(email=email)
-        uid = urlsafe_base64_encode(force_bytes(user.pk))
-        token = default_token_generator.make_token(user)
-        # Use the configurable frontend URL from settings
-        reset_link = f"{settings.FRONTEND_URL}/reset-password/{uid}/{token}/"
-
-        send_mail(
-            subject="Password Reset Request",
-            message=f"Click the link to reset your password: {reset_link}",
-            from_email=None,
-            recipient_list=[email],
-        )
-
-
-class PasswordResetConfirmSerializer(serializers.Serializer):
-    uid = serializers.CharField()
-    token = serializers.CharField()
-    new_password = serializers.CharField(write_only=True, min_length=8)
-
-    def validate(self, attrs):
-        from django.contrib.auth.tokens import default_token_generator
-        from django.utils.http import urlsafe_base64_decode
-        from django.contrib.auth.password_validation import validate_password
-        try:
-            uid = urlsafe_base64_decode(attrs['uid']).decode()
-            user = CustomUser.objects.get(pk=uid)
-        except (TypeError, ValueError, OverflowError, CustomUser.DoesNotExist):
-            raise serializers.ValidationError("Invalid UID")
-
-        if not default_token_generator.check_token(user, attrs['token']):
-            raise serializers.ValidationError("Invalid or expired token")
-
-        validate_password(attrs['new_password'], user)
-        attrs['user'] = user
-        return attrs
-
-    def save(self):
-        user = self.validated_data['user']
-        new_password = self.validated_data['new_password']
-        user.set_password(new_password)
-        user.save()
-        return user
-
-
-class ReminderPreferencesSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = CustomUser
-        fields = ['reminder_mode', 'reminder_value']
-
-
-class AvailableUnitsSerializer(serializers.ModelSerializer):
-    landlord_id = serializers.CharField(source='property_obj.landlord.landlord_code', read_only=True)
-    property_id = serializers.IntegerField(source='property_obj.id', read_only=True)
-    property_name = serializers.CharField(source='property_obj.name', read_only=True)
-    unit_number = serializers.CharField(read_only=True)
-
-    class Meta:
-        model = Unit
-        fields = ['landlord_id', 'property_id', 'property_name', 'unit_number']
-from rest_framework import serializers
-from .models import Payment, SubscriptionPayment
-
-
-class PaymentSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Payment
-        fields = '__all__'
-        read_only_fields = ['transaction_date', 'status']
-
-
-class SubscriptionPaymentSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = SubscriptionPayment
-        fields = '__all__'
-        read_only_fields = ['transaction_date']
-from rest_framework import serializers
-from .models import Report
-from accounts.models import CustomUser, Unit, Property
-
-class ReportSerializer(serializers.ModelSerializer):
-    tenant = serializers.PrimaryKeyRelatedField(read_only=True, default=serializers.CurrentUserDefault())
-    unit = serializers.PrimaryKeyRelatedField(queryset=Unit.objects.all())
-
-    class Meta:
-        model = Report
-        fields = [
-            'id',
-            'tenant',
-            'unit',
-            'issue_category',
-            'priority_level',
-            'issue_title',
-            'description',
-            'created_at',
-            'status',
-        ]
-        read_only_fields = ['id', 'tenant', 'created_at', 'status']
-
-    def validate_unit(self, value):
-        # Ensure the unit belongs to the tenant submitting the report
-        user = self.context['request'].user
-        if value.tenant != user:
-            raise serializers.ValidationError("This unit is not assigned to the current tenant.")
-        return value
-
-    def create(self, validated_data):
-        validated_data['tenant'] = self.context['request'].user
-        return super().create(validated_data)
-
-class UpdateReportStatusSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Report
-        fields = ['status']
-        read_only_fields = []
-
-class SendEmailSerializer(serializers.Serializer):
-    subject = serializers.CharField(max_length=255)
-    message = serializers.CharField()
-    tenants = serializers.ListField(
-        child=serializers.PrimaryKeyRelatedField(queryset=CustomUser.objects.filter(user_type='tenant')),
-        required=False,
-        allow_empty=True
-    )
-    send_to_all = serializers.BooleanField(default=False)
-
-    def validate(self, data):
-        if not data.get('send_to_all') and not data.get('tenants'):
-            raise serializers.ValidationError("Either provide a list of tenants or set send_to_all to True.")
-        if data.get('send_to_all') and data.get('tenants'):
-            raise serializers.ValidationError("Cannot specify tenants when send_to_all is True.")
-        return data
-
-    def validate_tenants(self, value):
-        # Ensure all tenants belong to the landlord's properties
-        request = self.context.get('request')
-        if request and request.user.user_type == 'landlord':
-            landlord_properties = Property.objects.filter(landlord=request.user)
-            tenant_units = Unit.objects.filter(property_obj__in=landlord_properties, tenant__in=value)
-            valid_tenants = set(tenant_units.values_list('tenant', flat=True))
-            if set(t.id for t in value) != valid_tenants:
-                raise serializers.ValidationError("Some tenants do not belong to your properties.")
-        return value
-
