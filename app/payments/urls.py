@@ -20,6 +20,7 @@ from .views import (
     DepositPaymentStatusView,
     CleanupPendingPaymentsView,
     SimulateDepositCallbackView,
+    TestMpesaView,
 
     # CSV reports
     LandLordCSVView as landlord_csv,
