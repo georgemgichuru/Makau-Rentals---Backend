@@ -8,6 +8,8 @@ from .permissions import IsTenantWithUnit, IsLandlordWithActiveSubscription
 from accounts.permissions import CanAccessReport
 from accounts.models import CustomUser, Unit
 from .messaging import send_landlord_email
+from rest_framework.permissions import IsAuthenticated
+
 
 class CreateReportView(generics.CreateAPIView):
     queryset = Report.objects.all()
@@ -97,3 +99,31 @@ class SendEmailView(APIView):
             send_landlord_email(subject, message, tenants)
             return Response({"message": "Emails sent successfully."}, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+class ReportStatisticsView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        user = request.user
+        if user.user_type == 'landlord':
+            reports = Report.objects.filter(unit__property_obj__landlord=user)
+        else:
+            reports = Report.objects.filter(tenant=user)
+            
+        stats = {
+            'total': reports.count(),
+            'open': reports.filter(status='open').count(),
+            'in_progress': reports.filter(status='in_progress').count(),
+            'resolved': reports.filter(status='resolved').count(),
+            'urgent': reports.filter(priority_level='urgent', status__in=['open', 'in_progress']).count(),
+            'average_resolution_time': self.get_average_resolution_time(reports),
+        }
+        return Response(stats)
+    
+    def get_average_resolution_time(self, reports):
+        resolved_reports = reports.filter(status='resolved', resolved_date__isnull=False)
+        if not resolved_reports:
+            return 0
+            
+        total_days = sum((r.resolved_date - r.reported_date).days for r in resolved_reports)
+        return total_days / resolved_reports.count()

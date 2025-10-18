@@ -1,38 +1,49 @@
 from django.db import models
 from accounts.models import CustomUser, Unit
+from django.utils import timezone
 
 class Report(models.Model):
+    # Add more categories
     ISSUE_CATEGORIES = [
         ('electrical', 'Electrical'),
         ('plumbing', 'Plumbing'),
         ('noise', 'Noise'),
-        ('safety/violence', 'Safety/Violence'),
+        ('safety', 'Safety/Violence'),
         ('wifi', 'WiFi'),
-        ('maintenance', 'Maintenance'),
+        ('maintenance', 'General Maintenance'),
+        ('pest', 'Pest Control'),
+        ('security', 'Security'),
+        ('cleanliness', 'Cleanliness'),
+        ('other', 'Other'),
     ]
 
-    PRIORITY_LEVELS = [
-        ('low', 'Low'),
-        ('medium', 'Medium'),
-        ('high', 'High'),
-        ('urgent', 'Urgent'),
-    ]
+    # Add these fields for better tracking
+    reported_date = models.DateTimeField(auto_now_add=True)
+    resolved_date = models.DateTimeField(null=True, blank=True)
+    assigned_to = models.ForeignKey(
+        CustomUser, 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True,
+        limit_choices_to={'user_type': 'landlord'},
+        related_name='assigned_reports'
+    )
+    estimated_cost = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    actual_cost = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    
+    # Add file attachments
+    attachment = models.FileField(upload_to='report_attachments/', null=True, blank=True)
+    
+    # Add priority auto-assignment
+    def save(self, *args, **kwargs):
+        # Auto-assign priority based on category
+        if not self.priority_level:
+            urgent_categories = ['safety', 'electrical', 'plumbing']
+            self.priority_level = 'urgent' if self.issue_category in urgent_categories else 'medium'
+        super().save(*args, **kwargs)
 
-    STATUS_CHOICES = [
-        ('open', 'Open'),
-        ('in_progress', 'In Progress'),
-        ('resolved', 'Resolved'),
-        ('closed', 'Closed'),
-    ]
-
-    tenant = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='reports')
-    unit = models.ForeignKey(Unit, on_delete=models.CASCADE, related_name='reports')
-    issue_category = models.CharField(max_length=20, choices=ISSUE_CATEGORIES)
-    priority_level = models.CharField(max_length=10, choices=PRIORITY_LEVELS)
-    issue_title = models.CharField(max_length=255)
-    description = models.TextField()
-    created_at = models.DateTimeField(auto_now_add=True)
-    status = models.CharField(max_length=15, choices=STATUS_CHOICES, default='open')
-
-    def __str__(self):
-        return f"Report by {self.tenant.full_name} - {self.issue_title}"
+    @property
+    def days_open(self):
+        if self.status == 'resolved' and self.resolved_date:
+            return (self.resolved_date - self.reported_date).days
+        return (timezone.now() - self.reported_date).days

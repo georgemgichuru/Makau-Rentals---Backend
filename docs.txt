@@ -1,0 +1,2798 @@
+from django.db import models
+from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
+from django.utils import timezone
+from datetime import timedelta
+from django.core.exceptions import ValidationError
+import uuid
+
+
+class CustomUserManager(BaseUserManager):
+    # ensure the email is normalized and user_type is provided
+    def create_user(self, email, full_name, user_type, password=None, **extra_fields):
+        if not email:
+            raise ValueError("The Email field must be set")
+        if not user_type:
+            raise ValueError("User type must be set (landlord or tenant)")
+
+        email = self.normalize_email(email)
+        user = self.model(
+            email=email,
+            full_name=full_name,
+            user_type=user_type,
+            **extra_fields
+        )
+        user.set_password(password)
+        user.save(using=self._db)
+
+        # Auto-assign free trial for landlords
+        if user_type == "landlord":
+            Subscription.objects.create(
+                user=user,
+                plan="free",
+                expiry_date=timezone.now() + timedelta(days=60)
+            )
+            # generate a public landlord_code
+            if not getattr(user, 'landlord_code', None):
+                user.landlord_code = f"L-{uuid.uuid4().hex[:10].upper()}"
+                user.save(update_fields=['landlord_code'])
+
+        return user
+
+    def create_superuser(self, email, full_name, password=None, **extra_fields):
+        extra_fields.setdefault("is_staff", True)
+        extra_fields.setdefault("is_superuser", True)
+        # set default user_type if not provided
+        user_type = extra_fields.pop("user_type", "landlord")
+
+        if extra_fields.get("is_staff") is not True:
+            raise ValueError("Superuser must have is_staff=True.")
+        if extra_fields.get("is_superuser") is not True:
+            raise ValueError("Superuser must have is_superuser=True.")
+
+        return self.create_user(
+            email=email,
+            full_name=full_name,
+            user_type=user_type,
+            password=password,
+            **extra_fields
+        )
+
+
+class CustomUser(AbstractBaseUser,PermissionsMixin):
+    email = models.EmailField(unique=True)
+    full_name = models.CharField(max_length=120, default='')
+    # Government ID number (National ID or Passport)
+    government_id = models.CharField(max_length=20, blank=True, null=True, help_text="Government ID number (e.g., National ID or Passport)")
+    # ID or passport image for verification
+    id_document = models.ImageField(upload_to='id_documents/', null=True, blank=True)
+    # Human-facing landlord code used externally (different from DB id)
+    landlord_code = models.CharField(max_length=50, unique=True, null=True, blank=True)
+    date_joined = models.DateTimeField(auto_now_add=True)
+    type = [('landlord', 'Landlord'), ('tenant', 'Tenant')]
+    user_type = models.CharField(max_length=10, choices=type)
+    is_active = models.BooleanField(default=True)
+    is_staff = models.BooleanField(default=False)
+    is_superuser = models.BooleanField(default=False)
+    mpesa_till_number = models.CharField(max_length=20, blank=True, null=True, help_text="M-Pesa till number for direct payments (landlords only)")
+    phone_number = models.CharField(max_length=30, blank=True, null=True, help_text="User phone number in international format")
+    emergency_contact = models.CharField(max_length=30, blank=True, null=True, help_text="Emergency contact phone number")
+    reminder_mode = models.CharField(
+        max_length=20,
+        choices=[('days_before', 'Days Before Due Date'), ('fixed_day', 'Fixed Day of Month')],
+        default='days_before',
+        help_text="How the tenant wants to receive rent reminders"
+    )
+    reminder_value = models.IntegerField(
+        default=10,
+        help_text="For 'days_before': days before due date; For 'fixed_day': day of the month (1-31)"
+    )
+
+    USERNAME_FIELD = 'email'
+    REQUIRED_FIELDS = ['full_name']
+    objects = CustomUserManager()
+
+    # Check if user has an active subscription
+    def has_active_subscription(self):
+        if hasattr(self, "subscription"):
+            return self.subscription.is_active()
+        return False
+
+    def __str__(self):
+        return f"{self.full_name} ({self.email})"
+
+
+class Subscription(models.Model):
+    PLAN_CHOICES = [
+        ("free", "Free (60-day trial)"),
+        ("starter", "Starter (up to 10 units)"),
+        ("basic", "Basic (10-50 units)"),
+        ("professional", "Professional (50-100 units)"),
+        ("onetime", "One-time (Unlimited properties)"),
+    ]
+
+    user = models.OneToOneField(CustomUser, on_delete=models.CASCADE, related_name="subscription")
+    plan = models.CharField(max_length=20, choices=PLAN_CHOICES, default="free")
+    start_date = models.DateTimeField(auto_now_add=True)
+    expiry_date = models.DateTimeField(null=True, blank=True)
+
+    def save(self, *args, **kwargs):
+        # Set expiry dates based on plan
+        if not self.expiry_date:
+            if self.plan == "free":
+                self.expiry_date = timezone.now() + timedelta(days=60)
+            elif self.plan == "starter":
+                # monthly subscription
+                self.expiry_date = timezone.now() + timedelta(days=30)
+            elif self.plan == "basic":
+                # monthly subscription
+                self.expiry_date = timezone.now() + timedelta(days=30)
+            elif self.plan == "professional":
+                # monthly subscription
+                self.expiry_date = timezone.now() + timedelta(days=30)
+            # "onetime" could remain None for lifetime access
+        
+        super().save(*args, **kwargs)
+
+    # Check if subscription is still valid
+    def is_active(self):
+        return self.expiry_date is None or self.expiry_date > timezone.now()
+
+    def __str__(self):
+        return f"{self.user.email} - {self.plan}"
+
+
+class Property(models.Model):
+    landlord = models.ForeignKey(CustomUser, on_delete=models.CASCADE)
+    name = models.CharField(max_length=255)
+    city = models.CharField(max_length=100)
+    state = models.CharField(max_length=100)
+    unit_count = models.IntegerField()   # integer count of units for this property
+
+    def __str__(self):
+        return f"{self.name}, {self.city}"
+
+    def __str__(self):
+        return f"{self.name}, {self.city}"
+
+# TODO: Ensure that the landlord can only have a certain amount of units linked to property unit count
+class UnitType(models.Model):
+    landlord = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='unit_types')
+    name = models.CharField(max_length=50)
+    deposit = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    rent = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    number_of_units = models.IntegerField(default=0, help_text="Number of units of this type to create automatically")
+
+    def __str__(self):
+        return f"{self.landlord.email} - {self.name}"
+
+
+class Unit(models.Model):
+    property_obj = models.ForeignKey(
+        Property,
+        on_delete=models.CASCADE,
+        related_name="unit_list",
+        db_column="property_id"
+    )
+    # system-generated unit code (unique per unit)
+    unit_code = models.CharField(max_length=30, unique=True, default='')
+    unit_number = models.CharField(max_length=10)
+    floor = models.IntegerField(null=True, blank=True)
+    bedrooms = models.IntegerField(default=0)
+    bathrooms = models.IntegerField(default=0)
+
+    unit_type = models.ForeignKey(UnitType, on_delete=models.SET_NULL, null=True, blank=True)
+
+    rent = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    tenant = models.OneToOneField(CustomUser, on_delete=models.SET_NULL, null=True, blank=True)
+
+    rent_paid = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    rent_remaining = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    rent_due_date = models.DateField(null=True, blank=True)
+
+    deposit = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    is_available = models.BooleanField(default=True)
+
+    assigned_date = models.DateTimeField(null=True, blank=True)
+    left_date = models.DateTimeField(null=True, blank=True)
+
+    @property
+    def balance(self):
+        return self.rent_remaining - self.rent_paid
+
+    def clean(self):
+        current_units = self.__class__.objects.filter(property_obj=self.property_obj).count()
+        if self.property_obj.unit_count is not None and current_units >= self.property_obj.unit_count:
+            raise ValidationError("The number of units for this property has reached the limit.")
+
+    def save(self, *args, **kwargs):
+        # Calculate rent_remaining as rent - rent_paid
+        self.rent_remaining = self.rent - self.rent_paid
+
+        if self.pk:  # existing unit
+            old_unit = Unit.objects.get(pk=self.pk)
+            if old_unit.tenant != self.tenant:
+                if self.tenant and not self.assigned_date:
+                    self.assigned_date = timezone.now()
+                elif not self.tenant and old_unit.tenant:
+                    self.left_date = timezone.now()
+        else:  # new unit
+            if self.tenant:
+                self.assigned_date = timezone.now()
+        super().save(*args, **kwargs)
+
+
+    def __str__(self):
+        return f"{self.property_obj.name} - Unit {self.unit_number}"
+
+
+
+# REMINDER: payments is shown in the Unit model as rent_paid and rent_remaining
+# TODO: Protect the subscription features using a decorator or middleware to ensure only subscribed users can access them
+# TODO: Ensure payments for subscription and rent are two different things
+from rest_framework import permissions
+from django.core.cache import cache
+from .models import CustomUser, Subscription
+# REMOVE the problematic Payment import - it causes circular dependency
+
+class IsLandlord(permissions.BasePermission):
+    def has_permission(self, request, view):
+        return request.user.is_authenticated and request.user.user_type == 'landlord'
+
+class IsTenant(permissions.BasePermission):
+    def has_permission(self, request, view):
+        return request.user.is_authenticated and request.user.user_type == 'tenant'
+
+class IsSuperuser(permissions.BasePermission):
+    def has_permission(self, request, view):
+        return request.user.is_authenticated and request.user.is_superuser
+
+class HasActiveSubscription(permissions.BasePermission):
+    def has_permission(self, request, view):
+        if not request.user.is_authenticated or request.user.user_type != 'landlord':
+            return False
+        
+        # Use cache to avoid repeated database queries
+        cache_key = f"subscription_status:{request.user.id}"
+        has_active_sub = cache.get(cache_key)
+        
+        if has_active_sub is None:
+            try:
+                subscription = Subscription.objects.get(user=request.user)
+                has_active_sub = subscription.is_active()
+            except Subscription.DoesNotExist:
+                has_active_sub = False
+            cache.set(cache_key, has_active_sub, timeout=300)  # Cache for 5 minutes
+        
+        return has_active_sub
+
+# Remove the problematic IsTenantWithActivePayment permission if it exists
+# as it causes circular imports with Payment model
+
+class CanAccessReport(permissions.BasePermission):
+    def has_object_permission(self, request, view, obj):
+        if not request.user.is_authenticated:
+            return False
+        if request.user.user_type == 'tenant':
+            return obj.tenant == request.user
+        elif request.user.user_type == 'landlord':
+            return obj.unit.property_obj.landlord == request.user
+        return False
+from .models import CustomUser, Property, Unit, UnitType
+from rest_framework import serializers
+
+from django.contrib.auth.tokens import default_token_generator
+from django.utils.http import urlsafe_base64_encode
+from django.utils.encoding import force_bytes
+from django.core.mail import send_mail
+
+# Overide the token to use email instead of username for JWT authentication
+# accounts/serializers.py
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from rest_framework import serializers
+from django.contrib.auth import authenticate
+from .models import CustomUser
+
+class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
+    username_field = "email"
+
+    user_type = serializers.CharField(write_only=True)
+
+    def validate(self, attrs):
+        email = attrs.get("email")
+        password = attrs.get("password")
+        user_type = attrs.get("user_type")
+
+        if email and password and user_type:
+            user = authenticate(self.context['request'], email=email, password=password)
+            if not user:
+                raise serializers.ValidationError("Invalid email or password")
+            if user.user_type not in ['tenant', 'landlord']:
+                raise serializers.ValidationError("Invalid user type")
+            if user.user_type != user_type:
+                raise serializers.ValidationError("User type does not match")
+            if not user.is_active:
+                raise serializers.ValidationError("User account is disabled")
+        else:
+            raise serializers.ValidationError("Must include 'email', 'password', and 'user_type'")
+
+        data = super().validate(attrs)
+        data['user_type'] = user_type
+        return data
+
+
+
+class UserSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CustomUser
+        fields = [
+            'id',
+            'email',
+            'full_name',
+            'government_id',
+            'id_document',
+            'landlord_code',
+            'date_joined',
+            'user_type',
+            'is_active',
+            'is_staff',
+            'is_superuser',
+            'mpesa_till_number',
+            'phone_number',
+            'emergency_contact',
+            'reminder_mode',
+            'reminder_value',
+            'password'
+        ]
+        read_only_fields = ['id', 'date_joined', 'is_active', 'is_staff', 'is_superuser', 'landlord_code']
+        extra_kwargs = {
+            'password': {'write_only': True}
+        }
+
+    def create(self, validated_data):
+        # Always use the manager to ensure password is hashed
+        # adapt to new signature: email, full_name, user_type, password
+        email = validated_data.pop('email')
+        full_name = validated_data.pop('full_name')
+        user_type = validated_data.pop('user_type')
+        password = validated_data.pop('password', None)
+        user = CustomUser.objects.create_user(email=email, full_name=full_name, user_type=user_type, password=password, **validated_data)
+        return user
+
+    def update(self, instance, validated_data):
+        for attr, value in validated_data.items():
+            if attr == 'password':
+                instance.set_password(value)
+            else:
+                setattr(instance, attr, value)
+        instance.save()
+        return instance
+
+    def validate_phone_number(self, value):
+        if not value:
+            return value
+        import re
+        if not re.match(r"^\+?[0-9]{7,15}$", value):
+            raise serializers.ValidationError("Enter a valid phone number in international format, e.g. +2547XXXXXXXX")
+        return value
+
+    def validate_emergency_contact(self, value):
+        if not value:
+            return value
+        import re
+        if not re.match(r"^\+?[0-9]{7,15}$", value):
+            raise serializers.ValidationError("Enter a valid emergency contact phone number in international format")
+        return value
+
+        
+class PropertySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Property
+        fields = ['id', 'landlord', 'name', 'city', 'state', 'unit_count']
+        read_only_fields = ['id', 'landlord']
+    def create(self, validated_data):
+        property = Property.objects.create(**validated_data)
+        return property
+    
+class UnitTypeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UnitType
+        fields = ['id', 'landlord', 'name', 'deposit', 'rent']
+        read_only_fields = ['id', 'landlord']
+
+
+class UnitSerializer(serializers.ModelSerializer):
+    property = serializers.IntegerField(write_only=True, required=False)  # Alias for property_obj
+
+    class Meta:
+        model = Unit
+        fields = ['id', 'property_obj', 'unit_code', 'unit_number', 'floor', 'bedrooms', 'bathrooms', 'unit_type', 'rent', 'tenant', 'rent_paid', 'rent_remaining', 'deposit', 'is_available', 'property']
+        read_only_fields = ['id', 'rent_remaining', 'unit_code']
+        extra_kwargs = {
+            'unit_number': {'required': False},
+            'property_obj': {'required': False},
+        }
+
+    def validate(self, attrs):
+        user = self.context['request'].user
+        # Handle property alias
+        if 'property' in attrs:
+            try:
+                prop = Property.objects.get(id=attrs.pop('property'))
+                if prop.landlord != user:
+                    raise serializers.ValidationError("Property not owned by you.")
+                attrs['property_obj'] = prop
+            except Property.DoesNotExist:
+                raise serializers.ValidationError("Property not found.")
+        # Validate property_obj ownership if set directly
+        if 'property_obj' in attrs:
+            if attrs['property_obj'].landlord != user:
+                raise serializers.ValidationError("Property not owned by you.")
+        # Validate unit_type ownership
+        if 'unit_type' in attrs and attrs['unit_type']:
+            if attrs['unit_type'].landlord != user:
+                raise serializers.ValidationError("UnitType not owned by you.")
+        return super().validate(attrs)
+
+    def create(self, validated_data):
+        # Auto-generate unit_number if not provided
+        if not validated_data.get('unit_number'):
+            prop = validated_data.get('property_obj')
+            if prop:
+                existing_units = Unit.objects.filter(property_obj=prop)
+                last_unit = existing_units.order_by('-unit_number').first()
+                if last_unit and last_unit.unit_number.isdigit():
+                    next_num = int(last_unit.unit_number) + 1
+                else:
+                    next_num = 1
+                validated_data['unit_number'] = str(next_num)
+        # Auto-generate unit_code if not provided
+        if not validated_data.get('unit_code'):
+            prop = validated_data.get('property_obj')
+            if prop and getattr(prop, 'id', None):
+                existing_count = Unit.objects.filter(property_obj=prop).count()
+                validated_data['unit_code'] = f"U-{prop.id}-{existing_count+1}"
+            else:
+                # fallback unique code
+                import uuid
+                validated_data['unit_code'] = f"U-{uuid.uuid4().hex[:10].upper()}"
+        # Set rent and deposit from unit_type if not provided
+        unit_type = validated_data.get('unit_type')
+        if unit_type:
+            if not validated_data.get('rent'):
+                validated_data['rent'] = unit_type.rent
+            if not validated_data.get('deposit'):
+                validated_data['deposit'] = unit_type.deposit
+        # Enforce landlord has at least one UnitType defined before creating units
+        prop = validated_data.get('property_obj')
+        if prop and prop.landlord:
+            landlord = prop.landlord
+            if not UnitType.objects.filter(landlord=landlord).exists():
+                raise serializers.ValidationError("Landlord must create at least one UnitType before creating Units.")
+
+        unit = Unit.objects.create(**validated_data)
+        return unit
+
+
+class UnitNumberSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Unit
+        fields = ['unit_number']
+
+# TODO: Ensure landlords create properties and units upon sign up this will be done in the frontend
+# TODO: Ensure Tenants pay the deposit to book a unit and choose their property upon sign up
+# TODO: Ensure Tenants and Landlords can reset their passwords and get email notifications for important actions 
+
+
+# For reset password functionality
+class PasswordResetSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+
+    def validate_email(self, value):
+        if not CustomUser.objects.filter(email=value).exists():
+            raise serializers.ValidationError("User with this email does not exist.")
+        return value
+
+    def save(self):
+        from django.conf import settings
+        email = self.validated_data['email']
+        user = CustomUser.objects.get(email=email)
+        uid = urlsafe_base64_encode(force_bytes(user.pk))
+        token = default_token_generator.make_token(user)
+        # Use the configurable frontend URL from settings
+        reset_link = f"{settings.FRONTEND_URL}/reset-password/{uid}/{token}/"
+
+        send_mail(
+            subject="Password Reset Request",
+            message=f"Click the link to reset your password: {reset_link}",
+            from_email=None,
+            recipient_list=[email],
+        )
+
+
+class PasswordResetConfirmSerializer(serializers.Serializer):
+    uid = serializers.CharField()
+    token = serializers.CharField()
+    new_password = serializers.CharField(write_only=True, min_length=8)
+
+    def validate(self, attrs):
+        from django.contrib.auth.tokens import default_token_generator
+        from django.utils.http import urlsafe_base64_decode
+        from django.contrib.auth.password_validation import validate_password
+        try:
+            uid = urlsafe_base64_decode(attrs['uid']).decode()
+            user = CustomUser.objects.get(pk=uid)
+        except (TypeError, ValueError, OverflowError, CustomUser.DoesNotExist):
+            raise serializers.ValidationError("Invalid UID")
+
+        if not default_token_generator.check_token(user, attrs['token']):
+            raise serializers.ValidationError("Invalid or expired token")
+
+        validate_password(attrs['new_password'], user)
+        attrs['user'] = user
+        return attrs
+
+    def save(self):
+        user = self.validated_data['user']
+        new_password = self.validated_data['new_password']
+        user.set_password(new_password)
+        user.save()
+        return user
+
+
+class ReminderPreferencesSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CustomUser
+        fields = ['reminder_mode', 'reminder_value']
+
+
+class AvailableUnitsSerializer(serializers.ModelSerializer):
+    landlord_id = serializers.CharField(source='property_obj.landlord.landlord_code', read_only=True)
+    property_id = serializers.IntegerField(source='property_obj.id', read_only=True)
+    property_name = serializers.CharField(source='property_obj.name', read_only=True)
+    unit_number = serializers.CharField(read_only=True)
+
+    class Meta:
+        model = Unit
+        fields = ['landlord_id', 'property_id', 'property_name', 'unit_number']
+from rest_framework_simplejwt.views import (
+    TokenObtainPairView,
+    TokenRefreshView,
+)
+from rest_framework.routers import DefaultRouter
+from . import views
+from django.urls import path
+from .views import (UserDetailView, UserListView, UserCreateView, PasswordResetView,
+                    CreatePropertyView, LandlordPropertiesView, CreateUnitView,
+                    UpdatePropertyView,UpdateUnitView,UpdateUserView, SubscriptionStatusView,
+                    UpdateTillNumberView, MyTokenObtainPairView, AdminLandlordSubscriptionStatusView,
+                    MeView, PasswordResetConfirmView, UnitTypeListCreateView, UnitTypeDetailView,
+                    LandlordDashboardStatsView, TenantUpdateUnitView, AdjustRentView,
+                    PropertyUnitsView, AssignTenantView, UpdateReminderPreferencesView,
+                    LandlordAvailableUnitsView, WelcomeView, LandlordsListView,
+                    PendingApplicationsView, EvictedTenantsView,
+)
+
+router = DefaultRouter()
+# Remove or comment these out if you're not using ViewSets
+# router.register('properties', views.PropertyViewSet, basename='property')
+# router.register('units', views.UnitViewSet, basename='unit')
+# router.register('users', views.UserViewSet, basename='user')
+
+urlpatterns = [
+    # Authentication endpoints
+    path("signup/", UserCreateView.as_view(), name="signup"),
+    path('token/', MyTokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+
+    # User endpoints
+    path("users/<int:user_id>/", UserDetailView.as_view(), name="user-detail"),
+    path("users/", UserListView.as_view(), name="user-list"),
+    path('users/<int:user_id>/update/', UpdateUserView.as_view(), name='user-update'),
+    path('me/', MeView.as_view(), name='me'),
+
+    # Password reset
+    path('password-reset/', PasswordResetView.as_view(), name='password-reset'),
+    path('password-reset-confirm/', PasswordResetConfirmView.as_view(), name='password-reset-confirm'),
+
+    # Property endpoints - FIXED URL NAMES
+    path('properties/create/', CreatePropertyView.as_view(), name='property-create'),  # Changed from 'create-property'
+    path('properties/', LandlordPropertiesView.as_view(), name='property-list'),  # Changed from 'landlord-properties'
+    path('properties/<int:property_id>/update/', UpdatePropertyView.as_view(), name='property-update'),
+    path('properties/<int:property_id>/units/', PropertyUnitsView.as_view(), name='property-units'),
+
+    # Unit endpoints - FIXED URL NAMES
+    path('units/create/', CreateUnitView.as_view(), name='unit-create'),  # Changed from 'create-unit'
+    path('units/<int:unit_id>/update/', UpdateUnitView.as_view(), name='unit-update'),
+    path('units/tenant/update/', TenantUpdateUnitView.as_view(), name='tenant-unit-update'),
+    path('units/<int:unit_id>/assign/<int:tenant_id>/', AssignTenantView.as_view(), name='assign-tenant'),  # Changed from 'assign-tenant-to-unit'
+
+    # UnitType endpoints
+    path('unit-types/', UnitTypeListCreateView.as_view(), name='unit-types'),  # Changed from 'unittype-list-create'
+    path('unit-types/<int:pk>/', UnitTypeDetailView.as_view(), name='unit-type-detail'),  # Changed from 'unittype-detail'
+
+    # Subscription endpoints
+    path('subscription-status/', SubscriptionStatusView.as_view(), name='subscription-status'),
+    path('update-till-number/', UpdateTillNumberView.as_view(), name='update-till-number'),
+    path('admin/landlord-subscriptions/', AdminLandlordSubscriptionStatusView.as_view(), name='admin-landlord-subscriptions'),
+    path('dashboard-stats/', LandlordDashboardStatsView.as_view(), name='dashboard-stats'),
+    path('adjust-rent/', AdjustRentView.as_view(), name='adjust-rent'),
+
+    # Other endpoints
+    path('update-reminder-preferences/', UpdateReminderPreferencesView.as_view(), name='update-reminder-preferences'),
+    path('available-units/', LandlordAvailableUnitsView.as_view(), name='available-units'),  # Changed from 'landlord-available-units'
+    path('welcome/', WelcomeView.as_view(), name='welcome'),
+
+    # New endpoints for contexts
+    path('tenants/', UserListView.as_view(), name='tenants-list'),
+    path('landlords/', LandlordsListView.as_view(), name='landlords-list'),
+    path('pending-applications/', PendingApplicationsView.as_view(), name='pending-applications'),
+    path('evicted-tenants/', EvictedTenantsView.as_view(), name='evicted-tenants'),
+]
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+from rest_framework import status, generics
+from rest_framework.decorators import api_view, permission_classes
+from django.conf import settings
+from django.shortcuts import get_object_or_404
+from django.core.cache import cache
+from django.utils import timezone
+from django.db.models import Sum, Q
+from django.http import HttpResponse
+import json
+import requests
+from decimal import Decimal
+from datetime import datetime, timedelta
+import csv
+import io
+
+from accounts.models import CustomUser, Unit, UnitType, Property, Subscription
+from .models import Payment, SubscriptionPayment
+from .generate_token import generate_access_token
+from .serializers import PaymentSerializer, SubscriptionPaymentSerializer
+
+
+# ------------------------------
+# M-PESA STK PUSH FUNCTIONS
+# ------------------------------
+
+@csrf_exempt
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def stk_push(request, unit_id):
+    """
+    Initiate STK push for rent payment
+    """
+    try:
+        unit = get_object_or_404(Unit, id=unit_id)
+        tenant = request.user
+
+        # Validate tenant owns the unit
+        if unit.tenant != tenant:
+            return Response({"error": "You don't have permission to pay for this unit"}, status=status.HTTP_403_FORBIDDEN)
+
+        # Check if rent is already paid
+        if unit.rent_remaining <= 0:
+            return Response({"error": "Rent is already paid for this unit"}, status=status.HTTP_400_BAD_REQUEST)
+
+        amount = unit.rent_remaining
+        phone_number = tenant.phone_number
+
+        if not phone_number:
+            return Response({"error": "Phone number is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Generate access token
+        access_token = generate_access_token()
+        if not access_token:
+            return Response({"error": "Failed to generate M-Pesa access token"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        # Prepare STK push request
+        timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
+        password = settings.MPESA_SHORTCODE + settings.MPESA_PASSKEY + timestamp
+
+        payload = {
+            "BusinessShortCode": settings.MPESA_SHORTCODE,
+            "Password": password,
+            "Timestamp": timestamp,
+            "TransactionType": "CustomerPayBillOnline",
+            "Amount": int(amount),
+            "PartyA": phone_number,
+            "PartyB": settings.MPESA_SHORTCODE,
+            "PhoneNumber": phone_number,
+            "CallBackURL": settings.MPESA_RENT_CALLBACK_URL,
+            "AccountReference": f"Rent-{unit.unit_code}",
+            "TransactionDesc": f"Rent payment for {unit.unit_number}"
+        }
+
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json"
+        }
+
+        # Make STK push request
+        if settings.MPESA_ENV == "sandbox":
+            url = "https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest"
+        else:
+            url = "https://api.safaricom.co.ke/mpesa/stkpush/v1/processrequest"
+
+        response = requests.post(url, json=payload, headers=headers)
+        response_data = response.json()
+
+        if response.status_code == 200 and response_data.get("ResponseCode") == "0":
+            # Create pending payment record
+            payment = Payment.objects.create(
+                tenant=tenant,
+                unit=unit,
+                amount=amount,
+                status="Pending",
+                payment_type="rent"
+            )
+
+            # Cache checkout request ID for callback
+            cache.set(f"stk_{response_data['CheckoutRequestID']}", {
+                "payment_id": payment.id,
+                "unit_id": unit.id,
+                "amount": float(amount)
+            }, timeout=300)  # 5 minutes
+
+            return Response({
+                "success": True,
+                "message": "STK push initiated successfully",
+                "checkout_request_id": response_data["CheckoutRequestID"],
+                "payment_id": payment.id
+            })
+
+        else:
+            return Response({
+                "error": "Failed to initiate STK push",
+                "details": response_data
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+    except Exception as e:
+        return Response({"error": "Internal server error"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@csrf_exempt
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def stk_push_subscription(request):
+    """
+    Initiate STK push for subscription payment
+    """
+    try:
+        user = request.user
+        plan = request.data.get('plan')
+        phone_number = request.data.get('phone_number')
+
+        if not plan or not phone_number:
+            return Response({"error": "Plan and phone number are required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Validate plan
+        plan_amounts = {
+            'starter': 1000,
+            'basic': 2000,
+            'professional': 3000
+        }
+
+        if plan not in plan_amounts:
+            return Response({"error": "Invalid plan"}, status=status.HTTP_400_BAD_REQUEST)
+
+        amount = plan_amounts[plan]
+
+        # Generate access token
+        access_token = generate_access_token()
+        if not access_token:
+            return Response({"error": "Failed to generate M-Pesa access token"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        # Prepare STK push request
+        timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
+        password = settings.MPESA_SHORTCODE + settings.MPESA_PASSKEY + timestamp
+
+        payload = {
+            "BusinessShortCode": settings.MPESA_SHORTCODE,
+            "Password": password,
+            "Timestamp": timestamp,
+            "TransactionType": "CustomerPayBillOnline",
+            "Amount": amount,
+            "PartyA": phone_number,
+            "PartyB": settings.MPESA_SHORTCODE,
+            "PhoneNumber": phone_number,
+            "CallBackURL": settings.MPESA_SUBSCRIPTION_CALLBACK_URL,
+            "AccountReference": f"Subscription-{user.id}",
+            "TransactionDesc": f"Subscription payment for {plan} plan"
+        }
+
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json"
+        }
+
+        # Make STK push request
+        if settings.MPESA_ENV == "sandbox":
+            url = "https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest"
+        else:
+            url = "https://api.safaricom.co.ke/mpesa/stkpush/v1/processrequest"
+
+        response = requests.post(url, json=payload, headers=headers)
+        response_data = response.json()
+
+        if response.status_code == 200 and response_data.get("ResponseCode") == "0":
+            # Create pending subscription payment record
+            subscription_payment = SubscriptionPayment.objects.create(
+                user=user,
+                amount=Decimal(amount),
+                subscription_type=plan,
+                status="Pending"
+            )
+
+            # Cache checkout request ID for callback
+            cache.set(f"stk_sub_{response_data['CheckoutRequestID']}", {
+                "subscription_payment_id": subscription_payment.id,
+                "user_id": user.id,
+                "plan": plan,
+                "amount": amount
+            }, timeout=300)  # 5 minutes
+
+            return Response({
+                "success": True,
+                "message": "Subscription STK push initiated successfully",
+                "checkout_request_id": response_data["CheckoutRequestID"],
+                "subscription_payment_id": subscription_payment.id
+            })
+
+        else:
+            return Response({
+                "error": "Failed to initiate subscription STK push",
+                "details": response_data
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+    except Exception as e:
+        return Response({"error": "Internal server error"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+# ------------------------------
+# M-PESA CALLBACK FUNCTIONS
+# ------------------------------
+
+@csrf_exempt
+def mpesa_rent_callback(request):
+    """
+    Handle M-Pesa rent payment callback
+    """
+    try:
+        callback_data = json.loads(request.body)
+
+        stk_callback = callback_data.get("Body", {}).get("stkCallback", {})
+
+        if stk_callback.get("ResultCode") == 0:
+            # Successful payment
+            callback_metadata = stk_callback.get("CallbackMetadata", {}).get("Item", [])
+
+            mpesa_receipt = None
+            amount = None
+
+            for item in callback_metadata:
+                if item["Name"] == "MpesaReceiptNumber":
+                    mpesa_receipt = item["Value"]
+                elif item["Name"] == "Amount":
+                    amount = item["Value"]
+
+            checkout_request_id = stk_callback.get("CheckoutRequestID")
+
+            # Get cached payment data
+            cached_data = cache.get(f"stk_{checkout_request_id}")
+            if cached_data:
+                payment = Payment.objects.get(id=cached_data["payment_id"])
+                payment.status = "Success"
+                payment.mpesa_receipt = mpesa_receipt
+                payment.save()
+
+                # Update unit rent_paid
+                unit = payment.unit
+                unit.rent_paid += Decimal(amount)
+                unit.save()
+
+                cache.delete(f"stk_{checkout_request_id}")
+
+        return JsonResponse({"ResultCode": 0, "ResultDesc": "Accepted"})
+
+    except Exception as e:
+        return JsonResponse({"ResultCode": 1, "ResultDesc": "Error"})
+
+
+@csrf_exempt
+def mpesa_subscription_callback(request):
+    """
+    Handle M-Pesa subscription payment callback
+    """
+    try:
+        callback_data = json.loads(request.body)
+
+        stk_callback = callback_data.get("Body", {}).get("stkCallback", {})
+
+        if stk_callback.get("ResultCode") == 0:
+            # Successful payment
+            callback_metadata = stk_callback.get("CallbackMetadata", {}).get("Item", [])
+
+            mpesa_receipt = None
+            amount = None
+
+            for item in callback_metadata:
+                if item["Name"] == "MpesaReceiptNumber":
+                    mpesa_receipt = item["Value"]
+                elif item["Name"] == "Amount":
+                    amount = item["Value"]
+
+            checkout_request_id = stk_callback.get("CheckoutRequestID")
+
+            # Get cached subscription payment data
+            cached_data = cache.get(f"stk_sub_{checkout_request_id}")
+            if cached_data:
+                subscription_payment = SubscriptionPayment.objects.get(id=cached_data["subscription_payment_id"])
+                subscription_payment.status = "Success"
+                subscription_payment.mpesa_receipt_number = mpesa_receipt
+                subscription_payment.save()
+
+                # Update user subscription
+                user = subscription_payment.user
+                subscription = user.subscription
+                subscription.plan = subscription_payment.subscription_type
+                subscription.expiry_date = timezone.now() + timedelta(days=30)
+                subscription.save()
+
+                cache.delete(f"stk_sub_{checkout_request_id}")
+
+        return JsonResponse({"ResultCode": 0, "ResultDesc": "Accepted"})
+
+    except Exception as e:
+        return JsonResponse({"ResultCode": 1, "ResultDesc": "Error"})
+
+
+@csrf_exempt
+def mpesa_b2c_callback(request):
+    """
+    Handle M-Pesa B2C payment callback
+    """
+    try:
+        callback_data = json.loads(request.body)
+        logger.info(f"B2C callback received: {callback_data}")
+
+        result = callback_data.get("Result", {})
+
+        if result.get("ResultCode") == 0:
+            # Successful B2C payment
+            result_parameters = result.get("ResultParameters", {}).get("ResultParameter", [])
+
+            transaction_receipt = None
+            transaction_amount = None
+            conversation_id = result.get("ConversationID")
+
+            # Extract relevant parameters
+            for param in result_parameters:
+                if param["Key"] == "TransactionReceipt":
+                    transaction_receipt = param["Value"]
+                elif param["Key"] == "TransactionAmount":
+                    transaction_amount = param["Value"]
+
+            # Get cached B2C payment data if exists
+            cached_data = cache.get(f"b2c_{conversation_id}")
+            if cached_data:
+                # Update payment status or perform business logic here
+                # For example, mark disbursement as successful
+                logger.info(f"B2C payment successful: Receipt {transaction_receipt}, Amount {transaction_amount}")
+                cache.delete(f"b2c_{conversation_id}")
+            else:
+                logger.info(f"B2C payment successful (no cached data): Receipt {transaction_receipt}, Amount {transaction_amount}")
+
+        else:
+            # Failed B2C payment
+            logger.error(f"B2C payment failed: {result.get('ResultDesc')}")
+
+        return JsonResponse({"ResultCode": 0, "ResultDesc": "Accepted"})
+
+    except Exception as e:
+        logger.error(f"B2C callback error: {str(e)}")
+        return JsonResponse({"ResultCode": 1, "ResultDesc": "Error"})
+
+
+@csrf_exempt
+def mpesa_deposit_callback(request):
+    """
+    Handle M-Pesa deposit payment callback
+    """
+    try:
+        callback_data = json.loads(request.body)
+        logger.info(f"Deposit callback received: {callback_data}")
+
+        stk_callback = callback_data.get("Body", {}).get("stkCallback", {})
+
+        if stk_callback.get("ResultCode") == 0:
+            # Successful payment
+            callback_metadata = stk_callback.get("CallbackMetadata", {}).get("Item", [])
+
+            mpesa_receipt = None
+            amount = None
+
+            for item in callback_metadata:
+                if item["Name"] == "MpesaReceiptNumber":
+                    mpesa_receipt = item["Value"]
+                elif item["Name"] == "Amount":
+                    amount = item["Value"]
+
+            checkout_request_id = stk_callback.get("CheckoutRequestID")
+
+            # Get cached deposit payment data
+            cached_data = cache.get(f"stk_deposit_{checkout_request_id}")
+            if cached_data:
+                payment = Payment.objects.get(id=cached_data["payment_id"])
+                payment.status = "Success"
+                payment.mpesa_receipt = mpesa_receipt
+                payment.save()
+
+                # Mark unit as occupied
+                unit = payment.unit
+                unit.is_available = False
+                unit.save()
+
+                cache.delete(f"stk_deposit_{checkout_request_id}")
+                logger.info(f"Deposit payment successful: {payment.id}")
+
+        return JsonResponse({"ResultCode": 0, "ResultDesc": "Accepted"})
+
+    except Exception as e:
+        logger.error(f"Deposit callback error: {str(e)}")
+        return JsonResponse({"ResultCode": 1, "ResultDesc": "Error"})
+
+
+# ------------------------------
+# DRF CLASS-BASED VIEWS
+# ------------------------------
+
+class PaymentListCreateView(generics.ListCreateAPIView):
+    """
+    List and create rent payments
+    """
+    serializer_class = PaymentSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        if user.user_type == 'tenant':
+            return Payment.objects.filter(tenant=user)
+        elif user.user_type == 'landlord':
+            # Landlords can see payments for their properties
+            return Payment.objects.filter(unit__property_obj__landlord=user)
+        return Payment.objects.none()
+
+    def perform_create(self, serializer):
+        serializer.save(tenant=self.request.user)
+
+
+class PaymentDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """
+    Retrieve, update, and delete rent payment
+    """
+    serializer_class = PaymentSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        if user.user_type == 'tenant':
+            return Payment.objects.filter(tenant=user)
+        elif user.user_type == 'landlord':
+            return Payment.objects.filter(unit__property_obj__landlord=user)
+        return Payment.objects.none()
+
+
+class SubscriptionPaymentListCreateView(generics.ListCreateAPIView):
+    """
+    List and create subscription payments
+    """
+    serializer_class = SubscriptionPaymentSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return SubscriptionPayment.objects.filter(user=self.request.user)
+
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)
+
+
+class SubscriptionPaymentDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """
+    Retrieve, update, and delete subscription payment
+    """
+    serializer_class = SubscriptionPaymentSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return SubscriptionPayment.objects.filter(user=self.request.user)
+
+
+class RentSummaryView(APIView):
+    """
+    Get rent summary for landlord
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        if user.user_type != 'landlord':
+            return Response({"error": "Only landlords can access this endpoint"}, status=status.HTTP_403_FORBIDDEN)
+
+        # Calculate total collected and outstanding rent
+        properties = Property.objects.filter(landlord=user)
+        units = Unit.objects.filter(property_obj__in=properties)
+
+        total_collected = Payment.objects.filter(
+            unit__in=units,
+            status='Success'
+        ).aggregate(total=Sum('amount'))['total'] or 0
+
+        total_outstanding = units.aggregate(
+            outstanding=Sum('rent_remaining')
+        )['outstanding'] or 0
+
+        return Response({
+            "total_collected": total_collected,
+            "total_outstanding": total_outstanding,
+            "properties_count": properties.count(),
+            "units_count": units.count()
+        })
+
+
+class UnitTypeListView(generics.ListAPIView):
+    """
+    List unit types for landlord
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return UnitType.objects.filter(landlord=self.request.user)
+
+
+class InitiateDepositPaymentView(APIView):
+    """
+    Initiate deposit payment for unit
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        unit_id = request.data.get('unit_id')
+        test = request.data.get('test', False)
+        unit = get_object_or_404(Unit, id=unit_id)
+
+        if not unit.is_available:
+            return Response({"error": "Unit is not available"}, status=status.HTTP_400_BAD_REQUEST)
+
+        tenant = request.user
+        amount = unit.deposit
+        phone_number = tenant.phone_number
+
+        if not phone_number:
+            return Response({"error": "Phone number is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Generate access token
+        access_token = generate_access_token()
+        if not access_token:
+            return Response({"error": "Failed to generate M-Pesa access token"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        # Prepare STK push request
+        timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
+
+        if test:
+            shortcode = 174379
+            passkey = 'Safaricom123!!'
+            party_a = 600986
+            party_b = 600000
+            phone = 254708374149
+        else:
+            shortcode = settings.MPESA_SHORTCODE
+            passkey = settings.MPESA_PASSKEY
+            party_a = phone_number
+            party_b = settings.MPESA_SHORTCODE
+            phone = phone_number
+
+        password = shortcode + passkey + timestamp
+
+        payload = {
+            "BusinessShortCode": shortcode,
+            "Password": password,
+            "Timestamp": timestamp,
+            "TransactionType": "CustomerPayBillOnline",
+            "Amount": int(amount),
+            "PartyA": party_a,
+            "PartyB": party_b,
+            "PhoneNumber": phone,
+            "CallBackURL": settings.MPESA_DEPOSIT_CALLBACK_URL,
+            "AccountReference": f"Deposit-{unit.unit_code}",
+            "TransactionDesc": f"Deposit payment for {unit.unit_number}"
+        }
+
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json"
+        }
+
+        # Make STK push request
+        if settings.MPESA_ENV == "sandbox":
+            url = "https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest"
+        else:
+            url = "https://api.safaricom.co.ke/mpesa/stkpush/v1/processrequest"
+
+        response = requests.post(url, json=payload, headers=headers)
+        response_data = response.json()
+
+        if response.status_code == 200 and response_data.get("ResponseCode") == "0":
+            # Create pending deposit payment record
+            payment = Payment.objects.create(
+                tenant=tenant,
+                unit=unit,
+                amount=amount,
+                status="Pending",
+                payment_type="deposit"
+            )
+
+            # Cache checkout request ID for callback
+            cache.set(f"stk_deposit_{response_data['CheckoutRequestID']}", {
+                "payment_id": payment.id,
+                "unit_id": unit.id,
+                "amount": float(amount)
+            }, timeout=300)  # 5 minutes
+
+            return Response({
+                "success": True,
+                "message": "Deposit STK push initiated successfully",
+                "checkout_request_id": response_data["CheckoutRequestID"],
+                "payment_id": payment.id
+            })
+
+        else:
+            return Response({
+                "error": "Failed to initiate deposit STK push",
+                "details": response_data
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+
+
+class DepositPaymentStatusView(APIView):
+    """
+    Check deposit payment status
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, payment_id):
+        payment = get_object_or_404(Payment, id=payment_id)
+
+        # Check if user has permission to view this payment
+        if request.user.user_type == 'tenant' and payment.tenant != request.user:
+            return Response({"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
+
+        if request.user.user_type == 'landlord' and payment.unit.property_obj.landlord != request.user:
+            return Response({"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
+
+        return Response({
+            "payment_id": payment.id,
+            "status": payment.status,
+            "amount": payment.amount,
+            "mpesa_receipt": payment.mpesa_receipt
+        })
+
+
+class CleanupPendingPaymentsView(APIView):
+    """
+    Clean up old pending payments
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        # Delete pending payments older than 1 hour
+        cutoff_time = timezone.now() - timedelta(hours=1)
+        deleted_count = Payment.objects.filter(
+            status='Pending',
+            transaction_date__lt=cutoff_time
+        ).delete()
+
+        return Response({"message": f"Cleaned up {deleted_count[0]} pending payments"})
+
+
+# ------------------------------
+# CSV EXPORT VIEWS
+# ------------------------------
+
+class LandLordCSVView(APIView):
+    """
+    Export landlord payment data as CSV
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, property_id):
+        user = request.user
+        if user.user_type != 'landlord':
+            return Response({"error": "Only landlords can access this endpoint"}, status=status.HTTP_403_FORBIDDEN)
+
+        property_obj = get_object_or_404(Property, id=property_id, landlord=user)
+        units = Unit.objects.filter(property_obj=property_obj)
+        payments = Payment.objects.filter(unit__in=units, status='Success')
+
+        # Create CSV response
+        response = HttpResponse(content_type='text/csv')
+        response['Content-Disposition'] = f'attachment; filename="landlord_payments_{property_obj.name}.csv"'
+
+        writer = csv.writer(response)
+        writer.writerow(['Unit Number', 'Tenant', 'Amount', 'Date', 'M-Pesa Receipt'])
+
+        for payment in payments:
+            writer.writerow([
+                payment.unit.unit_number,
+                payment.tenant.full_name if payment.tenant else '',
+                payment.amount,
+                payment.transaction_date.strftime('%Y-%m-%d'),
+                payment.mpesa_receipt or ''
+            ])
+
+        return response
+
+
+class TenantCSVView(APIView):
+    """
+    Export tenant payment data as CSV
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, unit_id):
+        user = request.user
+        unit = get_object_or_404(Unit, id=unit_id)
+
+        if user.user_type == 'tenant' and unit.tenant != user:
+            return Response({"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
+
+        if user.user_type == 'landlord' and unit.property_obj.landlord != user:
+            return Response({"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
+
+        payments = Payment.objects.filter(unit=unit, status='Success')
+
+        # Create CSV response
+        response = HttpResponse(content_type='text/csv')
+        response['Content-Disposition'] = f'attachment; filename="tenant_payments_unit_{unit.unit_number}.csv"'
+
+        writer = csv.writer(response)
+        writer.writerow(['Amount', 'Date', 'M-Pesa Receipt', 'Type'])
+
+        for payment in payments:
+            writer.writerow([
+                payment.amount,
+                payment.transaction_date.strftime('%Y-%m-%d'),
+                payment.mpesa_receipt or '',
+                payment.payment_type
+            ])
+
+        return response
+
+
+class TestMpesaView(APIView):
+    """
+    Test endpoint for M-Pesa integration
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        return Response({
+            "message": "M-Pesa test endpoint",
+            "mpesa_env": settings.MPESA_ENV,
+            "shortcode": settings.MPESA_SHORTCODE
+        })
+
+    def post(self, request):
+        # Test token generation
+        token = generate_access_token()
+        if token:
+            return Response({
+                "success": True,
+                "message": "M-Pesa token generated successfully",
+                "token_preview": token[:10] + "..."
+            })
+        else:
+            return Response({
+                "success": False,
+                "message": "Failed to generate M-Pesa token"
+            }, status=400)
+from django.db import models
+from accounts.models import CustomUser, Unit
+
+class Report(models.Model):
+    ISSUE_CATEGORIES = [
+        ('electrical', 'Electrical'),
+        ('plumbing', 'Plumbing'),
+        ('noise', 'Noise'),
+        ('safety/violence', 'Safety/Violence'),
+        ('wifi', 'WiFi'),
+        ('maintenance', 'Maintenance'),
+    ]
+
+    PRIORITY_LEVELS = [
+        ('low', 'Low'),
+        ('medium', 'Medium'),
+        ('high', 'High'),
+        ('urgent', 'Urgent'),
+    ]
+
+    STATUS_CHOICES = [
+        ('open', 'Open'),
+        ('in_progress', 'In Progress'),
+        ('resolved', 'Resolved'),
+        ('closed', 'Closed'),
+    ]
+
+    tenant = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='reports')
+    unit = models.ForeignKey(Unit, on_delete=models.CASCADE, related_name='reports')
+    issue_category = models.CharField(max_length=20, choices=ISSUE_CATEGORIES)
+    priority_level = models.CharField(max_length=10, choices=PRIORITY_LEVELS)
+    issue_title = models.CharField(max_length=255)
+    description = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    status = models.CharField(max_length=15, choices=STATUS_CHOICES, default='open')
+
+    def __str__(self):
+        return f"Report by {self.tenant.full_name} - {self.issue_title}"
+# services/messaging.py
+from django.conf import settings
+from django.core.mail import send_mail
+
+
+def send_bulk_emails(tenants):
+    """
+    Send rent reminder emails to a list of tenants.
+    Each tenant receives a personalized message with their outstanding balance.
+    """
+    for tenant in tenants:
+        subject = "Rent Payment Reminder"
+        message = (
+            f"Hello {tenant.full_name},\n\n"
+            f"This is a reminder to pay your rent.\n"
+            f"Outstanding balance: KES {tenant.unit.rent_remaining}."
+        )
+        try:
+            send_mail(subject, message, settings.EMAIL_HOST_USER, [tenant.email])
+        except Exception as e:
+            print(f"Email failed for {tenant.email}: {e}")
+
+
+
+
+
+def send_deadline_reminder_emails(tenants):
+    """
+    Send rent deadline reminder emails to a list of tenants.
+    Each email includes the payment deadline date, outstanding balance, and login link.
+    """
+    for tenant in tenants:
+        unit = tenant.unit
+        subject = "Rent Payment Deadline Reminder"
+        login_link = f"{settings.FRONTEND_URL}/login"
+        message = (
+            f"Hello {tenant.full_name},\n\n"
+            f"This is a reminder that your rent payment is due on {unit.rent_due_date}.\n"
+            f"Outstanding balance: KES {unit.rent_remaining}.\n\n"
+            f"Please log in to your account to make the payment: {login_link}\n\n"
+            "Thank you,\n"
+            "Makau Rentals Team"
+        )
+        try:
+            send_mail(subject, message, settings.EMAIL_HOST_USER, [tenant.email])
+        except Exception as e:
+            print(f"Email failed for {tenant.email}: {e}")
+
+
+def send_deadline_reminders():
+    """
+    Send reminders to tenants based on their custom reminder preferences.
+    """
+    from datetime import timedelta
+    from django.utils import timezone
+    from accounts.models import CustomUser
+
+    today = timezone.now().date()
+    tenants_to_remind = []
+
+    # Get all tenants with units and outstanding rent
+    tenants = CustomUser.objects.filter(
+        user_type="tenant",
+        unit__isnull=False,
+        unit__rent_remaining__gt=0
+    ).select_related('unit')
+
+    for tenant in tenants:
+        unit = tenant.unit
+        if tenant.reminder_mode == 'days_before':
+            reminder_date = unit.rent_due_date - timedelta(days=tenant.reminder_value)
+            if reminder_date == today:
+                tenants_to_remind.append(tenant)
+        elif tenant.reminder_mode == 'fixed_day':
+            if today.day == tenant.reminder_value:
+                # Optionally, check if due date is within a reasonable period, e.g., next 30 days
+                if unit.rent_due_date and unit.rent_due_date >= today and (unit.rent_due_date - today).days <= 30:
+                    tenants_to_remind.append(tenant)
+
+    if tenants_to_remind:
+        send_deadline_reminder_emails(tenants_to_remind)
+
+# TODO:
+# - This module handles sending bulk emails to tenants for rent reminders.
+# - It uses Django's send_mail for email notifications.
+# - The send_deadline_reminders() function is scheduled via Celery Beat to run automatically.
+
+def send_report_email(report):
+    """
+    Send an email to the landlord when a new report is created.
+    """
+    landlord = report.unit.property_obj.landlord
+    subject = f"New Issue Report: {report.issue_title}"
+    issue_url = f"{settings.FRONTEND_URL}/reports/{report.id}"
+    message = (
+        f"Hello {landlord.full_name},\n\n"
+        f"A new issue report has been submitted by tenant {report.tenant.full_name}.\n\n"
+        f"Unit Number: {report.unit.unit_number}\n"
+        f"Issue Category: {report.issue_category}\n"
+        f"Priority Level: {report.priority_level}\n"
+        f"Issue Title: {report.issue_title}\n"
+        f"Description:\n{report.description}\n\n"
+        f"To resolve the issue, please visit: {issue_url}\n\n"
+        "Best regards,\n"
+        "Makau Rentals System"
+    )
+    try:
+        send_mail(subject, message, settings.EMAIL_HOST_USER, [landlord.email])
+    except Exception as e:
+        print(f"Failed to send report email: {e}")
+
+
+def send_landlord_email(subject, message, tenants):
+    """
+    Send a custom email from landlord to a list of tenants.
+    """
+    recipient_emails = [tenant.email for tenant in tenants]
+    try:
+        send_mail(subject, message, settings.EMAIL_HOST_USER, recipient_emails)
+    except Exception as e:
+        print(f"Failed to send landlord email: {e}")
+from rest_framework import serializers
+from .models import Report
+from accounts.models import CustomUser, Unit, Property
+
+class ReportSerializer(serializers.ModelSerializer):
+    tenant = serializers.PrimaryKeyRelatedField(read_only=True, default=serializers.CurrentUserDefault())
+    unit = serializers.PrimaryKeyRelatedField(queryset=Unit.objects.all())
+
+    class Meta:
+        model = Report
+        fields = [
+            'id',
+            'tenant',
+            'unit',
+            'issue_category',
+            'priority_level',
+            'issue_title',
+            'description',
+            'created_at',
+            'status',
+        ]
+        read_only_fields = ['id', 'tenant', 'created_at', 'status']
+
+    def validate_unit(self, value):
+        # Ensure the unit belongs to the tenant submitting the report
+        user = self.context['request'].user
+        if value.tenant != user:
+            raise serializers.ValidationError("This unit is not assigned to the current tenant.")
+        return value
+
+    def create(self, validated_data):
+        validated_data['tenant'] = self.context['request'].user
+        return super().create(validated_data)
+
+class UpdateReportStatusSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Report
+        fields = ['status']
+        read_only_fields = []
+
+class SendEmailSerializer(serializers.Serializer):
+    subject = serializers.CharField(max_length=255)
+    message = serializers.CharField()
+    tenants = serializers.ListField(
+        child=serializers.PrimaryKeyRelatedField(queryset=CustomUser.objects.filter(user_type='tenant')),
+        required=False,
+        allow_empty=True
+    )
+    send_to_all = serializers.BooleanField(default=False)
+
+    def validate(self, data):
+        if not data.get('send_to_all') and not data.get('tenants'):
+            raise serializers.ValidationError("Either provide a list of tenants or set send_to_all to True.")
+        if data.get('send_to_all') and data.get('tenants'):
+            raise serializers.ValidationError("Cannot specify tenants when send_to_all is True.")
+        return data
+
+    def validate_tenants(self, value):
+        # Ensure all tenants belong to the landlord's properties
+        request = self.context.get('request')
+        if request and request.user.user_type == 'landlord':
+            landlord_properties = Property.objects.filter(landlord=request.user)
+            tenant_units = Unit.objects.filter(property_obj__in=landlord_properties, tenant__in=value)
+            valid_tenants = set(tenant_units.values_list('tenant', flat=True))
+            if set(t.id for t in value) != valid_tenants:
+                raise serializers.ValidationError("Some tenants do not belong to your properties.")
+        return value
+from django.urls import path
+from .views import (
+    CreateReportView,
+    OpenReportsView,
+    UrgentReportsView,
+    InProgressReportsView,
+    ResolvedReportsView,
+    UpdateReportStatusView,
+    SendEmailView,
+)
+
+urlpatterns = [
+    # Create a new report (POST)
+    path('reports/create/', CreateReportView.as_view(), name='create-report'),  # Added /create/
+
+    # List open reports for the authenticated user (GET)
+    path('reports/open/', OpenReportsView.as_view(), name='open-reports'),
+
+    # List urgent reports for the authenticated user (GET)
+    path('reports/urgent/', UrgentReportsView.as_view(), name='urgent-reports'),
+
+    # List in-progress reports for the authenticated user (GET)
+    path('reports/in-progress/', InProgressReportsView.as_view(), name='in-progress-reports'),
+
+    # List resolved reports for the authenticated user (GET)
+    path('reports/resolved/', ResolvedReportsView.as_view(), name='resolved-reports'),
+
+    # Update the status of a specific report (PATCH/PUT)
+    path('reports/<int:pk>/update-status/', UpdateReportStatusView.as_view(), name='update-report-status'),
+
+    # Send email to tenants (POST)
+    path('reports/send-email/', SendEmailView.as_view(), name='send-email'),  # Added /reports/ prefix
+]
+from rest_framework import generics, permissions
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from .models import Report
+from .serializers import ReportSerializer, UpdateReportStatusSerializer, SendEmailSerializer
+from .permissions import IsTenantWithUnit, IsLandlordWithActiveSubscription
+from accounts.permissions import CanAccessReport
+from accounts.models import CustomUser, Unit
+from .messaging import send_landlord_email
+
+class CreateReportView(generics.CreateAPIView):
+    queryset = Report.objects.all()
+    serializer_class = ReportSerializer
+    permission_classes = [permissions.IsAuthenticated, IsTenantWithUnit]
+
+    def perform_create(self, serializer):
+        report = serializer.save()
+        # Import here to avoid circular imports
+        from app.tasks import send_report_email_task
+        send_report_email_task.delay(report.id)
+
+class OpenReportsView(generics.ListAPIView):
+    serializer_class = ReportSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+
+        if user.user_type == 'tenant':
+            return Report.objects.filter(tenant=user, status='open')
+        elif user.user_type == 'landlord':
+            return Report.objects.filter(unit__property_obj__landlord=user, status='open')
+        return Report.objects.none()
+
+class UrgentReportsView(generics.ListAPIView):
+    serializer_class = ReportSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        if user.user_type == 'tenant':
+            return Report.objects.filter(tenant=user, priority_level='urgent')
+        elif user.user_type == 'landlord':
+            return Report.objects.filter(unit__property_obj__landlord=user, priority_level='urgent')
+        return Report.objects.none()
+
+class InProgressReportsView(generics.ListAPIView):
+    serializer_class = ReportSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        if user.user_type == 'tenant':
+            return Report.objects.filter(tenant=user, status='in_progress')
+        elif user.user_type == 'landlord':
+            return Report.objects.filter(unit__property_obj__landlord=user, status='in_progress')
+        return Report.objects.none()
+
+class ResolvedReportsView(generics.ListAPIView):
+    serializer_class = ReportSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        if user.user_type == 'tenant':
+            return Report.objects.filter(tenant=user, status='resolved')
+        elif user.user_type == 'landlord':
+            return Report.objects.filter(unit__property_obj__landlord=user, status='resolved')
+        return Report.objects.none()
+
+class UpdateReportStatusView(generics.UpdateAPIView):
+    queryset = Report.objects.all()
+    serializer_class = UpdateReportStatusSerializer
+    permission_classes = [permissions.IsAuthenticated, CanAccessReport]
+
+class SendEmailView(APIView):
+    permission_classes = [permissions.IsAuthenticated, IsLandlordWithActiveSubscription]
+
+    def post(self, request):
+        serializer = SendEmailSerializer(data=request.data, context={'request': request})
+        if serializer.is_valid():
+            subject = serializer.validated_data['subject']
+            message = serializer.validated_data['message']
+            send_to_all = serializer.validated_data['send_to_all']
+
+            if send_to_all:
+                # Get all tenants of the landlord
+                landlord_properties = request.user.property_set.all()
+                tenants = CustomUser.objects.filter(
+                    user_type='tenant',
+                    unit__property_obj__in=landlord_properties
+                ).distinct()
+            else:
+                tenants = serializer.validated_data['tenants']
+
+            send_landlord_email(subject, message, tenants)
+            return Response({"message": "Emails sent successfully."}, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+from django.db import models
+from accounts.models import CustomUser, Unit, Subscription
+from datetime import timedelta
+
+class Payment(models.Model):
+    PAYMENT_TYPES = [
+        ('rent', 'Rent'),
+        ('deposit', 'Deposit'),
+    ]
+    tenant = models.ForeignKey(
+        CustomUser,
+        on_delete=models.CASCADE,
+        limit_choices_to={'user_type': 'tenant'},
+        related_name='payments',
+        null=True,
+        blank=True
+    )
+    unit = models.ForeignKey(Unit, on_delete=models.CASCADE, related_name='payments', null=True, blank=True)
+    unit_type = models.ForeignKey('accounts.UnitType', on_delete=models.CASCADE, related_name='payments', null=True, blank=True)
+    payment_type = models.CharField(max_length=10, choices=PAYMENT_TYPES, default='rent')
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    mpesa_receipt = models.CharField(max_length=50, blank=True, null=True)
+    transaction_date = models.DateTimeField(auto_now_add=True)
+    status = models.CharField(
+        max_length=20,
+        choices=[("Pending", "Pending"), ("Success", "Success"), ("Failed", "Failed")],
+        default="Pending"
+    )
+
+    def __str__(self):
+        unit_str = f"Unit {self.unit.unit_number}" if self.unit else "Deposit"
+        return f"{self.tenant.email} - {unit_str} - KES {self.amount} ({self.status})"
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+
+
+class SubscriptionPayment(models.Model):
+    user = models.ForeignKey(
+        CustomUser,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True
+    )
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    mpesa_receipt_number = models.CharField(
+        max_length=50,
+        blank=True,  # Allow empty strings
+        null=True,
+        default=""
+    )
+    transaction_date = models.DateTimeField(auto_now_add=True)
+    subscription_type = models.CharField(max_length=20, choices=Subscription.PLAN_CHOICES)
+    status = models.CharField(
+        max_length=20,
+        choices=[("Pending", "Pending"), ("Success", "Success"), ("Failed", "Failed")],
+        default="Pending"
+    )
+
+    class Meta:
+        # Simple unique constraint for non-empty receipt numbers
+        constraints = [
+            models.UniqueConstraint(
+                fields=['mpesa_receipt_number'],
+                name='unique_mpesa_receipt',
+                condition=~models.Q(mpesa_receipt_number='')
+            )
+        ]
+
+    def __str__(self):
+        return f"Subscription Payment {self.id} - {self.subscription_type}"
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+
+    def _get_plan_duration(self):
+        durations = {
+            "free": timedelta(days=60),
+            "starter": timedelta(days=30),
+            "basic": timedelta(days=30),
+            "professional": timedelta(days=30),
+            # "onetime" will be treated as lifetime (None) by the subscription logic
+        }
+        return durations.get(self.subscription_type, timedelta(days=30))
+import requests
+from django.conf import settings
+from requests.auth import HTTPBasicAuth
+import logging
+import datetime
+import base64
+logger = logging.getLogger(__name__)
+
+def generate_access_token():
+    """
+    Generate M-Pesa access token with proper error handling
+    """
+    try:
+        # Use sandbox or production URL
+        if settings.MPESA_ENV == "sandbox":
+            url = "https://sandbox.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials"
+        else:
+            url = "https://api.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials"
+
+        response = requests.get(
+            url,
+            auth=HTTPBasicAuth(settings.MPESA_CONSUMER_KEY, settings.MPESA_CONSUMER_SECRET),
+            timeout=30
+        )
+
+        if response.status_code == 200:
+            data = response.json()
+            return data.get('access_token')
+        else:
+            logger.error(f"M-Pesa token generation failed: {response.status_code} - {response.text}")
+            return None
+
+    except Exception as e:
+        logger.error(f"M-Pesa token generation error: {str(e)}")
+        return None
+
+def initiate_b2c_payment(amount, recipient, payment_id, remarks="Rent disbursement"):
+    """
+    Initiate B2C payment to disburse funds to landlord.
+    - amount: Amount to disburse (KES)
+    - recipient: Landlord's phone number (254XXXXXXXXX format) or till number
+    - payment_id: Reference for the payment
+    - remarks: Description of the transaction
+    Returns response dict or raises ValueError on failure.
+    """
+    if not settings.MPESA_CONSUMER_KEY or not settings.MPESA_CONSUMER_SECRET:
+        raise ValueError("MPESA_CONSUMER_KEY and MPESA_CONSUMER_SECRET must be set in settings.")
+
+    # Generate access token
+    access_token = generate_access_token()
+
+    # Use sandbox or production URL based on env
+    base_url = "https://sandbox.safaricom.co.ke" if settings.MPESA_ENV == "sandbox" else "https://api.safaricom.co.ke"
+    url = f"{base_url}/mpesa/b2c/v1/paymentrequest"
+
+    timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+    password = base64.b64encode(
+        (settings.MPESA_SHORTCODE + settings.MPESA_PASSKEY + timestamp).encode("utf-8")
+    ).decode("utf-8")
+
+    payload = {
+        "InitiatorName": settings.MPESA_INITIATOR_NAME,  # Need to add to settings
+        "SecurityCredential": settings.MPESA_SECURITY_CREDENTIAL,  # Need to add to settings
+        "CommandID": "BusinessPayment",
+        "Amount": str(amount),
+        "PartyA": settings.MPESA_SHORTCODE,
+        "PartyB": recipient,  # Can be phone number or till number
+        "Remarks": remarks,
+        "QueueTimeOutURL": settings.MPESA_B2C_TIMEOUT_URL,  # Need to add to settings
+        "ResultURL": settings.MPESA_B2C_RESULT_URL,  # Need to add to settings
+        "Occasion": f"Payment {payment_id}"
+    }
+
+    headers = {"Authorization": f"Bearer {access_token}"}
+
+    try:
+        response = requests.post(url, json=payload, headers=headers, timeout=30)
+        response.raise_for_status()
+        data = response.json()
+        logger.info(f"B2C payment initiated: {data}")
+        return data
+    except requests.exceptions.RequestException as e:
+        logger.error(f"B2C payment failed: {e}")
+        raise ValueError(f"B2C payment error: {str(e)}")
+    except Exception as e:
+        logger.error(f"Unexpected B2C error: {e}")
+        raise ValueError(f"B2C error: {str(e)}")
+from rest_framework import serializers
+from .models import Payment, SubscriptionPayment
+
+
+class PaymentSerializer(serializers.ModelSerializer):
+    date = serializers.DateTimeField(source='transaction_date', read_only=True)
+    phone = serializers.CharField(source='tenant.phone_number', read_only=True)
+    tenant_name = serializers.CharField(source='tenant.full_name', read_only=True)
+
+    class Meta:
+        model = Payment
+        fields = ['id', 'tenant', 'tenant_name', 'unit', 'payment_type', 'amount', 'mpesa_receipt', 'date', 'phone', 'status']
+        read_only_fields = ['transaction_date', 'status']
+
+
+class SubscriptionPaymentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SubscriptionPayment
+        fields = '__all__'
+        read_only_fields = ['transaction_date']
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+from rest_framework import status, generics
+from rest_framework.decorators import api_view, permission_classes
+from django.conf import settings
+from django.shortcuts import get_object_or_404
+from django.core.cache import cache
+from django.utils import timezone
+from django.db.models import Sum, Q
+from django.http import HttpResponse
+import json
+import requests
+from decimal import Decimal
+from datetime import datetime, timedelta
+import csv
+import io
+
+from accounts.models import CustomUser, Unit, UnitType, Property, Subscription
+from .models import Payment, SubscriptionPayment
+from .generate_token import generate_access_token
+from .serializers import PaymentSerializer, SubscriptionPaymentSerializer
+
+
+# ------------------------------
+# M-PESA STK PUSH FUNCTIONS
+# ------------------------------
+
+@csrf_exempt
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def stk_push(request, unit_id):
+    """
+    Initiate STK push for rent payment
+    """
+    try:
+        unit = get_object_or_404(Unit, id=unit_id)
+        tenant = request.user
+
+        # Validate tenant owns the unit
+        if unit.tenant != tenant:
+            return Response({"error": "You don't have permission to pay for this unit"}, status=status.HTTP_403_FORBIDDEN)
+
+        # Check if rent is already paid
+        if unit.rent_remaining <= 0:
+            return Response({"error": "Rent is already paid for this unit"}, status=status.HTTP_400_BAD_REQUEST)
+
+        amount = unit.rent_remaining
+        phone_number = tenant.phone_number
+
+        if not phone_number:
+            return Response({"error": "Phone number is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Generate access token
+        access_token = generate_access_token()
+        if not access_token:
+            return Response({"error": "Failed to generate M-Pesa access token"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        # Prepare STK push request
+        timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
+        password = settings.MPESA_SHORTCODE + settings.MPESA_PASSKEY + timestamp
+
+        payload = {
+            "BusinessShortCode": settings.MPESA_SHORTCODE,
+            "Password": password,
+            "Timestamp": timestamp,
+            "TransactionType": "CustomerPayBillOnline",
+            "Amount": int(amount),
+            "PartyA": phone_number,
+            "PartyB": settings.MPESA_SHORTCODE,
+            "PhoneNumber": phone_number,
+            "CallBackURL": settings.MPESA_RENT_CALLBACK_URL,
+            "AccountReference": f"Rent-{unit.unit_code}",
+            "TransactionDesc": f"Rent payment for {unit.unit_number}"
+        }
+
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json"
+        }
+
+        # Make STK push request
+        if settings.MPESA_ENV == "sandbox":
+            url = "https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest"
+        else:
+            url = "https://api.safaricom.co.ke/mpesa/stkpush/v1/processrequest"
+
+        response = requests.post(url, json=payload, headers=headers)
+        response_data = response.json()
+
+        if response.status_code == 200 and response_data.get("ResponseCode") == "0":
+            # Create pending payment record
+            payment = Payment.objects.create(
+                tenant=tenant,
+                unit=unit,
+                amount=amount,
+                status="Pending",
+                payment_type="rent"
+            )
+
+            # Cache checkout request ID for callback
+            cache.set(f"stk_{response_data['CheckoutRequestID']}", {
+                "payment_id": payment.id,
+                "unit_id": unit.id,
+                "amount": float(amount)
+            }, timeout=300)  # 5 minutes
+
+            return Response({
+                "success": True,
+                "message": "STK push initiated successfully",
+                "checkout_request_id": response_data["CheckoutRequestID"],
+                "payment_id": payment.id
+            })
+
+        else:
+            return Response({
+                "error": "Failed to initiate STK push",
+                "details": response_data
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+    except Exception as e:
+        return Response({"error": "Internal server error"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@csrf_exempt
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def stk_push_subscription(request):
+    """
+    Initiate STK push for subscription payment
+    """
+    try:
+        user = request.user
+        plan = request.data.get('plan')
+        phone_number = request.data.get('phone_number')
+
+        if not plan or not phone_number:
+            return Response({"error": "Plan and phone number are required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Validate plan
+        plan_amounts = {
+            'starter': 1000,
+            'basic': 2000,
+            'professional': 3000
+        }
+
+        if plan not in plan_amounts:
+            return Response({"error": "Invalid plan"}, status=status.HTTP_400_BAD_REQUEST)
+
+        amount = plan_amounts[plan]
+
+        # Generate access token
+        access_token = generate_access_token()
+        if not access_token:
+            return Response({"error": "Failed to generate M-Pesa access token"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        # Prepare STK push request
+        timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
+        password = settings.MPESA_SHORTCODE + settings.MPESA_PASSKEY + timestamp
+
+        payload = {
+            "BusinessShortCode": settings.MPESA_SHORTCODE,
+            "Password": password,
+            "Timestamp": timestamp,
+            "TransactionType": "CustomerPayBillOnline",
+            "Amount": amount,
+            "PartyA": phone_number,
+            "PartyB": settings.MPESA_SHORTCODE,
+            "PhoneNumber": phone_number,
+            "CallBackURL": settings.MPESA_SUBSCRIPTION_CALLBACK_URL,
+            "AccountReference": f"Subscription-{user.id}",
+            "TransactionDesc": f"Subscription payment for {plan} plan"
+        }
+
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json"
+        }
+
+        # Make STK push request
+        if settings.MPESA_ENV == "sandbox":
+            url = "https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest"
+        else:
+            url = "https://api.safaricom.co.ke/mpesa/stkpush/v1/processrequest"
+
+        response = requests.post(url, json=payload, headers=headers)
+        response_data = response.json()
+
+        if response.status_code == 200 and response_data.get("ResponseCode") == "0":
+            # Create pending subscription payment record
+            subscription_payment = SubscriptionPayment.objects.create(
+                user=user,
+                amount=Decimal(amount),
+                subscription_type=plan,
+                status="Pending"
+            )
+
+            # Cache checkout request ID for callback
+            cache.set(f"stk_sub_{response_data['CheckoutRequestID']}", {
+                "subscription_payment_id": subscription_payment.id,
+                "user_id": user.id,
+                "plan": plan,
+                "amount": amount
+            }, timeout=300)  # 5 minutes
+
+            return Response({
+                "success": True,
+                "message": "Subscription STK push initiated successfully",
+                "checkout_request_id": response_data["CheckoutRequestID"],
+                "subscription_payment_id": subscription_payment.id
+            })
+
+        else:
+            return Response({
+                "error": "Failed to initiate subscription STK push",
+                "details": response_data
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+    except Exception as e:
+        return Response({"error": "Internal server error"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+# ------------------------------
+# M-PESA CALLBACK FUNCTIONS
+# ------------------------------
+
+@csrf_exempt
+def mpesa_rent_callback(request):
+    """
+    Handle M-Pesa rent payment callback
+    """
+    try:
+        callback_data = json.loads(request.body)
+
+        stk_callback = callback_data.get("Body", {}).get("stkCallback", {})
+
+        if stk_callback.get("ResultCode") == 0:
+            # Successful payment
+            callback_metadata = stk_callback.get("CallbackMetadata", {}).get("Item", [])
+
+            mpesa_receipt = None
+            amount = None
+
+            for item in callback_metadata:
+                if item["Name"] == "MpesaReceiptNumber":
+                    mpesa_receipt = item["Value"]
+                elif item["Name"] == "Amount":
+                    amount = item["Value"]
+
+            checkout_request_id = stk_callback.get("CheckoutRequestID")
+
+            # Get cached payment data
+            cached_data = cache.get(f"stk_{checkout_request_id}")
+            if cached_data:
+                payment = Payment.objects.get(id=cached_data["payment_id"])
+                payment.status = "Success"
+                payment.mpesa_receipt = mpesa_receipt
+                payment.save()
+
+                # Update unit rent_paid
+                unit = payment.unit
+                unit.rent_paid += Decimal(amount)
+                unit.save()
+
+                cache.delete(f"stk_{checkout_request_id}")
+
+        return JsonResponse({"ResultCode": 0, "ResultDesc": "Accepted"})
+
+    except Exception as e:
+        return JsonResponse({"ResultCode": 1, "ResultDesc": "Error"})
+
+
+@csrf_exempt
+def mpesa_subscription_callback(request):
+    """
+    Handle M-Pesa subscription payment callback
+    """
+    try:
+        callback_data = json.loads(request.body)
+
+        stk_callback = callback_data.get("Body", {}).get("stkCallback", {})
+
+        if stk_callback.get("ResultCode") == 0:
+            # Successful payment
+            callback_metadata = stk_callback.get("CallbackMetadata", {}).get("Item", [])
+
+            mpesa_receipt = None
+            amount = None
+
+            for item in callback_metadata:
+                if item["Name"] == "MpesaReceiptNumber":
+                    mpesa_receipt = item["Value"]
+                elif item["Name"] == "Amount":
+                    amount = item["Value"]
+
+            checkout_request_id = stk_callback.get("CheckoutRequestID")
+
+            # Get cached subscription payment data
+            cached_data = cache.get(f"stk_sub_{checkout_request_id}")
+            if cached_data:
+                subscription_payment = SubscriptionPayment.objects.get(id=cached_data["subscription_payment_id"])
+                subscription_payment.status = "Success"
+                subscription_payment.mpesa_receipt_number = mpesa_receipt
+                subscription_payment.save()
+
+                # Update user subscription
+                user = subscription_payment.user
+                subscription = user.subscription
+                subscription.plan = subscription_payment.subscription_type
+                subscription.expiry_date = timezone.now() + timedelta(days=30)
+                subscription.save()
+
+                cache.delete(f"stk_sub_{checkout_request_id}")
+
+        return JsonResponse({"ResultCode": 0, "ResultDesc": "Accepted"})
+
+    except Exception as e:
+        return JsonResponse({"ResultCode": 1, "ResultDesc": "Error"})
+
+
+@csrf_exempt
+def mpesa_b2c_callback(request):
+    """
+    Handle M-Pesa B2C payment callback
+    """
+    try:
+        callback_data = json.loads(request.body)
+        logger.info(f"B2C callback received: {callback_data}")
+
+        result = callback_data.get("Result", {})
+
+        if result.get("ResultCode") == 0:
+            # Successful B2C payment
+            result_parameters = result.get("ResultParameters", {}).get("ResultParameter", [])
+
+            transaction_receipt = None
+            transaction_amount = None
+            conversation_id = result.get("ConversationID")
+
+            # Extract relevant parameters
+            for param in result_parameters:
+                if param["Key"] == "TransactionReceipt":
+                    transaction_receipt = param["Value"]
+                elif param["Key"] == "TransactionAmount":
+                    transaction_amount = param["Value"]
+
+            # Get cached B2C payment data if exists
+            cached_data = cache.get(f"b2c_{conversation_id}")
+            if cached_data:
+                # Update payment status or perform business logic here
+                # For example, mark disbursement as successful
+                logger.info(f"B2C payment successful: Receipt {transaction_receipt}, Amount {transaction_amount}")
+                cache.delete(f"b2c_{conversation_id}")
+            else:
+                logger.info(f"B2C payment successful (no cached data): Receipt {transaction_receipt}, Amount {transaction_amount}")
+
+        else:
+            # Failed B2C payment
+            logger.error(f"B2C payment failed: {result.get('ResultDesc')}")
+
+        return JsonResponse({"ResultCode": 0, "ResultDesc": "Accepted"})
+
+    except Exception as e:
+        logger.error(f"B2C callback error: {str(e)}")
+        return JsonResponse({"ResultCode": 1, "ResultDesc": "Error"})
+
+
+@csrf_exempt
+def mpesa_deposit_callback(request):
+    """
+    Handle M-Pesa deposit payment callback
+    """
+    try:
+        callback_data = json.loads(request.body)
+        logger.info(f"Deposit callback received: {callback_data}")
+
+        stk_callback = callback_data.get("Body", {}).get("stkCallback", {})
+
+        if stk_callback.get("ResultCode") == 0:
+            # Successful payment
+            callback_metadata = stk_callback.get("CallbackMetadata", {}).get("Item", [])
+
+            mpesa_receipt = None
+            amount = None
+
+            for item in callback_metadata:
+                if item["Name"] == "MpesaReceiptNumber":
+                    mpesa_receipt = item["Value"]
+                elif item["Name"] == "Amount":
+                    amount = item["Value"]
+
+            checkout_request_id = stk_callback.get("CheckoutRequestID")
+
+            # Get cached deposit payment data
+            cached_data = cache.get(f"stk_deposit_{checkout_request_id}")
+            if cached_data:
+                payment = Payment.objects.get(id=cached_data["payment_id"])
+                payment.status = "Success"
+                payment.mpesa_receipt = mpesa_receipt
+                payment.save()
+
+                # Mark unit as occupied
+                unit = payment.unit
+                unit.is_available = False
+                unit.save()
+
+                cache.delete(f"stk_deposit_{checkout_request_id}")
+                logger.info(f"Deposit payment successful: {payment.id}")
+
+        return JsonResponse({"ResultCode": 0, "ResultDesc": "Accepted"})
+
+    except Exception as e:
+        logger.error(f"Deposit callback error: {str(e)}")
+        return JsonResponse({"ResultCode": 1, "ResultDesc": "Error"})
+
+
+# ------------------------------
+# DRF CLASS-BASED VIEWS
+# ------------------------------
+
+class PaymentListCreateView(generics.ListCreateAPIView):
+    """
+    List and create rent payments
+    """
+    serializer_class = PaymentSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        if user.user_type == 'tenant':
+            return Payment.objects.filter(tenant=user)
+        elif user.user_type == 'landlord':
+            # Landlords can see payments for their properties
+            return Payment.objects.filter(unit__property_obj__landlord=user)
+        return Payment.objects.none()
+
+    def perform_create(self, serializer):
+        serializer.save(tenant=self.request.user)
+
+
+class PaymentDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """
+    Retrieve, update, and delete rent payment
+    """
+    serializer_class = PaymentSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        if user.user_type == 'tenant':
+            return Payment.objects.filter(tenant=user)
+        elif user.user_type == 'landlord':
+            return Payment.objects.filter(unit__property_obj__landlord=user)
+        return Payment.objects.none()
+
+
+class SubscriptionPaymentListCreateView(generics.ListCreateAPIView):
+    """
+    List and create subscription payments
+    """
+    serializer_class = SubscriptionPaymentSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return SubscriptionPayment.objects.filter(user=self.request.user)
+
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)
+
+
+class SubscriptionPaymentDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """
+    Retrieve, update, and delete subscription payment
+    """
+    serializer_class = SubscriptionPaymentSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return SubscriptionPayment.objects.filter(user=self.request.user)
+
+
+class RentSummaryView(APIView):
+    """
+    Get rent summary for landlord
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        if user.user_type != 'landlord':
+            return Response({"error": "Only landlords can access this endpoint"}, status=status.HTTP_403_FORBIDDEN)
+
+        # Calculate total collected and outstanding rent
+        properties = Property.objects.filter(landlord=user)
+        units = Unit.objects.filter(property_obj__in=properties)
+
+        total_collected = Payment.objects.filter(
+            unit__in=units,
+            status='Success'
+        ).aggregate(total=Sum('amount'))['total'] or 0
+
+        total_outstanding = units.aggregate(
+            outstanding=Sum('rent_remaining')
+        )['outstanding'] or 0
+
+        return Response({
+            "total_collected": total_collected,
+            "total_outstanding": total_outstanding,
+            "properties_count": properties.count(),
+            "units_count": units.count()
+        })
+
+
+class UnitTypeListView(generics.ListAPIView):
+    """
+    List unit types for landlord
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return UnitType.objects.filter(landlord=self.request.user)
+
+
+class InitiateDepositPaymentView(APIView):
+    """
+    Initiate deposit payment for unit
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        unit_id = request.data.get('unit_id')
+        test = request.data.get('test', False)
+        unit = get_object_or_404(Unit, id=unit_id)
+
+        if not unit.is_available:
+            return Response({"error": "Unit is not available"}, status=status.HTTP_400_BAD_REQUEST)
+
+        tenant = request.user
+        amount = unit.deposit
+        phone_number = tenant.phone_number
+
+        if not phone_number:
+            return Response({"error": "Phone number is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Generate access token
+        access_token = generate_access_token()
+        if not access_token:
+            return Response({"error": "Failed to generate M-Pesa access token"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        # Prepare STK push request
+        timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
+
+        if test:
+            shortcode = 174379
+            passkey = 'Safaricom123!!'
+            party_a = 600986
+            party_b = 600000
+            phone = 254708374149
+        else:
+            shortcode = settings.MPESA_SHORTCODE
+            passkey = settings.MPESA_PASSKEY
+            party_a = phone_number
+            party_b = settings.MPESA_SHORTCODE
+            phone = phone_number
+
+        password = shortcode + passkey + timestamp
+
+        payload = {
+            "BusinessShortCode": shortcode,
+            "Password": password,
+            "Timestamp": timestamp,
+            "TransactionType": "CustomerPayBillOnline",
+            "Amount": int(amount),
+            "PartyA": party_a,
+            "PartyB": party_b,
+            "PhoneNumber": phone,
+            "CallBackURL": settings.MPESA_DEPOSIT_CALLBACK_URL,
+            "AccountReference": f"Deposit-{unit.unit_code}",
+            "TransactionDesc": f"Deposit payment for {unit.unit_number}"
+        }
+
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json"
+        }
+
+        # Make STK push request
+        if settings.MPESA_ENV == "sandbox":
+            url = "https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest"
+        else:
+            url = "https://api.safaricom.co.ke/mpesa/stkpush/v1/processrequest"
+
+        response = requests.post(url, json=payload, headers=headers)
+        response_data = response.json()
+
+        if response.status_code == 200 and response_data.get("ResponseCode") == "0":
+            # Create pending deposit payment record
+            payment = Payment.objects.create(
+                tenant=tenant,
+                unit=unit,
+                amount=amount,
+                status="Pending",
+                payment_type="deposit"
+            )
+
+            # Cache checkout request ID for callback
+            cache.set(f"stk_deposit_{response_data['CheckoutRequestID']}", {
+                "payment_id": payment.id,
+                "unit_id": unit.id,
+                "amount": float(amount)
+            }, timeout=300)  # 5 minutes
+
+            return Response({
+                "success": True,
+                "message": "Deposit STK push initiated successfully",
+                "checkout_request_id": response_data["CheckoutRequestID"],
+                "payment_id": payment.id
+            })
+
+        else:
+            return Response({
+                "error": "Failed to initiate deposit STK push",
+                "details": response_data
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+
+
+class DepositPaymentStatusView(APIView):
+    """
+    Check deposit payment status
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, payment_id):
+        payment = get_object_or_404(Payment, id=payment_id)
+
+        # Check if user has permission to view this payment
+        if request.user.user_type == 'tenant' and payment.tenant != request.user:
+            return Response({"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
+
+        if request.user.user_type == 'landlord' and payment.unit.property_obj.landlord != request.user:
+            return Response({"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
+
+        return Response({
+            "payment_id": payment.id,
+            "status": payment.status,
+            "amount": payment.amount,
+            "mpesa_receipt": payment.mpesa_receipt
+        })
+
+
+class CleanupPendingPaymentsView(APIView):
+    """
+    Clean up old pending payments
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        # Delete pending payments older than 1 hour
+        cutoff_time = timezone.now() - timedelta(hours=1)
+        deleted_count = Payment.objects.filter(
+            status='Pending',
+            transaction_date__lt=cutoff_time
+        ).delete()
+
+        return Response({"message": f"Cleaned up {deleted_count[0]} pending payments"})
+
+
+# ------------------------------
+# CSV EXPORT VIEWS
+# ------------------------------
+
+class LandLordCSVView(APIView):
+    """
+    Export landlord payment data as CSV
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, property_id):
+        user = request.user
+        if user.user_type != 'landlord':
+            return Response({"error": "Only landlords can access this endpoint"}, status=status.HTTP_403_FORBIDDEN)
+
+        property_obj = get_object_or_404(Property, id=property_id, landlord=user)
+        units = Unit.objects.filter(property_obj=property_obj)
+        payments = Payment.objects.filter(unit__in=units, status='Success')
+
+        # Create CSV response
+        response = HttpResponse(content_type='text/csv')
+        response['Content-Disposition'] = f'attachment; filename="landlord_payments_{property_obj.name}.csv"'
+
+        writer = csv.writer(response)
+        writer.writerow(['Unit Number', 'Tenant', 'Amount', 'Date', 'M-Pesa Receipt'])
+
+        for payment in payments:
+            writer.writerow([
+                payment.unit.unit_number,
+                payment.tenant.full_name if payment.tenant else '',
+                payment.amount,
+                payment.transaction_date.strftime('%Y-%m-%d'),
+                payment.mpesa_receipt or ''
+            ])
+
+        return response
+
+
+class TenantCSVView(APIView):
+    """
+    Export tenant payment data as CSV
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, unit_id):
+        user = request.user
+        unit = get_object_or_404(Unit, id=unit_id)
+
+        if user.user_type == 'tenant' and unit.tenant != user:
+            return Response({"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
+
+        if user.user_type == 'landlord' and unit.property_obj.landlord != user:
+            return Response({"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
+
+        payments = Payment.objects.filter(unit=unit, status='Success')
+
+        # Create CSV response
+        response = HttpResponse(content_type='text/csv')
+        response['Content-Disposition'] = f'attachment; filename="tenant_payments_unit_{unit.unit_number}.csv"'
+
+        writer = csv.writer(response)
+        writer.writerow(['Amount', 'Date', 'M-Pesa Receipt', 'Type'])
+
+        for payment in payments:
+            writer.writerow([
+                payment.amount,
+                payment.transaction_date.strftime('%Y-%m-%d'),
+                payment.mpesa_receipt or '',
+                payment.payment_type
+            ])
+
+        return response
+
+
+class TestMpesaView(APIView):
+    """
+    Test endpoint for M-Pesa integration
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        return Response({
+            "message": "M-Pesa test endpoint",
+            "mpesa_env": settings.MPESA_ENV,
+            "shortcode": settings.MPESA_SHORTCODE
+        })
+
+    def post(self, request):
+        # Test token generation
+        token = generate_access_token()
+        if token:
+            return Response({
+                "success": True,
+                "message": "M-Pesa token generated successfully",
+                "token_preview": token[:10] + "..."
+            })
+        else:
+            return Response({
+                "success": False,
+                "message": "Failed to generate M-Pesa token"
+            }, status=400)
+from django.urls import path
+from .views import (
+    # STK Push + Callbacks
+    stk_push,
+    stk_push_subscription,
+    mpesa_rent_callback,
+    mpesa_subscription_callback,
+    mpesa_b2c_callback,
+    mpesa_deposit_callback,
+
+    # DRF views
+    PaymentListCreateView,
+    PaymentDetailView,
+    SubscriptionPaymentListCreateView,
+    SubscriptionPaymentDetailView,
+    RentSummaryView,
+    UnitTypeListView,
+    InitiateDepositPaymentView,
+    DepositPaymentStatusView,
+    CleanupPendingPaymentsView,
+    TestMpesaView,
+
+    # CSV reports
+    LandLordCSVView as landlord_csv,
+    TenantCSVView as tenant_csv,
+)
+from django.views.decorators.csrf import csrf_exempt
+
+urlpatterns = [
+    # ------------------------------
+    # M-PESA STK PUSH + CALLBACKS
+    # ------------------------------
+    path("stk-push/<int:unit_id>/", stk_push, name="stk-push"),
+    path("stk-push-subscription/", stk_push_subscription, name="stk-push-subscription"),
+    path("callback/rent/", mpesa_rent_callback, name="mpesa-rent-callback"),
+    path("callback/subscription/", mpesa_subscription_callback, name="mpesa-subscription-callback"),
+    path("callback/b2c/", mpesa_b2c_callback, name="mpesa-b2c-callback"),
+    path("callback/deposit/", mpesa_deposit_callback, name="mpesa-deposit-callback"),
+
+    # ------------------------------
+    # RENT PAYMENTS (DRF)
+    # ------------------------------
+    path("rent-payments/", PaymentListCreateView.as_view(), name="rent-payment-list-create"),
+    path("rent-payments/<int:pk>/", PaymentDetailView.as_view(), name="rent-payment-detail"),
+
+    # ------------------------------
+    # SUBSCRIPTION PAYMENTS (DRF)
+    # ------------------------------
+    path("subscription-payments/", SubscriptionPaymentListCreateView.as_view(), name="subscription-payment-list-create"),
+    path("subscription-payments/<int:pk>/", SubscriptionPaymentDetailView.as_view(), name="subscription-payment-detail"),
+    path("rent-payments/summary/", RentSummaryView.as_view(), name="rent-summary"),
+
+    # ------------------------------
+    # UNIT TYPES
+    # ------------------------------
+    path("unit-types/", UnitTypeListView.as_view(), name="unit-types"),
+
+    # ------------------------------
+    # INITIATE DEPOSIT PAYMENT
+    # ------------------------------
+    path("initiate-deposit/", InitiateDepositPaymentView.as_view(), name="initiate-deposit"),
+    path('deposit-status/<int:payment_id>/', DepositPaymentStatusView.as_view(), name='deposit-status'),
+    # ------------------------------
+    # CSV REPORTS
+    # ------------------------------
+    path("landlord-csv/<int:property_id>/", landlord_csv.as_view(), name="landlord-csv"),
+    path("tenant-csv/<int:unit_id>/", tenant_csv.as_view(), name="tenant-csv"),
+
+    # ------------------------------
+    # CLEANUP AND SIMULATION ENDPOINTS
+    # ------------------------------
+    path("cleanup-pending-payments/", CleanupPendingPaymentsView.as_view(), name="cleanup-pending-payments"),
+    # ------------------------------
+    # TEST ENDPOINTS
+    # ------------------------------
+    path("test-mpesa/", TestMpesaView.as_view(), name="test-mpesa"),
+]

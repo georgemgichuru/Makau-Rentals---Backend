@@ -1,37 +1,55 @@
 from django.db import models
 from accounts.models import CustomUser, Unit, Subscription
 from datetime import timedelta
+from django.core.exceptions import ValidationError
+import uuid
 
+# Add validation and better field definitions
 class Payment(models.Model):
     PAYMENT_TYPES = [
         ('rent', 'Rent'),
         ('deposit', 'Deposit'),
+        ('maintenance', 'Maintenance'),
+        ('other', 'Other'),
     ]
+    
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('completed', 'Completed'),
+        ('failed', 'Failed'),
+        ('cancelled', 'Cancelled'),
+    ]
+
+    # Make tenant and unit required for rent payments
     tenant = models.ForeignKey(
         CustomUser,
         on_delete=models.CASCADE,
         limit_choices_to={'user_type': 'tenant'},
-        related_name='payments',
-        null=True,
-        blank=True
+        related_name='payments'
     )
-    unit = models.ForeignKey(Unit, on_delete=models.CASCADE, related_name='payments', null=True, blank=True)
-    unit_type = models.ForeignKey('accounts.UnitType', on_delete=models.CASCADE, related_name='payments', null=True, blank=True)
-    payment_type = models.CharField(max_length=10, choices=PAYMENT_TYPES, default='rent')
-    amount = models.DecimalField(max_digits=10, decimal_places=2)
-    mpesa_receipt = models.CharField(max_length=50, blank=True, null=True)
-    transaction_date = models.DateTimeField(auto_now_add=True)
-    status = models.CharField(
-        max_length=20,
-        choices=[("Pending", "Pending"), ("Success", "Success"), ("Failed", "Failed")],
-        default="Pending"
-    )
+    unit = models.ForeignKey(Unit, on_delete=models.CASCADE, related_name='payments')
+    
+    # Add more fields for better tracking
+    reference_number = models.CharField(max_length=50, unique=True, blank=True)
+    description = models.TextField(blank=True)
+    payment_method = models.CharField(max_length=20, default='mpesa', choices=[
+        ('mpesa', 'M-Pesa'),
+        ('cash', 'Cash'),
+        ('bank', 'Bank Transfer'),
+    ])
+    
+    # Add created and updated timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
-    def __str__(self):
-        unit_str = f"Unit {self.unit.unit_number}" if self.unit else "Deposit"
-        return f"{self.tenant.email} - {unit_str} - KES {self.amount} ({self.status})"
-
+    def clean(self):
+        if self.payment_type == 'rent' and not self.unit:
+            raise ValidationError("Rent payments must be associated with a unit")
+            
     def save(self, *args, **kwargs):
+        # Generate reference number if not set
+        if not self.reference_number:
+            self.reference_number = f"PAY-{uuid.uuid4().hex[:12].upper()}"
         super().save(*args, **kwargs)
 
 

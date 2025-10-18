@@ -3,34 +3,26 @@ from .models import Report
 from accounts.models import CustomUser, Unit, Property
 
 class ReportSerializer(serializers.ModelSerializer):
-    tenant = serializers.PrimaryKeyRelatedField(read_only=True, default=serializers.CurrentUserDefault())
-    unit = serializers.PrimaryKeyRelatedField(queryset=Unit.objects.all())
-
+    tenant_name = serializers.CharField(source='tenant.full_name', read_only=True)
+    unit_number = serializers.CharField(source='unit.unit_number', read_only=True)
+    property_name = serializers.CharField(source='unit.property_obj.name', read_only=True)
+    days_open = serializers.IntegerField(read_only=True)
+    
     class Meta:
         model = Report
         fields = [
-            'id',
-            'tenant',
-            'unit',
-            'issue_category',
-            'priority_level',
-            'issue_title',
-            'description',
-            'created_at',
-            'status',
+            'id', 'tenant', 'tenant_name', 'unit', 'unit_number', 'property_name',
+            'issue_category', 'priority_level', 'issue_title', 'description',
+            'status', 'reported_date', 'resolved_date', 'assigned_to',
+            'estimated_cost', 'actual_cost', 'attachment', 'days_open'
         ]
-        read_only_fields = ['id', 'tenant', 'created_at', 'status']
+        read_only_fields = ['tenant', 'reported_date', 'days_open']
 
-    def validate_unit(self, value):
-        # Ensure the unit belongs to the tenant submitting the report
-        user = self.context['request'].user
-        if value.tenant != user:
-            raise serializers.ValidationError("This unit is not assigned to the current tenant.")
-        return value
-
-    def create(self, validated_data):
-        validated_data['tenant'] = self.context['request'].user
-        return super().create(validated_data)
+    def validate(self, data):
+        # Ensure tenants can only report issues for their own units
+        if self.instance and self.instance.tenant != self.context['request'].user:
+            raise serializers.ValidationError("You can only modify your own reports")
+        return data
 
 class UpdateReportStatusSerializer(serializers.ModelSerializer):
     class Meta:

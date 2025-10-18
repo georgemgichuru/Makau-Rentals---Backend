@@ -16,6 +16,8 @@ from django.core.cache import cache
 from .models import Property, Unit, CustomUser, Subscription, UnitType
 from payments.models import Payment
 from .permissions import IsLandlord, IsTenant, IsSuperuser, HasActiveSubscription
+from communication.models import Report
+from communication.serializers import ReportSerializer
 import logging
 
 logger = logging.getLogger(__name__)
@@ -836,3 +838,51 @@ class WelcomeView(APIView):
     def get(self, request):
         logger.info(f"Request received: {request.method} {request.path}")
         return Response({"message": "Welcome to the Makau Rentals API!"})
+
+
+class LandlordsListView(APIView):
+    permission_classes = [IsAuthenticated, IsSuperuser]
+
+    def get(self, request):
+        landlords = CustomUser.objects.filter(user_type='landlord')
+        data = []
+        for landlord in landlords:
+            subscription = getattr(landlord, 'subscription', None)
+            status = 'Subscribed' if subscription and subscription.is_active() else 'Inactive or None'
+            data.append({
+                'id': landlord.id,
+                'email': landlord.email,
+                'name': landlord.full_name,
+                'subscription_plan': subscription.plan if subscription else 'None',
+                'subscription_status': status,
+                'expiry_date': subscription.expiry_date if subscription else None,
+            })
+        return Response(data)
+
+
+class PendingApplicationsView(APIView):
+    permission_classes = [IsAuthenticated, IsLandlord, HasActiveSubscription]
+
+    def get(self, request):
+        # For now, return tenants without assigned units (pending applications)
+        tenants = CustomUser.objects.filter(
+            user_type="tenant",
+            is_active=True,
+            unit__isnull=True
+        )
+        serializer = UserSerializer(tenants, many=True)
+        return Response(serializer.data)
+
+
+class EvictedTenantsView(APIView):
+    permission_classes = [IsAuthenticated, IsLandlord, HasActiveSubscription]
+
+    def get(self, request):
+        # For now, return inactive tenants that were previously assigned to landlord's units
+        evicted_tenants = CustomUser.objects.filter(
+            user_type="tenant",
+            is_active=False,
+            unit__property_obj__landlord=request.user
+        ).distinct()
+        serializer = UserSerializer(evicted_tenants, many=True)
+        return Response(serializer.data)
