@@ -514,6 +514,7 @@ class InitiateDepositPaymentView(APIView):
 
     def post(self, request):
         unit_id = request.data.get('unit_id')
+        test = request.data.get('test', False)
         unit = get_object_or_404(Unit, id=unit_id)
 
         if not unit.is_available:
@@ -533,17 +534,31 @@ class InitiateDepositPaymentView(APIView):
 
         # Prepare STK push request
         timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
-        password = settings.MPESA_SHORTCODE + settings.MPESA_PASSKEY + timestamp
+
+        if test:
+            shortcode = 174379
+            passkey = 'Safaricom123!!'
+            party_a = 600986
+            party_b = 600000
+            phone = 254708374149
+        else:
+            shortcode = settings.MPESA_SHORTCODE
+            passkey = settings.MPESA_PASSKEY
+            party_a = phone_number
+            party_b = settings.MPESA_SHORTCODE
+            phone = phone_number
+
+        password = shortcode + passkey + timestamp
 
         payload = {
-            "BusinessShortCode": settings.MPESA_SHORTCODE,
+            "BusinessShortCode": shortcode,
             "Password": password,
             "Timestamp": timestamp,
             "TransactionType": "CustomerPayBillOnline",
             "Amount": int(amount),
-            "PartyA": phone_number,
-            "PartyB": settings.MPESA_SHORTCODE,
-            "PhoneNumber": phone_number,
+            "PartyA": party_a,
+            "PartyB": party_b,
+            "PhoneNumber": phone,
             "CallBackURL": settings.MPESA_DEPOSIT_CALLBACK_URL,
             "AccountReference": f"Deposit-{unit.unit_code}",
             "TransactionDesc": f"Deposit payment for {unit.unit_number}"
