@@ -228,11 +228,15 @@ class UserListView(APIView):
     permission_classes = [IsAuthenticated, IsLandlord, HasActiveSubscription]
 
     def get(self, request):
-        cache_key = "tenants:list"
+        cache_key = f"tenants:list:{request.user.id}"
         tenants_data = cache.get(cache_key)
 
         if not tenants_data:
-            tenants = CustomUser.objects.filter(user_type="tenant")
+            tenants = CustomUser.objects.filter(
+                user_type="tenant",
+                is_active=True,
+                unit__property_obj__landlord=request.user
+            ).distinct()
             serializer = UserSerializer(tenants, many=True)
             tenants_data = serializer.data
             cache.set(cache_key, tenants_data, timeout=300)

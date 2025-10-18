@@ -3,7 +3,7 @@ from django.urls import reverse
 from rest_framework.test import APITestCase, APIClient
 from rest_framework import status
 from django.contrib.auth import get_user_model
-from ..models import UnitType, Property, Unit
+from .models import UnitType, Property, Unit
 from payments.models import Payment
 
 CustomUser = get_user_model()

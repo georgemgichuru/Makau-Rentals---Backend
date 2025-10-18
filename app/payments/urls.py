@@ -16,10 +16,8 @@ from .views import (
     RentSummaryView,
     UnitTypeListView,
     InitiateDepositPaymentView,
-    TriggerDepositCallbackView,
     DepositPaymentStatusView,
     CleanupPendingPaymentsView,
-    SimulateDepositCallbackView,
     TestMpesaView,
 
     # CSV reports
@@ -38,11 +36,6 @@ urlpatterns = [
     path("callback/subscription/", mpesa_subscription_callback, name="mpesa-subscription-callback"),
     path("callback/b2c/", mpesa_b2c_callback, name="mpesa-b2c-callback"),
     path("callback/deposit/", mpesa_deposit_callback, name="mpesa-deposit-callback"),
-
-    # ------------------------------
-    # MANUAL CALLBACK TRIGGER (FOR TESTING)
-    # ------------------------------
-    path("trigger-deposit-callback/", TriggerDepositCallbackView.as_view(), name="trigger-deposit-callback"),
 
     # ------------------------------
     # RENT PAYMENTS (DRF)
@@ -77,8 +70,6 @@ urlpatterns = [
     # CLEANUP AND SIMULATION ENDPOINTS
     # ------------------------------
     path("cleanup-pending-payments/", CleanupPendingPaymentsView.as_view(), name="cleanup-pending-payments"),
-    path("simulate-deposit-callback/", SimulateDepositCallbackView.as_view(), name="simulate-deposit-callback"),
-
     # ------------------------------
     # TEST ENDPOINTS
     # ------------------------------
