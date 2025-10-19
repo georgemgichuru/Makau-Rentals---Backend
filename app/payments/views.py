@@ -755,6 +755,31 @@ def mpesa_b2c_callback(request):
     except Exception as e:
         logger.error(f"B2C callback error: {str(e)}")
         return JsonResponse({"ResultCode": 1, "ResultDesc": "Error"})
+class DepositPaymentStatusView(APIView):
+    """
+    Check deposit payment status - FIXED VERSION
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, payment_id):
+        try:
+            payment = Payment.objects.get(id=payment_id)
+            
+            # Check if user has permission to view this payment
+            if request.user.user_type == 'tenant' and payment.tenant != request.user:
+                return Response({"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
+
+            if request.user.user_type == 'landlord' and payment.unit.property_obj.landlord != request.user:
+                return Response({"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
+
+            return Response({
+                "payment_id": payment.id,
+                "status": payment.status,
+                "amount": float(payment.amount),
+                "mpesa_receipt": payment.mpesa_receipt_number if hasattr(payment, 'mpesa_receipt_number') else payment.mpesa_receipt
+            })
+        except Payment.DoesNotExist:
+            return Response({"error": "Payment not found"}, status=status.HTTP_404_NOT_FOUND)
 # ------------------------------
 # DRF CLASS-BASED VIEWS
 # ------------------------------

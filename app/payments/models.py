@@ -29,6 +29,14 @@ class Payment(models.Model):
     )
     unit = models.ForeignKey(Unit, on_delete=models.CASCADE, related_name='payments')
     
+    # ADD THESE MISSING FIELDS
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    payment_type = models.CharField(max_length=20, choices=PAYMENT_TYPES, default='rent')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    mpesa_receipt = models.CharField(max_length=50, blank=True, null=True)
+    mpesa_checkout_request_id = models.CharField(max_length=100, blank=True, null=True)
+    failure_reason = models.TextField(blank=True, null=True)
+    
     # Add more fields for better tracking
     reference_number = models.CharField(max_length=50, unique=True, blank=True)
     description = models.TextField(blank=True)
@@ -67,6 +75,12 @@ class SubscriptionPayment(models.Model):
         blank=True,  # Allow empty strings
         null=True,
         default=""
+    )
+    mpesa_checkout_request_id = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        help_text="M-Pesa checkout request ID for tracking STK push"
     )
     transaction_date = models.DateTimeField(auto_now_add=True)
     subscription_type = models.CharField(max_length=20, choices=Subscription.PLAN_CHOICES)
