@@ -18,7 +18,11 @@ from payments.models import Payment
 from .permissions import IsLandlord, IsTenant, IsSuperuser, HasActiveSubscription
 from communication.models import Report
 from communication.serializers import ReportSerializer
+from django.core.exceptions import ValidationError
+
 import logging
+
+import uuid
 
 logger = logging.getLogger(__name__)
 
@@ -886,3 +890,304 @@ class EvictedTenantsView(APIView):
         ).distinct()
         serializer = UserSerializer(evicted_tenants, many=True)
         return Response(serializer.data)
+    
+# views.py - Add these views
+
+
+class TenantRegistrationStepView(APIView):
+    def post(self, request, step):
+        data = request.data
+        session_id = data.get('session_id') or str(uuid.uuid4())
+        
+        # Store step data in cache (or database)
+        cache_key = f"tenant_registration_{session_id}_step_{step}"
+        cache.set(cache_key, data, timeout=3600)  # 1 hour expiry
+        
+        return Response({
+            'session_id': session_id,
+            'step': step,
+            'status': 'saved',
+            'message': f'Step {step} data saved successfully'
+        })
+
+class LandlordRegistrationStepView(APIView):
+    def post(self, request, step):
+        data = request.data
+        session_id = data.get('session_id') or str(uuid.uuid4())
+        
+        # Store step data in cache
+        cache_key = f"landlord_registration_{session_id}_step_{step}"
+        cache.set(cache_key, data, timeout=3600)
+        
+        return Response({
+            'session_id': session_id,
+            'step': step,
+            'status': 'saved',
+            'message': f'Step {step} data saved successfully'
+        })
+
+class CompleteTenantRegistrationView(APIView):
+    def post(self, request):
+        data = request.data
+        session_id = data.get('session_id')
+        
+        # Retrieve all step data from cache
+        all_data = {}
+        for step in range(2, 7):  # Steps 2-6
+            cache_key = f"tenant_registration_{session_id}_step_{step}"
+            step_data = cache.get(cache_key)
+            if step_data:
+                all_data.update(step_data)
+        
+        # Merge with final data
+        all_data.update(data)
+        
+        # Create the user (your existing user creation logic)
+        try:
+            user = CustomUser.objects.create_user(
+                email=all_data['email'],
+                full_name=all_data['full_name'],
+                user_type='tenant',
+                password=all_data['password'],
+                phone_number=all_data['phone_number'],
+                government_id=all_data['government_id'],
+                emergency_contact=all_data['emergency_contact']
+            )
+            
+            # Clean up cache
+            for step in range(2, 7):
+                cache_key = f"tenant_registration_{session_id}_step_{step}"
+                cache.delete(cache_key)
+            
+            return Response({
+                'status': 'success',
+                'user_id': user.id,
+                'message': 'Tenant registration completed successfully'
+            })
+            
+        except Exception as e:
+            return Response({
+                'status': 'error',
+                'message': str(e)
+            }, status=400)
+
+class CompleteLandlordRegistrationView(APIView):
+    def post(self, request):
+        """
+        Complete landlord registration after all steps are done
+        """
+        try:
+            data = request.data
+            session_id = data.get('session_id')
+            
+            if not session_id:
+                return Response({
+                    'status': 'error',
+                    'message': 'Session ID is required'
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            # Retrieve all step data from cache
+            all_data = {}
+            for step in range(2, 5):  # Steps 2-4 for landlord
+                cache_key = f"landlord_registration_{session_id}_step_{step}"
+                step_data = cache.get(cache_key)
+                if step_data:
+                    # Remove step field if present
+                    step_data.pop('step', None)
+                    all_data.update(step_data)
+
+            # Merge with final data from current request
+            all_data.update(data)
+            
+            # Validate required fields
+            required_fields = ['full_name', 'email', 'phone_number', 'national_id', 
+                             'mpesa_till_number', 'address', 'password']
+            
+            missing_fields = [field for field in required_fields if not all_data.get(field)]
+            if missing_fields:
+                return Response({
+                    'status': 'error',
+                    'message': f'Missing required fields: {", ".join(missing_fields)}'
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            # Check if email already exists
+            if CustomUser.objects.filter(email=all_data['email']).exists():
+                return Response({
+                    'status': 'error',
+                    'message': 'Email already exists'
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            # Create the landlord user
+            try:
+                landlord = CustomUser.objects.create_user(
+                    email=all_data['email'],
+                    full_name=all_data['full_name'],
+                    user_type='landlord',
+                    password=all_data['password'],
+                    phone_number=all_data['phone_number'],
+                    government_id=all_data['national_id'],
+                    mpesa_till_number=all_data['mpesa_till_number'],
+                    address=all_data.get('address', ''),
+                    website=all_data.get('website', '')
+                )
+
+                # Create properties and units if provided
+                properties_data = all_data.get('properties', [])
+                created_properties = []
+                
+                for property_data in properties_data:
+                    try:
+                        # Create property
+                        property_obj = Property.objects.create(
+                            landlord=landlord,
+                            name=property_data.get('name', ''),
+                            city='Nairobi',  # You might want to extract this from address
+                            state='Nairobi',
+                            unit_count=len(property_data.get('units', []))
+                        )
+                        
+                        # Create units for this property
+                        units_data = property_data.get('units', [])
+                        created_units = []
+                        
+                        for unit_data in units_data:
+                            # Create unit type if it doesn't exist
+                            unit_type, created = UnitType.objects.get_or_create(
+                                landlord=landlord,
+                                name=unit_data.get('room_type', 'studio'),
+                                defaults={
+                                    'deposit': Decimal('0.00'),
+                                    'rent': Decimal(unit_data.get('rent', '0')),
+                                    'number_of_units': 0
+                                }
+                            )
+                            
+                            # Create the unit
+                            unit = Unit.objects.create(
+                                property_obj=property_obj,
+                                unit_number=unit_data.get('unit_number', ''),
+                                bedrooms=self.get_bedroom_count(unit_data.get('room_type', 'studio')),
+                                bathrooms=1,  # Default
+                                unit_type=unit_type,
+                                rent=Decimal(unit_data.get('rent', '0')),
+                                deposit=Decimal(unit_data.get('rent', '0')),  # Deposit = 1 month rent
+                                is_available=True
+                            )
+                            created_units.append(unit.id)
+                        
+                        created_properties.append({
+                            'id': property_obj.id,
+                            'name': property_obj.name,
+                            'units_count': len(created_units)
+                        })
+                        
+                    except Exception as prop_error:
+                        logger.error(f"Error creating property: {str(prop_error)}")
+                        continue
+
+                # Create subscription for landlord (free trial)
+                subscription = Subscription.objects.create(
+                    user=landlord,
+                    plan="free",
+                    expiry_date=timezone.now() + timedelta(days=60)
+                )
+
+                # Clean up cache
+                for step in range(2, 5):
+                    cache_key = f"landlord_registration_{session_id}_step_{step}"
+                    cache.delete(cache_key)
+
+                # Prepare response data
+                response_data = {
+                    'status': 'success',
+                    'user_id': landlord.id,
+                    'landlord_code': landlord.landlord_code,
+                    'email': landlord.email,
+                    'full_name': landlord.full_name,
+                    'properties_created': created_properties,
+                    'subscription': {
+                        'plan': subscription.plan,
+                        'expiry_date': subscription.expiry_date
+                    },
+                    'message': 'Landlord registration completed successfully'
+                }
+
+                # Send welcome email (you can implement this)
+                self.send_welcome_email(landlord)
+
+                return Response(response_data, status=status.HTTP_201_CREATED)
+                
+            except ValidationError as e:
+                return Response({
+                    'status': 'error',
+                    'message': str(e)
+                }, status=status.HTTP_400_BAD_REQUEST)
+                
+            except Exception as e:
+                logger.error(f"Error creating landlord user: {str(e)}")
+                return Response({
+                    'status': 'error',
+                    'message': 'Failed to create landlord account'
+                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        except Exception as e:
+            logger.error(f"Unexpected error in landlord registration: {str(e)}")
+            return Response({
+                'status': 'error',
+                'message': 'Internal server error'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    def get_bedroom_count(self, room_type):
+        """
+        Map room type string to bedroom count
+        """
+        room_type_mapping = {
+            'studio': 0,
+            '1-bedroom': 1,
+            '2-bedroom': 2,
+            '3-bedroom': 3
+        }
+        return room_type_mapping.get(room_type, 0)
+
+    def send_welcome_email(self, landlord):
+        """
+        Send welcome email to landlord
+        """
+        try:
+            subject = "Welcome to TenantHub - Your Landlord Account is Ready!"
+            message = f"""
+            Hello {landlord.full_name},
+
+            Welcome to TenantHub! Your landlord account has been successfully created.
+
+            Account Details:
+            - Landlord Code: {landlord.landlord_code}
+            - Email: {landlord.email}
+            - M-Pesa Till: {landlord.mpesa_till_number}
+
+            Your 60-day free trial has been activated. You can now:
+            - Manage your properties
+            - Add units and set rents
+            - Receive rent payments via M-Pesa
+            - Track tenant payments
+
+            Login to your dashboard to get started.
+
+            Best regards,
+            TenantHub Team
+            """
+
+            # For now, just log the email. Integrate with your email service later.
+            logger.info(f"Welcome email prepared for {landlord.email}: {subject}")
+            
+            # Uncomment to actually send email when you have email setup:
+            # send_mail(
+            #     subject=subject,
+            #     message=message,
+            #     from_email=settings.DEFAULT_FROM_EMAIL,
+            #     recipient_list=[landlord.email],
+            #     fail_silently=False,
+            # )
+            
+        except Exception as e:
+            logger.error(f"Failed to send welcome email: {str(e)}")

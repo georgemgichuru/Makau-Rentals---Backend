@@ -13,7 +13,8 @@ from .views import (UserDetailView, UserListView, UserCreateView, PasswordResetV
                     LandlordDashboardStatsView, TenantUpdateUnitView, AdjustRentView,
                     PropertyUnitsView, AssignTenantView, UpdateReminderPreferencesView,
                     LandlordAvailableUnitsView, WelcomeView, LandlordsListView,
-                    PendingApplicationsView, EvictedTenantsView,
+                    PendingApplicationsView, EvictedTenantsView,TenantRegistrationStepView,
+                    LandlordRegistrationStepView,CompleteTenantRegistrationView,CompleteLandlordRegistrationView,
 )
 
 router = DefaultRouter()
@@ -71,4 +72,9 @@ urlpatterns = [
     path('landlords/', LandlordsListView.as_view(), name='landlords-list'),
     path('pending-applications/', PendingApplicationsView.as_view(), name='pending-applications'),
     path('evicted-tenants/', EvictedTenantsView.as_view(), name='evicted-tenants'),
+
+    path('auth/tenant/step/<int:step>/', TenantRegistrationStepView.as_view(), name='tenant-registration-step'),
+    path('auth/landlord/step/<int:step>/', LandlordRegistrationStepView.as_view(), name='landlord-registration-step'),
+    path('auth/tenant/complete/', CompleteTenantRegistrationView.as_view(), name='complete-tenant-registration'),
+    path('auth/landlord/complete/', CompleteLandlordRegistrationView.as_view(), name='complete-landlord-registration'),
 ]
