@@ -37,7 +37,8 @@ class Payment(models.Model):
         ('cash', 'Cash'),
         ('bank', 'Bank Transfer'),
     ])
-    
+        # Add this field to track M-Pesa checkout requests
+    mpesa_checkout_request_id = models.CharField(max_length=100, blank=True, null=True)
     # Add created and updated timestamps
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

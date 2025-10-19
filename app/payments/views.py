@@ -17,23 +17,50 @@ from decimal import Decimal
 from datetime import datetime, timedelta
 import csv
 import io
+import base64
+import logging
 
 from accounts.models import CustomUser, Unit, UnitType, Property, Subscription
 from .models import Payment, SubscriptionPayment
 from .generate_token import generate_access_token
 from .serializers import PaymentSerializer, SubscriptionPaymentSerializer
 
+logger = logging.getLogger(__name__)
+
+# Add this function after imports and before other functions
+def validate_mpesa_payment(phone_number, amount):
+    """
+    Validate payment parameters before initiating STK push
+    """
+    # Validate phone number format
+    if not phone_number or not isinstance(phone_number, str):
+        return False, "Phone number is required"
+    
+    if not phone_number.startswith('254') or len(phone_number) != 12:
+        return False, "Phone number must be in format 254XXXXXXXXX"
+    
+    # Validate phone number contains only digits after 254
+    if not phone_number[3:].isdigit():
+        return False, "Phone number must contain only digits"
+    
+    # Validate amount
+    if amount <= 0:
+        return False, "Amount must be greater than 0"
+    
+    if amount > 150000:  # M-Pesa transaction limit
+        return False, "Amount exceeds M-Pesa transaction limit (KES 150,000)"
+    
+    return True, "Valid"
 
 # ------------------------------
 # M-PESA STK PUSH FUNCTIONS
 # ------------------------------
-
 @csrf_exempt
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def stk_push(request, unit_id):
     """
-    Initiate STK push for rent payment
+    Initiate REAL STK push for rent payment
     """
     try:
         unit = get_object_or_404(Unit, id=unit_id)
@@ -53,14 +80,25 @@ def stk_push(request, unit_id):
         if not phone_number:
             return Response({"error": "Phone number is required"}, status=status.HTTP_400_BAD_REQUEST)
 
+        # Validate phone number format (should be 254XXXXXXXXX)
+        if not phone_number.startswith('254'):
+            return Response({"error": "Phone number must be in format 254XXXXXXXXX"}, status=status.HTTP_400_BAD_REQUEST)
+
+         # ✅ ADD VALIDATION HERE
+        is_valid, validation_message = validate_mpesa_payment(phone_number, amount)
+        if not is_valid:
+            return Response({"error": validation_message}, status=status.HTTP_400_BAD_REQUEST)
+
         # Generate access token
         access_token = generate_access_token()
         if not access_token:
             return Response({"error": "Failed to generate M-Pesa access token"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        # Prepare STK push request
+        # Prepare STK push request for PRODUCTION
         timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
-        password = settings.MPESA_SHORTCODE + settings.MPESA_PASSKEY + timestamp
+        password = base64.b64encode(
+            (settings.MPESA_SHORTCODE + settings.MPESA_PASSKEY + timestamp).encode('utf-8')
+        ).decode('utf-8')
 
         payload = {
             "BusinessShortCode": settings.MPESA_SHORTCODE,
@@ -72,7 +110,7 @@ def stk_push(request, unit_id):
             "PartyB": settings.MPESA_SHORTCODE,
             "PhoneNumber": phone_number,
             "CallBackURL": settings.MPESA_RENT_CALLBACK_URL,
-            "AccountReference": f"Rent-{unit.unit_code}",
+            "AccountReference": f"RENT-{unit.unit_code}",
             "TransactionDesc": f"Rent payment for {unit.unit_number}"
         }
 
@@ -81,13 +119,13 @@ def stk_push(request, unit_id):
             "Content-Type": "application/json"
         }
 
-        # Make STK push request
+        # Use production URL
         if settings.MPESA_ENV == "sandbox":
             url = "https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest"
         else:
             url = "https://api.safaricom.co.ke/mpesa/stkpush/v1/processrequest"
 
-        response = requests.post(url, json=payload, headers=headers)
+        response = requests.post(url, json=payload, headers=headers, timeout=30)
         response_data = response.json()
 
         if response.status_code == 200 and response_data.get("ResponseCode") == "0":
@@ -97,15 +135,19 @@ def stk_push(request, unit_id):
                 unit=unit,
                 amount=amount,
                 status="Pending",
-                payment_type="rent"
+                payment_type="rent",
+                mpesa_checkout_request_id=response_data["CheckoutRequestID"]
             )
 
             # Cache checkout request ID for callback
             cache.set(f"stk_{response_data['CheckoutRequestID']}", {
                 "payment_id": payment.id,
                 "unit_id": unit.id,
-                "amount": float(amount)
+                "amount": float(amount),
+                "tenant_id": tenant.id
             }, timeout=300)  # 5 minutes
+
+            logger.info(f"STK push initiated for payment {payment.id}, amount {amount}, phone {phone_number}")
 
             return Response({
                 "success": True,
@@ -115,14 +157,15 @@ def stk_push(request, unit_id):
             })
 
         else:
+            logger.error(f"STK push failed: {response_data}")
             return Response({
                 "error": "Failed to initiate STK push",
-                "details": response_data
+                "details": response_data.get('errorMessage', 'Unknown error')
             }, status=status.HTTP_400_BAD_REQUEST)
 
     except Exception as e:
+        logger.error(f"STK push error: {str(e)}")
         return Response({"error": "Internal server error"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
 
 @csrf_exempt
 @api_view(['POST'])
@@ -150,6 +193,11 @@ def stk_push_subscription(request):
             return Response({"error": "Invalid plan"}, status=status.HTTP_400_BAD_REQUEST)
 
         amount = plan_amounts[plan]
+
+        # ✅ ADD VALIDATION HERE
+        is_valid, validation_message = validate_mpesa_payment(phone_number, amount)
+        if not is_valid:
+            return Response({"error": validation_message}, status=status.HTTP_400_BAD_REQUEST)
 
         # Generate access token
         access_token = generate_access_token()
@@ -525,13 +573,12 @@ class UnitTypeListView(generics.ListAPIView):
 
 class InitiateDepositPaymentView(APIView):
     """
-    Initiate deposit payment for unit
+    Initiate REAL deposit payment for unit
     """
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
         unit_id = request.data.get('unit_id')
-        test = request.data.get('test', False)
         unit = get_object_or_404(Unit, id=unit_id)
 
         if not unit.is_available:
@@ -544,40 +591,35 @@ class InitiateDepositPaymentView(APIView):
         if not phone_number:
             return Response({"error": "Phone number is required"}, status=status.HTTP_400_BAD_REQUEST)
 
+        # Validate phone number format
+        if not phone_number.startswith('254'):
+            return Response({"error": "Phone number must be in format 254XXXXXXXXX"}, status=status.HTTP_400_BAD_REQUEST)
+        # ✅ ADD VALIDATION HERE
+        is_valid, validation_message = validate_mpesa_payment(phone_number, amount)
+        if not is_valid:
+            return Response({"error": validation_message}, status=status.HTTP_400_BAD_REQUEST)
         # Generate access token
         access_token = generate_access_token()
         if not access_token:
             return Response({"error": "Failed to generate M-Pesa access token"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        # Prepare STK push request
+        # Prepare STK push request for PRODUCTION
         timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
-
-        if test:
-            shortcode = 174379
-            passkey = 'Safaricom123!!'
-            party_a = 600986
-            party_b = 600000
-            phone = 254708374149
-        else:
-            shortcode = settings.MPESA_SHORTCODE
-            passkey = settings.MPESA_PASSKEY
-            party_a = phone_number
-            party_b = settings.MPESA_SHORTCODE
-            phone = phone_number
-
-        password = shortcode + passkey + timestamp
+        password = base64.b64encode(
+            (settings.MPESA_SHORTCODE + settings.MPESA_PASSKEY + timestamp).encode('utf-8')
+        ).decode('utf-8')
 
         payload = {
-            "BusinessShortCode": shortcode,
+            "BusinessShortCode": settings.MPESA_SHORTCODE,
             "Password": password,
             "Timestamp": timestamp,
             "TransactionType": "CustomerPayBillOnline",
             "Amount": int(amount),
-            "PartyA": party_a,
-            "PartyB": party_b,
-            "PhoneNumber": phone,
+            "PartyA": phone_number,
+            "PartyB": settings.MPESA_SHORTCODE,
+            "PhoneNumber": phone_number,
             "CallBackURL": settings.MPESA_DEPOSIT_CALLBACK_URL,
-            "AccountReference": f"Deposit-{unit.unit_code}",
+            "AccountReference": f"DEPOSIT-{unit.unit_code}",
             "TransactionDesc": f"Deposit payment for {unit.unit_number}"
         }
 
@@ -586,13 +628,13 @@ class InitiateDepositPaymentView(APIView):
             "Content-Type": "application/json"
         }
 
-        # Make STK push request
+        # Use production URL
         if settings.MPESA_ENV == "sandbox":
             url = "https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest"
         else:
             url = "https://api.safaricom.co.ke/mpesa/stkpush/v1/processrequest"
 
-        response = requests.post(url, json=payload, headers=headers)
+        response = requests.post(url, json=payload, headers=headers, timeout=30)
         response_data = response.json()
 
         if response.status_code == 200 and response_data.get("ResponseCode") == "0":
@@ -602,15 +644,19 @@ class InitiateDepositPaymentView(APIView):
                 unit=unit,
                 amount=amount,
                 status="Pending",
-                payment_type="deposit"
+                payment_type="deposit",
+                mpesa_checkout_request_id=response_data["CheckoutRequestID"]
             )
 
             # Cache checkout request ID for callback
             cache.set(f"stk_deposit_{response_data['CheckoutRequestID']}", {
                 "payment_id": payment.id,
                 "unit_id": unit.id,
-                "amount": float(amount)
+                "amount": float(amount),
+                "tenant_id": tenant.id
             }, timeout=300)  # 5 minutes
+
+            logger.info(f"Deposit STK push initiated for payment {payment.id}, amount {amount}")
 
             return Response({
                 "success": True,
@@ -620,11 +666,11 @@ class InitiateDepositPaymentView(APIView):
             })
 
         else:
+            logger.error(f"Deposit STK push failed: {response_data}")
             return Response({
                 "error": "Failed to initiate deposit STK push",
-                "details": response_data
+                "details": response_data.get('errorMessage', 'Unknown error')
             }, status=status.HTTP_400_BAD_REQUEST)
-
 
 
 class DepositPaymentStatusView(APIView):
