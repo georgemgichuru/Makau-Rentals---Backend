@@ -17,6 +17,7 @@ from decimal import Decimal
 from datetime import datetime, timedelta
 import csv
 import io
+import uuid
 import base64
 import logging
 
@@ -273,101 +274,407 @@ def stk_push_subscription(request):
 # ------------------------------
 # M-PESA CALLBACK FUNCTIONS
 # ------------------------------
-
 @csrf_exempt
 def mpesa_rent_callback(request):
     """
-    Handle M-Pesa rent payment callback
+    Enhanced M-Pesa callback handler with better error handling
     """
     try:
         callback_data = json.loads(request.body)
+        logger.info(f"Raw callback received: {callback_data}")
 
         stk_callback = callback_data.get("Body", {}).get("stkCallback", {})
+        result_code = stk_callback.get("ResultCode")
+        result_desc = stk_callback.get("ResultDesc", "")
+        checkout_request_id = stk_callback.get("CheckoutRequestID")
 
-        if stk_callback.get("ResultCode") == 0:
-            # Successful payment
+        logger.info(f"Callback processed - ResultCode: {result_code}, CheckoutRequestID: {checkout_request_id}")
+
+        if result_code == 0:
+            # Payment was successful on M-Pesa side
             callback_metadata = stk_callback.get("CallbackMetadata", {}).get("Item", [])
-
+            
+            # Extract data with fallbacks
             mpesa_receipt = None
             amount = None
+            phone_number = None
 
             for item in callback_metadata:
-                if item["Name"] == "MpesaReceiptNumber":
-                    mpesa_receipt = item["Value"]
-                elif item["Name"] == "Amount":
-                    amount = item["Value"]
-
-            checkout_request_id = stk_callback.get("CheckoutRequestID")
+                if item.get("Name") == "MpesaReceiptNumber":
+                    mpesa_receipt = item.get("Value")
+                elif item.get("Name") == "Amount":
+                    amount = item.get("Value")
+                elif item.get("Name") == "PhoneNumber":
+                    phone_number = item.get("Value")
 
             # Get cached payment data
-            cached_data = cache.get(f"stk_{checkout_request_id}")
+            cached_data = cache.get(f"stk_{checkout_request_id}") if checkout_request_id else None
+            
             if cached_data:
-                payment = Payment.objects.get(id=cached_data["payment_id"])
-                payment.status = "Success"
-                payment.mpesa_receipt = mpesa_receipt
-                payment.save()
+                try:
+                    payment = Payment.objects.get(id=cached_data["payment_id"])
+                    
+                    if mpesa_receipt:
+                        # We have complete data - mark as success
+                        payment.status = "Success"
+                        payment.mpesa_receipt = mpesa_receipt
+                        payment.save()
 
-                # Update unit rent_paid
-                unit = payment.unit
-                unit.rent_paid += Decimal(amount)
-                unit.save()
+                        # Update unit
+                        unit = payment.unit
+                        if payment.payment_type == "rent":
+                            unit.rent_paid += Decimal(amount) if amount else payment.amount
+                            unit.save()
+                        elif payment.payment_type == "deposit":
+                            unit.is_available = False
+                            unit.save()
+                            
+                        logger.info(f"Payment {payment.id} marked as successful. Receipt: {mpesa_receipt}")
+                        
+                    else:
+                        # Missing receipt but payment was successful
+                        # Mark as success with a generated receipt for tracking
+                        payment.status = "Success"
+                        payment.mpesa_receipt = f"PENDING-RECEIPT-{payment.id}"
+                        payment.save()
+                        logger.warning(f"Payment {payment.id} successful but missing receipt number")
+                        
+                except Payment.DoesNotExist:
+                    logger.error(f"Payment not found for cached data: {cached_data}")
+                except Exception as e:
+                    logger.error(f"Error updating payment {cached_data.get('payment_id')}: {str(e)}")
+            else:
+                logger.warning(f"No cached data found for checkout request: {checkout_request_id}")
 
-                cache.delete(f"stk_{checkout_request_id}")
+        else:
+            # Payment failed on M-Pesa side
+            logger.error(f"Payment failed - ResultCode: {result_code}, Description: {result_desc}")
+            
+            # Update payment status to failed if we can find it
+            if checkout_request_id:
+                cached_data = cache.get(f"stk_{checkout_request_id}")
+                if cached_data:
+                    try:
+                        payment = Payment.objects.get(id=cached_data["payment_id"])
+                        payment.status = "Failed"
+                        payment.save()
+                        logger.info(f"Payment {payment.id} marked as failed")
+                    except Payment.DoesNotExist:
+                        pass
 
         return JsonResponse({"ResultCode": 0, "ResultDesc": "Accepted"})
 
     except Exception as e:
+        logger.error(f"Error in callback handler: {str(e)}")
         return JsonResponse({"ResultCode": 1, "ResultDesc": "Error"})
+    
+# payments/views.py - Enhanced Callback Handlers
 
+@csrf_exempt
+def mpesa_deposit_callback(request):
+    """
+    Enhanced deposit payment callback handler
+    """
+    try:
+        callback_data = json.loads(request.body)
+        logger.info(f"Deposit callback received: {callback_data}")
+
+        stk_callback = callback_data.get("Body", {}).get("stkCallback", {})
+        result_code = stk_callback.get("ResultCode")
+        result_desc = stk_callback.get("ResultDesc", "")
+        checkout_request_id = stk_callback.get("CheckoutRequestID")
+
+        logger.info(f"Deposit callback - ResultCode: {result_code}, CheckoutRequestID: {checkout_request_id}")
+
+        if result_code == 0:
+            # Payment successful
+            callback_metadata = stk_callback.get("CallbackMetadata", {}).get("Item", [])
+            
+            # Extract payment details
+            mpesa_receipt = None
+            amount = None
+            phone_number = None
+
+            for item in callback_metadata:
+                if item.get("Name") == "MpesaReceiptNumber":
+                    mpesa_receipt = item.get("Value")
+                elif item.get("Name") == "Amount":
+                    amount = item.get("Value")
+                elif item.get("Name") == "PhoneNumber":
+                    phone_number = item.get("Value")
+
+            # Get cached payment data
+            cached_data = cache.get(f"stk_deposit_{checkout_request_id}") if checkout_request_id else None
+            
+            if cached_data:
+                try:
+                    payment = Payment.objects.get(id=cached_data["payment_id"])
+                    unit = payment.unit
+                    
+                    # Update payment record
+                    payment.status = "Success"
+                    payment.mpesa_receipt = mpesa_receipt or f"DEP-{payment.id}-{uuid.uuid4().hex[:8].upper()}"
+                    
+                    if amount:
+                        payment.amount = Decimal(amount)
+                    
+                    payment.save()
+
+                    # Mark unit as occupied and assign tenant
+                    unit.is_available = False
+                    unit.tenant = payment.tenant
+                    unit.assigned_date = timezone.now()
+                    unit.save()
+
+                    logger.info(f"Deposit payment {payment.id} completed successfully for unit {unit.unit_number}")
+                    logger.info(f"Unit {unit.unit_number} assigned to tenant {payment.tenant.email}")
+                    
+                    # Clear cache
+                    cache.delete(f"stk_deposit_{checkout_request_id}")
+
+                except Payment.DoesNotExist:
+                    logger.error(f"Deposit payment not found for ID: {cached_data['payment_id']}")
+                except Unit.DoesNotExist:
+                    logger.error(f"Unit not found for deposit payment: {cached_data['payment_id']}")
+                except Exception as e:
+                    logger.error(f"Error processing deposit callback: {str(e)}")
+
+            else:
+                logger.warning(f"No cached data found for deposit checkout: {checkout_request_id}")
+
+        else:
+            # Payment failed
+            logger.error(f"Deposit payment failed - ResultCode: {result_code}, Description: {result_desc}")
+            
+            # Update payment status to failed
+            if checkout_request_id:
+                cached_data = cache.get(f"stk_deposit_{checkout_request_id}")
+                if cached_data:
+                    try:
+                        payment = Payment.objects.get(id=cached_data["payment_id"])
+                        payment.status = "Failed"
+                        payment.save()
+                        logger.info(f"Deposit payment {payment.id} marked as failed")
+                    except Payment.DoesNotExist:
+                        logger.error(f"Deposit payment not found for failed callback: {cached_data['payment_id']}")
+
+        return JsonResponse({"ResultCode": 0, "ResultDesc": "Accepted"})
+
+    except json.JSONDecodeError:
+        logger.error("Invalid JSON in deposit callback")
+        return JsonResponse({"ResultCode": 1, "ResultDesc": "Invalid JSON"})
+    except Exception as e:
+        logger.error(f"Unexpected error in deposit callback: {str(e)}")
+        return JsonResponse({"ResultCode": 1, "ResultDesc": "Internal error"})
 
 @csrf_exempt
 def mpesa_subscription_callback(request):
     """
-    Handle M-Pesa subscription payment callback
+    Enhanced subscription payment callback handler
     """
     try:
         callback_data = json.loads(request.body)
+        logger.info(f"Subscription callback received: {callback_data}")
 
         stk_callback = callback_data.get("Body", {}).get("stkCallback", {})
+        result_code = stk_callback.get("ResultCode")
+        result_desc = stk_callback.get("ResultDesc", "")
+        checkout_request_id = stk_callback.get("CheckoutRequestID")
 
-        if stk_callback.get("ResultCode") == 0:
-            # Successful payment
+        logger.info(f"Subscription callback - ResultCode: {result_code}, CheckoutRequestID: {checkout_request_id}")
+
+        if result_code == 0:
+            # Payment successful
             callback_metadata = stk_callback.get("CallbackMetadata", {}).get("Item", [])
-
+            
+            # Extract payment details
             mpesa_receipt = None
             amount = None
+            phone_number = None
 
             for item in callback_metadata:
-                if item["Name"] == "MpesaReceiptNumber":
-                    mpesa_receipt = item["Value"]
-                elif item["Name"] == "Amount":
-                    amount = item["Value"]
-
-            checkout_request_id = stk_callback.get("CheckoutRequestID")
+                if item.get("Name") == "MpesaReceiptNumber":
+                    mpesa_receipt = item.get("Value")
+                elif item.get("Name") == "Amount":
+                    amount = item.get("Value")
+                elif item.get("Name") == "PhoneNumber":
+                    phone_number = item.get("Value")
 
             # Get cached subscription payment data
-            cached_data = cache.get(f"stk_sub_{checkout_request_id}")
+            cached_data = cache.get(f"stk_sub_{checkout_request_id}") if checkout_request_id else None
+            
             if cached_data:
-                subscription_payment = SubscriptionPayment.objects.get(id=cached_data["subscription_payment_id"])
-                subscription_payment.status = "Success"
-                subscription_payment.mpesa_receipt_number = mpesa_receipt
-                subscription_payment.save()
+                try:
+                    subscription_payment = SubscriptionPayment.objects.get(
+                        id=cached_data["subscription_payment_id"]
+                    )
+                    user = subscription_payment.user
+                    
+                    # Update subscription payment record
+                    subscription_payment.status = "Success"
+                    subscription_payment.mpesa_receipt_number = (
+                        mpesa_receipt or 
+                        f"SUB-{subscription_payment.id}-{uuid.uuid4().hex[:8].upper()}"
+                    )
+                    
+                    if amount:
+                        subscription_payment.amount = Decimal(amount)
+                    
+                    subscription_payment.save()
 
-                # Update user subscription
-                user = subscription_payment.user
-                subscription = user.subscription
-                subscription.plan = subscription_payment.subscription_type
-                subscription.expiry_date = timezone.now() + timedelta(days=30)
-                subscription.save()
+                    # Update or create user subscription
+                    subscription, created = Subscription.objects.get_or_create(
+                        user=user,
+                        defaults={
+                            'plan': subscription_payment.subscription_type,
+                            'expiry_date': timezone.now() + timedelta(days=30)
+                        }
+                    )
+                    
+                    if not created:
+                        # Update existing subscription
+                        subscription.plan = subscription_payment.subscription_type
+                        subscription.expiry_date = timezone.now() + timedelta(days=30)
+                        subscription.save()
 
-                cache.delete(f"stk_sub_{checkout_request_id}")
+                    logger.info(f"Subscription payment {subscription_payment.id} completed successfully")
+                    logger.info(f"User {user.email} subscription updated to {subscription_payment.subscription_type}")
+                    
+                    # Clear cache
+                    cache.delete(f"stk_sub_{checkout_request_id}")
+
+                except SubscriptionPayment.DoesNotExist:
+                    logger.error(f"Subscription payment not found for ID: {cached_data['subscription_payment_id']}")
+                except Exception as e:
+                    logger.error(f"Error processing subscription callback: {str(e)}")
+
+            else:
+                logger.warning(f"No cached data found for subscription checkout: {checkout_request_id}")
+
+        else:
+            # Payment failed
+            logger.error(f"Subscription payment failed - ResultCode: {result_code}, Description: {result_desc}")
+            
+            # Update payment status to failed
+            if checkout_request_id:
+                cached_data = cache.get(f"stk_sub_{checkout_request_id}")
+                if cached_data:
+                    try:
+                        subscription_payment = SubscriptionPayment.objects.get(
+                            id=cached_data["subscription_payment_id"]
+                        )
+                        subscription_payment.status = "Failed"
+                        subscription_payment.save()
+                        logger.info(f"Subscription payment {subscription_payment.id} marked as failed")
+                    except SubscriptionPayment.DoesNotExist:
+                        logger.error(f"Subscription payment not found for failed callback: {cached_data['subscription_payment_id']}")
 
         return JsonResponse({"ResultCode": 0, "ResultDesc": "Accepted"})
 
+    except json.JSONDecodeError:
+        logger.error("Invalid JSON in subscription callback")
+        return JsonResponse({"ResultCode": 1, "ResultDesc": "Invalid JSON"})
     except Exception as e:
-        return JsonResponse({"ResultCode": 1, "ResultDesc": "Error"})
+        logger.error(f"Unexpected error in subscription callback: {str(e)}")
+        return JsonResponse({"ResultCode": 1, "ResultDesc": "Internal error"})
 
+@csrf_exempt
+def mpesa_rent_callback(request):
+    """
+    Enhanced rent payment callback handler
+    """
+    try:
+        callback_data = json.loads(request.body)
+        logger.info(f"Rent callback received: {callback_data}")
 
+        stk_callback = callback_data.get("Body", {}).get("stkCallback", {})
+        result_code = stk_callback.get("ResultCode")
+        result_desc = stk_callback.get("ResultDesc", "")
+        checkout_request_id = stk_callback.get("CheckoutRequestID")
+
+        logger.info(f"Rent callback - ResultCode: {result_code}, CheckoutRequestID: {checkout_request_id}")
+
+        if result_code == 0:
+            # Payment successful
+            callback_metadata = stk_callback.get("CallbackMetadata", {}).get("Item", [])
+            
+            # Extract payment details
+            mpesa_receipt = None
+            amount = None
+            phone_number = None
+
+            for item in callback_metadata:
+                if item.get("Name") == "MpesaReceiptNumber":
+                    mpesa_receipt = item.get("Value")
+                elif item.get("Name") == "Amount":
+                    amount = item.get("Value")
+                elif item.get("Name") == "PhoneNumber":
+                    phone_number = item.get("Value")
+
+            # Get cached payment data
+            cached_data = cache.get(f"stk_{checkout_request_id}") if checkout_request_id else None
+            
+            if cached_data:
+                try:
+                    payment = Payment.objects.get(id=cached_data["payment_id"])
+                    unit = payment.unit
+                    
+                    # Update payment record
+                    payment.status = "Success"
+                    payment.mpesa_receipt = mpesa_receipt or f"RENT-{payment.id}-{uuid.uuid4().hex[:8].upper()}"
+                    
+                    if amount:
+                        payment.amount = Decimal(amount)
+                    
+                    payment.save()
+
+                    # Update unit rent_paid
+                    paid_amount = Decimal(amount) if amount else payment.amount
+                    unit.rent_paid += paid_amount
+                    unit.rent_remaining = unit.rent - unit.rent_paid
+                    unit.save()
+
+                    logger.info(f"Rent payment {payment.id} completed successfully for unit {unit.unit_number}")
+                    logger.info(f"Unit {unit.unit_number} rent paid: {unit.rent_paid}, remaining: {unit.rent_remaining}")
+                    
+                    # Clear cache
+                    cache.delete(f"stk_{checkout_request_id}")
+
+                except Payment.DoesNotExist:
+                    logger.error(f"Rent payment not found for ID: {cached_data['payment_id']}")
+                except Unit.DoesNotExist:
+                    logger.error(f"Unit not found for rent payment: {cached_data['payment_id']}")
+                except Exception as e:
+                    logger.error(f"Error processing rent callback: {str(e)}")
+
+            else:
+                logger.warning(f"No cached data found for rent checkout: {checkout_request_id}")
+
+        else:
+            # Payment failed
+            logger.error(f"Rent payment failed - ResultCode: {result_code}, Description: {result_desc}")
+            
+            # Update payment status to failed
+            if checkout_request_id:
+                cached_data = cache.get(f"stk_{checkout_request_id}")
+                if cached_data:
+                    try:
+                        payment = Payment.objects.get(id=cached_data["payment_id"])
+                        payment.status = "Failed"
+                        payment.save()
+                        logger.info(f"Rent payment {payment.id} marked as failed")
+                    except Payment.DoesNotExist:
+                        logger.error(f"Rent payment not found for failed callback: {cached_data['payment_id']}")
+
+        return JsonResponse({"ResultCode": 0, "ResultDesc": "Accepted"})
+
+    except json.JSONDecodeError:
+        logger.error("Invalid JSON in rent callback")
+        return JsonResponse({"ResultCode": 1, "ResultDesc": "Invalid JSON"})
+    except Exception as e:
+        logger.error(f"Unexpected error in rent callback: {str(e)}")
+        return JsonResponse({"ResultCode": 1, "ResultDesc": "Internal error"})
+    
 @csrf_exempt
 def mpesa_b2c_callback(request):
     """
@@ -413,57 +720,6 @@ def mpesa_b2c_callback(request):
     except Exception as e:
         logger.error(f"B2C callback error: {str(e)}")
         return JsonResponse({"ResultCode": 1, "ResultDesc": "Error"})
-
-
-@csrf_exempt
-def mpesa_deposit_callback(request):
-    """
-    Handle M-Pesa deposit payment callback
-    """
-    try:
-        callback_data = json.loads(request.body)
-        logger.info(f"Deposit callback received: {callback_data}")
-
-        stk_callback = callback_data.get("Body", {}).get("stkCallback", {})
-
-        if stk_callback.get("ResultCode") == 0:
-            # Successful payment
-            callback_metadata = stk_callback.get("CallbackMetadata", {}).get("Item", [])
-
-            mpesa_receipt = None
-            amount = None
-
-            for item in callback_metadata:
-                if item["Name"] == "MpesaReceiptNumber":
-                    mpesa_receipt = item["Value"]
-                elif item["Name"] == "Amount":
-                    amount = item["Value"]
-
-            checkout_request_id = stk_callback.get("CheckoutRequestID")
-
-            # Get cached deposit payment data
-            cached_data = cache.get(f"stk_deposit_{checkout_request_id}")
-            if cached_data:
-                payment = Payment.objects.get(id=cached_data["payment_id"])
-                payment.status = "Success"
-                payment.mpesa_receipt = mpesa_receipt
-                payment.save()
-
-                # Mark unit as occupied
-                unit = payment.unit
-                unit.is_available = False
-                unit.save()
-
-                cache.delete(f"stk_deposit_{checkout_request_id}")
-                logger.info(f"Deposit payment successful: {payment.id}")
-
-        return JsonResponse({"ResultCode": 0, "ResultDesc": "Accepted"})
-
-    except Exception as e:
-        logger.error(f"Deposit callback error: {str(e)}")
-        return JsonResponse({"ResultCode": 1, "ResultDesc": "Error"})
-
-
 # ------------------------------
 # DRF CLASS-BASED VIEWS
 # ------------------------------

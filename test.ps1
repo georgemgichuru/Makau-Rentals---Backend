@@ -1,4 +1,5 @@
 # complete_test_api.ps1 - Comprehensive Rental Management API Test Script
+# Enhanced with Real M-Pesa Callback Waiting
 # Tests all features: landlord/tenant signup, properties, units, subscriptions, payments, reports, password reset
 
 Write-Host "==============================================" -ForegroundColor Green
@@ -6,17 +7,21 @@ Write-Host "COMPREHENSIVE RENTAL MANAGEMENT API TEST" -ForegroundColor Green
 Write-Host "==============================================" -ForegroundColor Green
 
 # Configuration
-$BaseURL = "http://localhost:8000/api"
+$BaseURL = "https://makau-rentals-backend.onrender.com/api"
 $TestEmailDomain = "@test.com"
 $RandomSuffix = Get-Random -Minimum 1000 -Maximum 9999
 
-# Test data
+# Real M-Pesa payment configuration
+$MaxWaitSeconds = 180     # 3 minutes max wait for real M-Pesa callbacks
+$PollIntervalSeconds = 10 # Check every 10 seconds
+
+# Test data - Using real test M-Pesa numbers
 $LandlordData = @{
     email = "landlord$RandomSuffix$TestEmailDomain"
     full_name = "Test Landlord $RandomSuffix"
     password = "TestPassword123!"
     user_type = "landlord"
-    phone_number = "+254700000000"
+    phone_number = "254708374149"  # M-Pesa test number
     government_id = "A12345678X"
     mpesa_till_number = "123456"
 }
@@ -26,9 +31,9 @@ $TenantData = @{
     full_name = "Test Tenant $RandomSuffix"
     password = "TestPassword123!"
     user_type = "tenant"
-    phone_number = "+254711111111"
+    phone_number = "254708374149"  # M-Pesa test number
     government_id = "B98765432Y"
-    emergency_contact = "+254722222222"
+    emergency_contact = "254708374149"
 }
 
 $PropertyData = @{
@@ -40,8 +45,8 @@ $PropertyData = @{
 
 $UnitTypeData = @{
     name = "Studio $RandomSuffix"
-    deposit = 5000
-    rent = 15000
+    deposit = 1  # Small amount for testing
+    rent = 1     # Small amount for testing
     number_of_units = 2
 }
 
@@ -54,6 +59,9 @@ $Global:UnitTypeId = $null
 $Global:ReportId = $null
 $Global:TenantId = $null
 $Global:LandlordId = $null
+$Global:PaymentId = $null
+$Global:CheckoutRequestId = $null
+$Global:SubscriptionPaymentId = $null
 
 # Utility functions
 function Invoke-API {
@@ -111,6 +119,56 @@ function Invoke-API {
             Error = $_.Exception.Message
         }
     }
+}
+
+function Wait-ForPaymentCallback {
+    param(
+        [string]$PaymentId,
+        [string]$Token,
+        [string]$PaymentType = "deposit"
+    )
+    
+    Write-Host "Waiting for real M-Pesa payment callback..." -ForegroundColor Yellow
+    Write-Host "Payment ID: $PaymentId" -ForegroundColor Gray
+    Write-Host "Please complete the M-Pesa payment on your phone" -ForegroundColor Yellow
+    Write-Host "Waiting up to $MaxWaitSeconds seconds for callback..." -ForegroundColor Gray
+    
+    $startTime = Get-Date
+    $timeout = $startTime.AddSeconds($MaxWaitSeconds)
+    $elapsed = 0
+    
+    while ((Get-Date) -lt $timeout) {
+        $elapsed = [math]::Round(((Get-Date) - $startTime).TotalSeconds)
+        Write-Host "Checking payment status... (${elapsed}s)" -ForegroundColor Gray
+        
+        $Result = Invoke-API -Method "GET" -Endpoint "/payments/deposit-status/$PaymentId/" -Token $Token
+        
+        if ($Result.Success) {
+            $status = $Result.Content.status
+            Write-Host "Current payment status: $status" -ForegroundColor White
+            
+            if ($status -eq "Success") {
+                Write-Host "✅ Payment completed successfully via M-Pesa callback!" -ForegroundColor Green
+                Write-Host "M-Pesa Receipt: $($Result.Content.mpesa_receipt)" -ForegroundColor White
+                return @{ Success = $true; Status = "success"; Receipt = $Result.Content.mpesa_receipt }
+            }
+            elseif ($status -eq "Failed" -or $status -eq "Cancelled") {
+                Write-Host "❌ Payment failed with status: $status" -ForegroundColor Red
+                return @{ Success = $false; Status = $status }
+            }
+            # If still pending, continue waiting
+        }
+        else {
+            Write-Host "Error checking payment status: $($Result.Error)" -ForegroundColor Red
+        }
+        
+        Write-Host "Waiting $PollIntervalSeconds seconds before next check..." -ForegroundColor Gray
+        Start-Sleep -Seconds $PollIntervalSeconds
+    }
+    
+    Write-Host "❌ Timeout waiting for M-Pesa callback after $elapsed seconds" -ForegroundColor Red
+    Write-Host "The payment may still be processing or the callback may have been delayed" -ForegroundColor Yellow
+    return @{ Success = $false; Status = "timeout" }
 }
 
 function Write-TestResult {
@@ -244,8 +302,8 @@ function Test-PropertyManagement {
         floor = 1
         bedrooms = 1
         bathrooms = 1
-        rent = 15000
-        deposit = 5000
+        rent = 1
+        deposit = 1
         is_available = $true
     }
     $Result = Invoke-API -Method "POST" -Endpoint "/accounts/units/create/" -Body $UnitData -Token $Global:LandlordToken
@@ -289,7 +347,7 @@ function Test-SubscriptionSystem {
     
     # Check subscription status
     Write-Host "`nTesting Subscription Status..." -ForegroundColor Gray
-    $Result = Invoke-API -Method "GET" -Endpoint "/payments/subscription-status/" -Token $Global:LandlordToken
+    $Result = Invoke-API -Method "GET" -Endpoint "/accounts/subscription-status/" -Token $Global:LandlordToken
     Write-TestResult -TestName "Subscription Status" -Success $Result.Success -Message $Result.Error
     if ($Result.Success) {
         Write-Host "Plan: $($Result.Content.plan)" -ForegroundColor White
@@ -300,7 +358,7 @@ function Test-SubscriptionSystem {
     # Update till number
     Write-Host "`nTesting Till Number Update..." -ForegroundColor Gray
     $TillData = @{ mpesa_till_number = "987654" }
-    $Result = Invoke-API -Method "PATCH" -Endpoint "/payments/update-till-number/" -Body $TillData -Token $Global:LandlordToken
+    $Result = Invoke-API -Method "PATCH" -Endpoint "/accounts/update-till-number/" -Body $TillData -Token $Global:LandlordToken
     Write-TestResult -TestName "Update Till Number" -Success $Result.Success -Message $Result.Error
     
     # Test subscription payment initiation
@@ -310,8 +368,20 @@ function Test-SubscriptionSystem {
         phone_number = $LandlordData.phone_number
     }
     $Result = Invoke-API -Method "POST" -Endpoint "/payments/stk-push-subscription/" -Body $SubscriptionData -Token $Global:LandlordToken
-    if ($Result.Success -or $Result.StatusCode -eq 400) {
+    if ($Result.Success) {
+        $Global:SubscriptionPaymentId = $Result.Content.subscription_payment_id
+        $CheckoutRequestId = $Result.Content.checkout_request_id
+        
+        Write-Host "✅ Subscription payment initiated successfully!" -ForegroundColor Green
+        Write-Host "Subscription Payment ID: $Global:SubscriptionPaymentId" -ForegroundColor White
+        Write-Host "Checkout Request ID: $CheckoutRequestId" -ForegroundColor White
+        Write-Host "Please complete the M-Pesa payment on your phone to activate subscription" -ForegroundColor Yellow
+        
+        # Note: Subscription payments would also need callback waiting in a full implementation
         Write-TestResult -TestName "Subscription Payment Initiation" -Success $true
+    }
+    elseif ($Result.StatusCode -eq 400) {
+        Write-TestResult -TestName "Subscription Payment Initiation" -Success $true -Message "Expected behavior (sandbox limitations or already subscribed)"
     }
     else {
         Write-TestResult -TestName "Subscription Payment Initiation" -Success $false -Message $Result.Error
@@ -356,36 +426,60 @@ function Test-RentManagement {
         Write-Host "Message: $($Result.Content.message)" -ForegroundColor White
     }
     
-    # Test deposit payment initiation
-    Write-Host "`nTesting Deposit Payment Initiation..." -ForegroundColor Gray
+    # Test deposit payment initiation with real callback waiting
+    Write-Host "`nTesting Deposit Payment with Real M-Pesa Callback..." -ForegroundColor Gray
     $DepositData = @{
         unit_id = $Global:UnitId
     }
     $Result = Invoke-API -Method "POST" -Endpoint "/payments/initiate-deposit/" -Body $DepositData -Token $Global:TenantToken
-    if ($Result.Success -or $Result.StatusCode -eq 400) {
-        Write-TestResult -TestName "Deposit Payment Initiation" -Success $true
-        if ($Result.Success) {
-            Write-Host "Payment ID: $($Result.Content.payment_id)" -ForegroundColor White
+    
+    if ($Result.Success) {
+        $Global:PaymentId = $Result.Content.payment_id
+        $Global:CheckoutRequestId = $Result.Content.checkout_request_id
+        
+        Write-Host "✅ Deposit payment initiated successfully!" -ForegroundColor Green
+        Write-Host "Payment ID: $Global:PaymentId" -ForegroundColor White
+        Write-Host "Checkout Request ID: $Global:CheckoutRequestId" -ForegroundColor White
+        
+        # Wait for real M-Pesa callback
+        $CallbackResult = Wait-ForPaymentCallback -PaymentId $Global:PaymentId -Token $Global:TenantToken -PaymentType "deposit"
+        Write-TestResult -TestName "Deposit Payment Completion" -Success $CallbackResult.Success -Message "Final status: $($CallbackResult.Status)"
+        
+        # Only proceed with tenant assignment if deposit was successful
+        if ($CallbackResult.Success -and $CallbackResult.Status -eq "success") {
+            Write-Host "`nTesting Tenant Assignment..." -ForegroundColor Gray
+            $AssignData = @{}
+            $Result = Invoke-API -Method "POST" -Endpoint "/accounts/units/$Global:UnitId/assign/$Global:TenantId/" -Body $AssignData -Token $Global:LandlordToken
+            Write-TestResult -TestName "Assign Tenant to Unit" -Success $Result.Success -Message $Result.Error
+        } else {
+            Write-Host "Skipping tenant assignment - deposit payment not completed" -ForegroundColor Yellow
         }
+    }
+    elseif ($Result.StatusCode -eq 400) {
+        Write-TestResult -TestName "Deposit Payment Initiation" -Success $true -Message "Expected failure (unit might already be occupied or assigned)"
     }
     else {
         Write-TestResult -TestName "Deposit Payment Initiation" -Success $false -Message $Result.Error
     }
     
-    # Assign tenant to unit
-    Write-Host "`nTesting Tenant Assignment..." -ForegroundColor Gray
-    $AssignData = @{}
-    $Result = Invoke-API -Method "POST" -Endpoint "/units/$Global:UnitId/assign/$Global:TenantId/" -Body $AssignData -Token $Global:LandlordToken
-    Write-TestResult -TestName "Assign Tenant to Unit" -Success $Result.Success -Message $Result.Error
-    
-    # Test rent payment initiation
-    Write-Host "`nTesting Rent Payment Initiation..." -ForegroundColor Gray
+    # Test rent payment initiation with real callback waiting
+    Write-Host "`nTesting Rent Payment with Real M-Pesa Callback..." -ForegroundColor Gray
     $Result = Invoke-API -Method "POST" -Endpoint "/payments/stk-push/$Global:UnitId/" -Body @{} -Token $Global:TenantToken
-    if ($Result.Success -or $Result.StatusCode -eq 400) {
-        Write-TestResult -TestName "Rent Payment Initiation" -Success $true
-        if ($Result.Success) {
-            Write-Host "Payment ID: $($Result.Content.payment_id)" -ForegroundColor White
-        }
+    
+    if ($Result.Success) {
+        $RentPaymentId = $Result.Content.payment_id
+        $RentCheckoutId = $Result.Content.checkout_request_id
+        
+        Write-Host "✅ Rent payment initiated successfully!" -ForegroundColor Green
+        Write-Host "Payment ID: $RentPaymentId" -ForegroundColor White
+        Write-Host "Checkout Request ID: $RentCheckoutId" -ForegroundColor White
+        
+        # Wait for real M-Pesa callback
+        $RentCallbackResult = Wait-ForPaymentCallback -PaymentId $RentPaymentId -Token $Global:TenantToken -PaymentType "rent"
+        Write-TestResult -TestName "Rent Payment Completion" -Success $RentCallbackResult.Success -Message "Final status: $($RentCallbackResult.Status)"
+    }
+    elseif ($Result.StatusCode -eq 400) {
+        Write-TestResult -TestName "Rent Payment Initiation" -Success $true -Message "Expected failure (rent might already be paid or unit not assigned)"
     }
     else {
         Write-TestResult -TestName "Rent Payment Initiation" -Success $false -Message $Result.Error
@@ -407,7 +501,7 @@ function Test-RentManagement {
     
     # Dashboard stats
     Write-Host "`nTesting Dashboard Statistics..." -ForegroundColor Gray
-    $Result = Invoke-API -Method "GET" -Endpoint "/dashboard-stats/" -Token $Global:LandlordToken
+    $Result = Invoke-API -Method "GET" -Endpoint "/accounts/dashboard-stats/" -Token $Global:LandlordToken
     Write-TestResult -TestName "Dashboard Stats" -Success $Result.Success -Message $Result.Error
     if ($Result.Success) {
         Write-Host "Active tenants: $($Result.Content.total_active_tenants)" -ForegroundColor White
@@ -436,7 +530,7 @@ function Test-CommunicationSystem {
         issue_title = "Test Plumbing Issue - Leaking Pipe"
         description = "This is a test maintenance report for a leaking pipe in the bathroom"
     }
-    $Result = Invoke-API -Method "POST" -Endpoint "/reports/create/" -Body $ReportData -Token $Global:TenantToken
+    $Result = Invoke-API -Method "POST" -Endpoint "/communication/reports/create/" -Body $ReportData -Token $Global:TenantToken
     Write-TestResult -TestName "Create Maintenance Report" -Success $Result.Success -Message $Result.Error
     if ($Result.Success) {
         $Global:ReportId = $Result.Content.id
@@ -446,12 +540,12 @@ function Test-CommunicationSystem {
     # Update report status
     Write-Host "`nTesting Report Status Update..." -ForegroundColor Gray
     $UpdateData = @{ status = "in_progress" }
-    $Result = Invoke-API -Method "PATCH" -Endpoint "/reports/$Global:ReportId/update-status/" -Body $UpdateData -Token $Global:LandlordToken
+    $Result = Invoke-API -Method "PATCH" -Endpoint "/communication/reports/$Global:ReportId/update-status/" -Body $UpdateData -Token $Global:LandlordToken
     Write-TestResult -TestName "Update Report Status" -Success $Result.Success -Message $Result.Error
     
     # List open reports
     Write-Host "`nTesting Open Reports Listing..." -ForegroundColor Gray
-    $Result = Invoke-API -Method "GET" -Endpoint "/reports/open/" -Token $Global:LandlordToken
+    $Result = Invoke-API -Method "GET" -Endpoint "/communication/reports/open/" -Token $Global:LandlordToken
     Write-TestResult -TestName "List Open Reports" -Success $Result.Success -Message $Result.Error
     if ($Result.Success) {
         Write-Host "Found $($Result.Content.Count) open reports" -ForegroundColor White
@@ -459,7 +553,7 @@ function Test-CommunicationSystem {
     
     # List urgent reports
     Write-Host "`nTesting Urgent Reports Listing..." -ForegroundColor Gray
-    $Result = Invoke-API -Method "GET" -Endpoint "/reports/urgent/" -Token $Global:LandlordToken
+    $Result = Invoke-API -Method "GET" -Endpoint "/communication/reports/urgent/" -Token $Global:LandlordToken
     Write-TestResult -TestName "List Urgent Reports" -Success $Result.Success -Message $Result.Error
     
     # Test email sending
@@ -469,7 +563,7 @@ function Test-CommunicationSystem {
         message = "This is a test email message sent through the rental management system API."
         send_to_all = $true
     }
-    $Result = Invoke-API -Method "POST" -Endpoint "/reports/send-email/" -Body $EmailData -Token $Global:LandlordToken
+    $Result = Invoke-API -Method "POST" -Endpoint "/communication/reports/send-email/" -Body $EmailData -Token $Global:LandlordToken
     if ($Result.Success -or $Result.StatusCode -eq 400) {
         Write-TestResult -TestName "Send Email" -Success $true
     }
@@ -486,7 +580,7 @@ function Test-UserManagement {
     
     # Get user profile
     Write-Host "`nTesting User Profile Retrieval..." -ForegroundColor Gray
-    $Result = Invoke-API -Method "GET" -Endpoint "/me/" -Token $Global:LandlordToken
+    $Result = Invoke-API -Method "GET" -Endpoint "/accounts/me/" -Token $Global:LandlordToken
     Write-TestResult -TestName "Get User Profile" -Success $Result.Success -Message $Result.Error
     if ($Result.Success) {
         Write-Host "User: $($Result.Content.full_name)" -ForegroundColor White
@@ -495,8 +589,8 @@ function Test-UserManagement {
     
     # Update user profile
     Write-Host "`nTesting User Profile Update..." -ForegroundColor Gray
-    $UpdateData = @{ phone_number = "+254733333333" }
-    $Result = Invoke-API -Method "PATCH" -Endpoint "/me/" -Body $UpdateData -Token $Global:LandlordToken
+    $UpdateData = @{ phone_number = "254722714334" }
+    $Result = Invoke-API -Method "PATCH" -Endpoint "/accounts/me/" -Body $UpdateData -Token $Global:LandlordToken
     Write-TestResult -TestName "Update User Profile" -Success $Result.Success -Message $Result.Error
     
     # Update reminder preferences (tenant)
@@ -505,12 +599,12 @@ function Test-UserManagement {
         reminder_mode = "fixed_day"
         reminder_value = 15
     }
-    $Result = Invoke-API -Method "PATCH" -Endpoint "/update-reminder-preferences/" -Body $ReminderData -Token $Global:TenantToken
+    $Result = Invoke-API -Method "PATCH" -Endpoint "/accounts/update-reminder-preferences/" -Body $ReminderData -Token $Global:TenantToken
     Write-TestResult -TestName "Update Reminder Preferences" -Success $Result.Success -Message $Result.Error
     
     # List tenants (landlord)
     Write-Host "`nTesting Tenants Listing..." -ForegroundColor Gray
-    $Result = Invoke-API -Method "GET" -Endpoint "/tenants/" -Token $Global:LandlordToken
+    $Result = Invoke-API -Method "GET" -Endpoint "/accounts/tenants/" -Token $Global:LandlordToken
     Write-TestResult -TestName "List Tenants" -Success $Result.Success -Message $Result.Error
     if ($Result.Success) {
         Write-Host "Found $($Result.Content.Count) tenants" -ForegroundColor White
@@ -526,7 +620,7 @@ function Test-PasswordReset {
     # Password reset request
     Write-Host "`nTesting Password Reset Request..." -ForegroundColor Gray
     $ResetData = @{ email = $LandlordData.email }
-    $Result = Invoke-API -Method "POST" -Endpoint "/password-reset/" -Body $ResetData
+    $Result = Invoke-API -Method "POST" -Endpoint "/accounts/password-reset/" -Body $ResetData
     Write-TestResult -TestName "Password Reset Request" -Success $Result.Success -Message $Result.Error
     if ($Result.Success) {
         Write-Host "Password reset email sent (check console for email output)" -ForegroundColor White
@@ -549,7 +643,7 @@ function Test-AdditionalEndpoints {
     
     # List all unit types
     Write-Host "`nTesting Unit Types Listing..." -ForegroundColor Gray
-    $Result = Invoke-API -Method "GET" -Endpoint "/unit-types/" -Token $Global:LandlordToken
+    $Result = Invoke-API -Method "GET" -Endpoint "/accounts/unit-types/" -Token $Global:LandlordToken
     Write-TestResult -TestName "Unit Types List" -Success $Result.Success -Message $Result.Error
     
     # Test M-Pesa connectivity
@@ -562,6 +656,11 @@ function Test-AdditionalEndpoints {
     $Result = Invoke-API -Method "POST" -Endpoint "/payments/cleanup-pending-payments/" -Token $Global:LandlordToken
     Write-TestResult -TestName "Payment Cleanup" -Success $Result.Success -Message $Result.Error
     
+    # List landlords (admin function)
+    Write-Host "`nTesting Landlords Listing..." -ForegroundColor Gray
+    $Result = Invoke-API -Method "GET" -Endpoint "/accounts/landlords/" -Token $Global:LandlordToken
+    Write-TestResult -TestName "List Landlords" -Success $Result.Success -Message $Result.Error
+    
     Wait-ForUser
 }
 
@@ -571,12 +670,12 @@ function Test-ErrorScenarios {
     
     # Test unauthorized access
     Write-Host "`nTesting Unauthorized Access..." -ForegroundColor Gray
-    $Result = Invoke-API -Method "GET" -Endpoint "/dashboard-stats/"
+    $Result = Invoke-API -Method "GET" -Endpoint "/accounts/dashboard-stats/"
     Write-TestResult -TestName "Unauthorized Access" -Success (-not $Result.Success) -Message "Expected to fail"
     
     # Test invalid token
     Write-Host "`nTesting Invalid Token..." -ForegroundColor Gray
-    $Result = Invoke-API -Method "GET" -Endpoint "/dashboard-stats/" -Token "invalid_token"
+    $Result = Invoke-API -Method "GET" -Endpoint "/accounts/dashboard-stats/" -Token "invalid_token"
     Write-TestResult -TestName "Invalid Token" -Success (-not $Result.Success) -Message "Expected to fail"
     
     # Test invalid endpoint
@@ -586,18 +685,26 @@ function Test-ErrorScenarios {
     
     # Test tenant accessing landlord endpoints
     Write-Host "`nTesting Tenant Accessing Landlord Endpoints..." -ForegroundColor Gray
-    $Result = Invoke-API -Method "GET" -Endpoint "/dashboard-stats/" -Token $Global:TenantToken
+    $Result = Invoke-API -Method "GET" -Endpoint "/accounts/dashboard-stats/" -Token $Global:TenantToken
     Write-TestResult -TestName "Tenant Accessing Landlord Endpoint" -Success (-not $Result.Success) -Message "Expected to fail"
+    
+    # Test accessing non-existent property
+    Write-Host "`nTesting Non-Existent Property Access..." -ForegroundColor Gray
+    $Result = Invoke-API -Method "GET" -Endpoint "/accounts/properties/9999/units/" -Token $Global:LandlordToken
+    Write-TestResult -TestName "Non-Existent Property" -Success (-not $Result.Success) -Message "Expected to fail"
     
     Wait-ForUser
 }
 
 # Main execution
 try {
-    Write-Host "Starting comprehensive API tests..." -ForegroundColor Green
+    Write-Host "Starting comprehensive API tests with REAL M-Pesa callback waiting..." -ForegroundColor Green
     Write-Host "Base URL: $BaseURL" -ForegroundColor Gray
     Write-Host "Test ID: $RandomSuffix" -ForegroundColor Gray
     Write-Host "Test emails: landlord$RandomSuffix$TestEmailDomain, tenant$RandomSuffix$TestEmailDomain" -ForegroundColor Gray
+    Write-Host "M-Pesa test number: 254708374149" -ForegroundColor Gray
+    Write-Host "Max callback wait time: $MaxWaitSeconds seconds" -ForegroundColor Gray
+    Write-Host "`nIMPORTANT: You must complete M-Pesa payments on your phone when prompted!" -ForegroundColor Yellow
     
     Test-Authentication
     Test-PropertyManagement
@@ -622,12 +729,19 @@ try {
     Write-Host "Report ID: $Global:ReportId" -ForegroundColor White
     Write-Host "Landlord ID: $Global:LandlordId" -ForegroundColor White
     Write-Host "Tenant ID: $Global:TenantId" -ForegroundColor White
+    if ($Global:PaymentId) {
+        Write-Host "Payment ID: $Global:PaymentId" -ForegroundColor White
+    }
+    if ($Global:SubscriptionPaymentId) {
+        Write-Host "Subscription Payment ID: $Global:SubscriptionPaymentId" -ForegroundColor White
+    }
     
-    Write-Host "`nNOTES:" -ForegroundColor Yellow
-    Write-Host "- M-Pesa payments are simulated (test mode)" -ForegroundColor Yellow
-    Write-Host "- Email sending uses console backend" -ForegroundColor Yellow
-    Write-Host "- All errors are displayed for debugging" -ForegroundColor Yellow
-    Write-Host "- Test data uses random suffix: $RandomSuffix" -ForegroundColor Yellow
+    Write-Host "`nPAYMENT TESTING NOTES:" -ForegroundColor Yellow
+    Write-Host "- Uses real M-Pesa STK Push with callback waiting" -ForegroundColor Yellow
+    Write-Host "- Test amounts are set to 1 KES for testing" -ForegroundColor Yellow
+    Write-Host "- You must complete payments on your phone when STK Push arrives" -ForegroundColor Yellow
+    Write-Host "- Callbacks are waited for up to $MaxWaitSeconds seconds" -ForegroundColor Yellow
+    Write-Host "- Phone numbers use 254XXXXXXXXX format for M-Pesa validation" -ForegroundColor Yellow
     
 }
 catch {
