@@ -18,7 +18,6 @@ from .views import (
     InitiateDepositPaymentView,
     DepositPaymentStatusView,
     CleanupPendingPaymentsView,
-    SubscriptionStatusView,
     TestMpesaView,
 
     # CSV reports
@@ -50,7 +49,6 @@ urlpatterns = [
     path("subscription-payments/", SubscriptionPaymentListCreateView.as_view(), name="subscription-payment-list-create"),
     path("subscription-payments/<int:pk>/", SubscriptionPaymentDetailView.as_view(), name="subscription-payment-detail"),
     path("rent-payments/summary/", RentSummaryView.as_view(), name="rent-summary"),
-    path('subscription-status/', SubscriptionStatusView.as_view(), name='subscription-status'),
 
     # ------------------------------
     # UNIT TYPES
