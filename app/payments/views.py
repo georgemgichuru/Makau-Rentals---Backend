@@ -28,7 +28,7 @@ from .serializers import PaymentSerializer, SubscriptionPaymentSerializer
 
 logger = logging.getLogger(__name__)
 
-# Add this function after imports and before other functions
+# Enhanced validation function
 def validate_mpesa_payment(phone_number, amount):
     """
     Validate payment parameters before initiating STK push
@@ -37,21 +37,35 @@ def validate_mpesa_payment(phone_number, amount):
     if not phone_number or not isinstance(phone_number, str):
         return False, "Phone number is required"
     
+    # Clean phone number
+    phone_number = phone_number.strip().replace(' ', '').replace('+', '')
+    
+    # Convert to 254 format if needed
+    if phone_number.startswith('0') and len(phone_number) == 10:
+        phone_number = '254' + phone_number[1:]
+    elif phone_number.startswith('7') and len(phone_number) == 9:
+        phone_number = '254' + phone_number
+    
+    # Validate final format
     if not phone_number.startswith('254') or len(phone_number) != 12:
         return False, "Phone number must be in format 254XXXXXXXXX"
     
-    # Validate phone number contains only digits after 254
-    if not phone_number[3:].isdigit():
+    # Validate phone number contains only digits
+    if not phone_number.isdigit():
         return False, "Phone number must contain only digits"
     
     # Validate amount
-    if amount <= 0:
-        return False, "Amount must be greater than 0"
+    try:
+        amount = float(amount)
+        if amount <= 0:
+            return False, "Amount must be greater than 0"
+        
+        if amount > 150000:  # M-Pesa transaction limit
+            return False, "Amount exceeds M-Pesa transaction limit (KES 150,000)"
+    except (ValueError, TypeError):
+        return False, "Amount must be a valid number"
     
-    if amount > 150000:  # M-Pesa transaction limit
-        return False, "Amount exceeds M-Pesa transaction limit (KES 150,000)"
-    
-    return True, "Valid"
+    return True, phone_number  # Return cleaned phone number
 
 # ------------------------------
 # M-PESA STK PUSH FUNCTIONS
@@ -81,25 +95,23 @@ def stk_push(request, unit_id):
         if not phone_number:
             return Response({"error": "Phone number is required"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Validate phone number format (should be 254XXXXXXXXX)
-        if not phone_number.startswith('254'):
-            return Response({"error": "Phone number must be in format 254XXXXXXXXX"}, status=status.HTTP_400_BAD_REQUEST)
-
-         # ✅ ADD VALIDATION HERE
-        is_valid, validation_message = validate_mpesa_payment(phone_number, amount)
+        # ✅ ADD VALIDATION HERE
+        is_valid, validation_result = validate_mpesa_payment(phone_number, amount)
         if not is_valid:
-            return Response({"error": validation_message}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"error": validation_result}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Use cleaned phone number
+        phone_number = validation_result
 
         # Generate access token
         access_token = generate_access_token()
         if not access_token:
             return Response({"error": "Failed to generate M-Pesa access token"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        # Prepare STK push request for PRODUCTION
+        # Prepare STK push request - FIXED PASSWORD GENERATION
         timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
-        password = base64.b64encode(
-            (settings.MPESA_SHORTCODE + settings.MPESA_PASSKEY + timestamp).encode('utf-8')
-        ).decode('utf-8')
+        password_string = settings.MPESA_SHORTCODE + settings.MPESA_PASSKEY + timestamp
+        password = base64.b64encode(password_string.encode('utf-8')).decode('utf-8')
 
         payload = {
             "BusinessShortCode": settings.MPESA_SHORTCODE,
@@ -120,14 +132,19 @@ def stk_push(request, unit_id):
             "Content-Type": "application/json"
         }
 
-        # Use production URL
+        # Use correct URL based on environment
         if settings.MPESA_ENV == "sandbox":
             url = "https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest"
         else:
             url = "https://api.safaricom.co.ke/mpesa/stkpush/v1/processrequest"
 
+        logger.info(f"Sending STK push to: {url}")
+        logger.info(f"Payload: {payload}")
+
         response = requests.post(url, json=payload, headers=headers, timeout=30)
         response_data = response.json()
+
+        logger.info(f"STK push response: {response_data}")
 
         if response.status_code == 200 and response_data.get("ResponseCode") == "0":
             # Create pending payment record
@@ -141,14 +158,16 @@ def stk_push(request, unit_id):
             )
 
             # Cache checkout request ID for callback
-            cache.set(f"stk_{response_data['CheckoutRequestID']}", {
+            cache_key = f"stk_{response_data['CheckoutRequestID']}"
+            cache_data = {
                 "payment_id": payment.id,
                 "unit_id": unit.id,
                 "amount": float(amount),
                 "tenant_id": tenant.id
-            }, timeout=300)  # 5 minutes
+            }
+            cache.set(cache_key, cache_data, timeout=300)  # 5 minutes
 
-            logger.info(f"STK push initiated for payment {payment.id}, amount {amount}, phone {phone_number}")
+            logger.info(f"STK push initiated successfully. Payment ID: {payment.id}, Cache Key: {cache_key}")
 
             return Response({
                 "success": True,
@@ -158,14 +177,16 @@ def stk_push(request, unit_id):
             })
 
         else:
-            logger.error(f"STK push failed: {response_data}")
+            error_message = response_data.get('errorMessage', response_data.get('ResponseDescription', 'Unknown error'))
+            logger.error(f"STK push failed: {error_message}")
             return Response({
                 "error": "Failed to initiate STK push",
-                "details": response_data.get('errorMessage', 'Unknown error')
+                "details": error_message,
+                "response_data": response_data
             }, status=status.HTTP_400_BAD_REQUEST)
 
     except Exception as e:
-        logger.error(f"STK push error: {str(e)}")
+        logger.error(f"STK push error: {str(e)}", exc_info=True)
         return Response({"error": "Internal server error"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 @csrf_exempt
@@ -196,18 +217,21 @@ def stk_push_subscription(request):
         amount = plan_amounts[plan]
 
         # ✅ ADD VALIDATION HERE
-        is_valid, validation_message = validate_mpesa_payment(phone_number, amount)
+        is_valid, validation_result = validate_mpesa_payment(phone_number, amount)
         if not is_valid:
-            return Response({"error": validation_message}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"error": validation_result}, status=status.HTTP_400_BAD_REQUEST)
+        
+        phone_number = validation_result
 
         # Generate access token
         access_token = generate_access_token()
         if not access_token:
             return Response({"error": "Failed to generate M-Pesa access token"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        # Prepare STK push request
+        # Prepare STK push request - FIXED PASSWORD
         timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
-        password = settings.MPESA_SHORTCODE + settings.MPESA_PASSKEY + timestamp
+        password_string = settings.MPESA_SHORTCODE + settings.MPESA_PASSKEY + timestamp
+        password = base64.b64encode(password_string.encode('utf-8')).decode('utf-8')
 
         payload = {
             "BusinessShortCode": settings.MPESA_SHORTCODE,
@@ -219,7 +243,7 @@ def stk_push_subscription(request):
             "PartyB": settings.MPESA_SHORTCODE,
             "PhoneNumber": phone_number,
             "CallBackURL": settings.MPESA_SUBSCRIPTION_CALLBACK_URL,
-            "AccountReference": f"Subscription-{user.id}",
+            "AccountReference": f"SUB-{user.id}",
             "TransactionDesc": f"Subscription payment for {plan} plan"
         }
 
@@ -234,7 +258,7 @@ def stk_push_subscription(request):
         else:
             url = "https://api.safaricom.co.ke/mpesa/stkpush/v1/processrequest"
 
-        response = requests.post(url, json=payload, headers=headers)
+        response = requests.post(url, json=payload, headers=headers, timeout=30)
         response_data = response.json()
 
         if response.status_code == 200 and response_data.get("ResponseCode") == "0":
@@ -243,11 +267,13 @@ def stk_push_subscription(request):
                 user=user,
                 amount=Decimal(amount),
                 subscription_type=plan,
-                status="Pending"
+                status="Pending",
+                mpesa_checkout_request_id=response_data["CheckoutRequestID"]
             )
 
             # Cache checkout request ID for callback
-            cache.set(f"stk_sub_{response_data['CheckoutRequestID']}", {
+            cache_key = f"stk_sub_{response_data['CheckoutRequestID']}"
+            cache.set(cache_key, {
                 "subscription_payment_id": subscription_payment.id,
                 "user_id": user.id,
                 "plan": plan,
@@ -262,39 +288,40 @@ def stk_push_subscription(request):
             })
 
         else:
+            error_message = response_data.get('errorMessage', response_data.get('ResponseDescription', 'Unknown error'))
             return Response({
                 "error": "Failed to initiate subscription STK push",
-                "details": response_data
+                "details": error_message
             }, status=status.HTTP_400_BAD_REQUEST)
 
     except Exception as e:
+        logger.error(f"Subscription STK push error: {str(e)}", exc_info=True)
         return Response({"error": "Internal server error"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-
 # ------------------------------
-# M-PESA CALLBACK FUNCTIONS
+# M-PESA CALLBACK FUNCTIONS (FIXED VERSIONS)
 # ------------------------------
 @csrf_exempt
 def mpesa_rent_callback(request):
     """
-    Enhanced M-Pesa callback handler with better error handling
+    Enhanced rent payment callback handler
     """
     try:
         callback_data = json.loads(request.body)
-        logger.info(f"Raw callback received: {callback_data}")
+        logger.info(f"Rent callback received: {callback_data}")
 
         stk_callback = callback_data.get("Body", {}).get("stkCallback", {})
         result_code = stk_callback.get("ResultCode")
         result_desc = stk_callback.get("ResultDesc", "")
         checkout_request_id = stk_callback.get("CheckoutRequestID")
 
-        logger.info(f"Callback processed - ResultCode: {result_code}, CheckoutRequestID: {checkout_request_id}")
+        logger.info(f"Rent callback - ResultCode: {result_code}, CheckoutRequestID: {checkout_request_id}")
 
         if result_code == 0:
-            # Payment was successful on M-Pesa side
+            # Payment successful
             callback_metadata = stk_callback.get("CallbackMetadata", {}).get("Item", [])
             
-            # Extract data with fallbacks
+            # Extract payment details
             mpesa_receipt = None
             amount = None
             phone_number = None
@@ -313,62 +340,64 @@ def mpesa_rent_callback(request):
             if cached_data:
                 try:
                     payment = Payment.objects.get(id=cached_data["payment_id"])
+                    unit = payment.unit
                     
-                    if mpesa_receipt:
-                        # We have complete data - mark as success
-                        payment.status = "Success"
-                        payment.mpesa_receipt = mpesa_receipt
-                        payment.save()
+                    # Update payment record
+                    payment.status = "Success"
+                    payment.mpesa_receipt = mpesa_receipt or f"RENT-{payment.id}-{uuid.uuid4().hex[:8].upper()}"
+                    
+                    if amount:
+                        payment.amount = Decimal(amount)
+                    
+                    payment.save()
 
-                        # Update unit
-                        unit = payment.unit
-                        if payment.payment_type == "rent":
-                            unit.rent_paid += Decimal(amount) if amount else payment.amount
-                            unit.save()
-                        elif payment.payment_type == "deposit":
-                            unit.is_available = False
-                            unit.save()
-                            
-                        logger.info(f"Payment {payment.id} marked as successful. Receipt: {mpesa_receipt}")
-                        
-                    else:
-                        # Missing receipt but payment was successful
-                        # Mark as success with a generated receipt for tracking
-                        payment.status = "Success"
-                        payment.mpesa_receipt = f"PENDING-RECEIPT-{payment.id}"
-                        payment.save()
-                        logger.warning(f"Payment {payment.id} successful but missing receipt number")
-                        
+                    # Update unit rent_paid
+                    paid_amount = Decimal(amount) if amount else payment.amount
+                    unit.rent_paid += paid_amount
+                    unit.rent_remaining = unit.rent - unit.rent_paid
+                    unit.save()
+
+                    logger.info(f"Rent payment {payment.id} completed successfully for unit {unit.unit_number}")
+                    logger.info(f"Unit {unit.unit_number} rent paid: {unit.rent_paid}, remaining: {unit.rent_remaining}")
+                    
+                    # Clear cache
+                    cache.delete(f"stk_{checkout_request_id}")
+
                 except Payment.DoesNotExist:
-                    logger.error(f"Payment not found for cached data: {cached_data}")
+                    logger.error(f"Rent payment not found for ID: {cached_data['payment_id']}")
+                except Unit.DoesNotExist:
+                    logger.error(f"Unit not found for rent payment: {cached_data['payment_id']}")
                 except Exception as e:
-                    logger.error(f"Error updating payment {cached_data.get('payment_id')}: {str(e)}")
+                    logger.error(f"Error processing rent callback: {str(e)}")
+
             else:
-                logger.warning(f"No cached data found for checkout request: {checkout_request_id}")
+                logger.warning(f"No cached data found for rent checkout: {checkout_request_id}")
 
         else:
-            # Payment failed on M-Pesa side
-            logger.error(f"Payment failed - ResultCode: {result_code}, Description: {result_desc}")
+            # Payment failed
+            logger.error(f"Rent payment failed - ResultCode: {result_code}, Description: {result_desc}")
             
-            # Update payment status to failed if we can find it
+            # Update payment status to failed
             if checkout_request_id:
                 cached_data = cache.get(f"stk_{checkout_request_id}")
                 if cached_data:
                     try:
                         payment = Payment.objects.get(id=cached_data["payment_id"])
                         payment.status = "Failed"
+                        payment.failure_reason = result_desc
                         payment.save()
-                        logger.info(f"Payment {payment.id} marked as failed")
+                        logger.info(f"Rent payment {payment.id} marked as failed: {result_desc}")
                     except Payment.DoesNotExist:
-                        pass
+                        logger.error(f"Rent payment not found for failed callback: {cached_data['payment_id']}")
 
         return JsonResponse({"ResultCode": 0, "ResultDesc": "Accepted"})
 
+    except json.JSONDecodeError:
+        logger.error("Invalid JSON in rent callback")
+        return JsonResponse({"ResultCode": 1, "ResultDesc": "Invalid JSON"})
     except Exception as e:
-        logger.error(f"Error in callback handler: {str(e)}")
-        return JsonResponse({"ResultCode": 1, "ResultDesc": "Error"})
-    
-# payments/views.py - Enhanced Callback Handlers
+        logger.error(f"Unexpected error in rent callback: {str(e)}")
+        return JsonResponse({"ResultCode": 1, "ResultDesc": "Internal error"})
 
 @csrf_exempt
 def mpesa_deposit_callback(request):
@@ -453,8 +482,9 @@ def mpesa_deposit_callback(request):
                     try:
                         payment = Payment.objects.get(id=cached_data["payment_id"])
                         payment.status = "Failed"
+                        payment.failure_reason = result_desc
                         payment.save()
-                        logger.info(f"Deposit payment {payment.id} marked as failed")
+                        logger.info(f"Deposit payment {payment.id} marked as failed: {result_desc}")
                     except Payment.DoesNotExist:
                         logger.error(f"Deposit payment not found for failed callback: {cached_data['payment_id']}")
 
@@ -564,8 +594,9 @@ def mpesa_subscription_callback(request):
                             id=cached_data["subscription_payment_id"]
                         )
                         subscription_payment.status = "Failed"
+                        subscription_payment.failure_reason = result_desc
                         subscription_payment.save()
-                        logger.info(f"Subscription payment {subscription_payment.id} marked as failed")
+                        logger.info(f"Subscription payment {subscription_payment.id} marked as failed: {result_desc}")
                     except SubscriptionPayment.DoesNotExist:
                         logger.error(f"Subscription payment not found for failed callback: {cached_data['subscription_payment_id']}")
 
@@ -578,103 +609,107 @@ def mpesa_subscription_callback(request):
         logger.error(f"Unexpected error in subscription callback: {str(e)}")
         return JsonResponse({"ResultCode": 1, "ResultDesc": "Internal error"})
 
-@csrf_exempt
-def mpesa_rent_callback(request):
+# Update the InitiateDepositPaymentView with the same fixes
+class InitiateDepositPaymentView(APIView):
     """
-    Enhanced rent payment callback handler
+    Initiate REAL deposit payment for unit
     """
-    try:
-        callback_data = json.loads(request.body)
-        logger.info(f"Rent callback received: {callback_data}")
+    permission_classes = [IsAuthenticated]
 
-        stk_callback = callback_data.get("Body", {}).get("stkCallback", {})
-        result_code = stk_callback.get("ResultCode")
-        result_desc = stk_callback.get("ResultDesc", "")
-        checkout_request_id = stk_callback.get("CheckoutRequestID")
+    def post(self, request):
+        unit_id = request.data.get('unit_id')
+        unit = get_object_or_404(Unit, id=unit_id)
 
-        logger.info(f"Rent callback - ResultCode: {result_code}, CheckoutRequestID: {checkout_request_id}")
+        if not unit.is_available:
+            return Response({"error": "Unit is not available"}, status=status.HTTP_400_BAD_REQUEST)
 
-        if result_code == 0:
-            # Payment successful
-            callback_metadata = stk_callback.get("CallbackMetadata", {}).get("Item", [])
-            
-            # Extract payment details
-            mpesa_receipt = None
-            amount = None
-            phone_number = None
+        tenant = request.user
+        amount = unit.deposit
+        phone_number = tenant.phone_number
 
-            for item in callback_metadata:
-                if item.get("Name") == "MpesaReceiptNumber":
-                    mpesa_receipt = item.get("Value")
-                elif item.get("Name") == "Amount":
-                    amount = item.get("Value")
-                elif item.get("Name") == "PhoneNumber":
-                    phone_number = item.get("Value")
+        if not phone_number:
+            return Response({"error": "Phone number is required"}, status=status.HTTP_400_BAD_REQUEST)
 
-            # Get cached payment data
-            cached_data = cache.get(f"stk_{checkout_request_id}") if checkout_request_id else None
-            
-            if cached_data:
-                try:
-                    payment = Payment.objects.get(id=cached_data["payment_id"])
-                    unit = payment.unit
-                    
-                    # Update payment record
-                    payment.status = "Success"
-                    payment.mpesa_receipt = mpesa_receipt or f"RENT-{payment.id}-{uuid.uuid4().hex[:8].upper()}"
-                    
-                    if amount:
-                        payment.amount = Decimal(amount)
-                    
-                    payment.save()
+        # ✅ ADD VALIDATION HERE
+        is_valid, validation_result = validate_mpesa_payment(phone_number, amount)
+        if not is_valid:
+            return Response({"error": validation_result}, status=status.HTTP_400_BAD_REQUEST)
+        
+        phone_number = validation_result
 
-                    # Update unit rent_paid
-                    paid_amount = Decimal(amount) if amount else payment.amount
-                    unit.rent_paid += paid_amount
-                    unit.rent_remaining = unit.rent - unit.rent_paid
-                    unit.save()
+        # Generate access token
+        access_token = generate_access_token()
+        if not access_token:
+            return Response({"error": "Failed to generate M-Pesa access token"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-                    logger.info(f"Rent payment {payment.id} completed successfully for unit {unit.unit_number}")
-                    logger.info(f"Unit {unit.unit_number} rent paid: {unit.rent_paid}, remaining: {unit.rent_remaining}")
-                    
-                    # Clear cache
-                    cache.delete(f"stk_{checkout_request_id}")
+        # Prepare STK push request - FIXED PASSWORD GENERATION
+        timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
+        password_string = settings.MPESA_SHORTCODE + settings.MPESA_PASSKEY + timestamp
+        password = base64.b64encode(password_string.encode('utf-8')).decode('utf-8')
 
-                except Payment.DoesNotExist:
-                    logger.error(f"Rent payment not found for ID: {cached_data['payment_id']}")
-                except Unit.DoesNotExist:
-                    logger.error(f"Unit not found for rent payment: {cached_data['payment_id']}")
-                except Exception as e:
-                    logger.error(f"Error processing rent callback: {str(e)}")
+        payload = {
+            "BusinessShortCode": settings.MPESA_SHORTCODE,
+            "Password": password,
+            "Timestamp": timestamp,
+            "TransactionType": "CustomerPayBillOnline",
+            "Amount": int(amount),
+            "PartyA": phone_number,
+            "PartyB": settings.MPESA_SHORTCODE,
+            "PhoneNumber": phone_number,
+            "CallBackURL": settings.MPESA_DEPOSIT_CALLBACK_URL,
+            "AccountReference": f"DEPOSIT-{unit.unit_code}",
+            "TransactionDesc": f"Deposit payment for {unit.unit_number}"
+        }
 
-            else:
-                logger.warning(f"No cached data found for rent checkout: {checkout_request_id}")
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json"
+        }
+
+        # Use correct URL
+        if settings.MPESA_ENV == "sandbox":
+            url = "https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest"
+        else:
+            url = "https://api.safaricom.co.ke/mpesa/stkpush/v1/processrequest"
+
+        response = requests.post(url, json=payload, headers=headers, timeout=30)
+        response_data = response.json()
+
+        if response.status_code == 200 and response_data.get("ResponseCode") == "0":
+            # Create pending deposit payment record
+            payment = Payment.objects.create(
+                tenant=tenant,
+                unit=unit,
+                amount=amount,
+                status="Pending",
+                payment_type="deposit",
+                mpesa_checkout_request_id=response_data["CheckoutRequestID"]
+            )
+
+            # Cache checkout request ID for callback
+            cache.set(f"stk_deposit_{response_data['CheckoutRequestID']}", {
+                "payment_id": payment.id,
+                "unit_id": unit.id,
+                "amount": float(amount),
+                "tenant_id": tenant.id
+            }, timeout=300)  # 5 minutes
+
+            logger.info(f"Deposit STK push initiated for payment {payment.id}, amount {amount}")
+
+            return Response({
+                "success": True,
+                "message": "Deposit STK push initiated successfully",
+                "checkout_request_id": response_data["CheckoutRequestID"],
+                "payment_id": payment.id
+            })
 
         else:
-            # Payment failed
-            logger.error(f"Rent payment failed - ResultCode: {result_code}, Description: {result_desc}")
-            
-            # Update payment status to failed
-            if checkout_request_id:
-                cached_data = cache.get(f"stk_{checkout_request_id}")
-                if cached_data:
-                    try:
-                        payment = Payment.objects.get(id=cached_data["payment_id"])
-                        payment.status = "Failed"
-                        payment.save()
-                        logger.info(f"Rent payment {payment.id} marked as failed")
-                    except Payment.DoesNotExist:
-                        logger.error(f"Rent payment not found for failed callback: {cached_data['payment_id']}")
-
-        return JsonResponse({"ResultCode": 0, "ResultDesc": "Accepted"})
-
-    except json.JSONDecodeError:
-        logger.error("Invalid JSON in rent callback")
-        return JsonResponse({"ResultCode": 1, "ResultDesc": "Invalid JSON"})
-    except Exception as e:
-        logger.error(f"Unexpected error in rent callback: {str(e)}")
-        return JsonResponse({"ResultCode": 1, "ResultDesc": "Internal error"})
-    
+            error_message = response_data.get('errorMessage', response_data.get('ResponseDescription', 'Unknown error'))
+            logger.error(f"Deposit STK push failed: {error_message}")
+            return Response({
+                "error": "Failed to initiate deposit STK push",
+                "details": error_message
+            }, status=status.HTTP_400_BAD_REQUEST)
 @csrf_exempt
 def mpesa_b2c_callback(request):
     """
