@@ -1024,19 +1024,29 @@ class DepositPaymentStatusView(APIView):
 
 class CleanupPendingPaymentsView(APIView):
     """
-    Clean up old pending payments
+    Clean up old pending payments - ENHANCED VERSION
     """
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
         # Delete pending payments older than 1 hour
         cutoff_time = timezone.now() - timedelta(hours=1)
-        deleted_count = Payment.objects.filter(
+        
+        # Clean up rent payments
+        rent_deleted_count = Payment.objects.filter(
+            status='Pending',
+            created_at__lt=cutoff_time
+        ).delete()
+
+        # Clean up subscription payments  
+        subscription_deleted_count = SubscriptionPayment.objects.filter(
             status='Pending',
             transaction_date__lt=cutoff_time
         ).delete()
 
-        return Response({"message": f"Cleaned up {deleted_count[0]} pending payments"})
+        total_deleted = rent_deleted_count[0] + subscription_deleted_count[0]
+
+        return Response({"message": f"Cleaned up {total_deleted} pending payments"})
 
 
 # ------------------------------
