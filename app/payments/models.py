@@ -4,7 +4,6 @@ from datetime import timedelta
 from django.core.exceptions import ValidationError
 import uuid
 
-# Add validation and better field definitions
 class Payment(models.Model):
     PAYMENT_TYPES = [
         ('rent', 'Rent'),
@@ -20,7 +19,6 @@ class Payment(models.Model):
         ('cancelled', 'Cancelled'),
     ]
 
-    # Make tenant and unit required for rent payments
     tenant = models.ForeignKey(
         CustomUser,
         on_delete=models.CASCADE,
@@ -29,15 +27,16 @@ class Payment(models.Model):
     )
     unit = models.ForeignKey(Unit, on_delete=models.CASCADE, related_name='payments')
     
-    # ADD THESE MISSING FIELDS
-    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    # Payment details
     payment_type = models.CharField(max_length=20, choices=PAYMENT_TYPES, default='rent')
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    
+    # M-Pesa fields
     mpesa_receipt = models.CharField(max_length=50, blank=True, null=True)
     mpesa_checkout_request_id = models.CharField(max_length=100, blank=True, null=True)
-    failure_reason = models.TextField(blank=True, null=True)
     
-    # Add more fields for better tracking
+    # Additional fields
     reference_number = models.CharField(max_length=50, unique=True, blank=True)
     description = models.TextField(blank=True)
     payment_method = models.CharField(max_length=20, default='mpesa', choices=[
@@ -45,11 +44,11 @@ class Payment(models.Model):
         ('cash', 'Cash'),
         ('bank', 'Bank Transfer'),
     ])
-        # Add this field to track M-Pesa checkout requests
-    mpesa_checkout_request_id = models.CharField(max_length=100, blank=True, null=True)
-    # Add created and updated timestamps
+    
+    # Timestamps - using created_at consistently
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    failure_reason = models.TextField(blank=True, null=True)
 
     def clean(self):
         if self.payment_type == 'rent' and not self.unit:
@@ -60,6 +59,9 @@ class Payment(models.Model):
         if not self.reference_number:
             self.reference_number = f"PAY-{uuid.uuid4().hex[:12].upper()}"
         super().save(*args, **kwargs)
+        
+    def __str__(self):
+        return f"Payment {self.reference_number} - {self.amount} ({self.status})"
 
 
 class SubscriptionPayment(models.Model):

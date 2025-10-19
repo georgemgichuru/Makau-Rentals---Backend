@@ -104,7 +104,6 @@ class UnitTypeListCreateView(APIView):
 
         return units_created
 
-
 class LandlordDashboardStatsView(APIView):
     permission_classes = [IsAuthenticated, IsLandlord, HasActiveSubscription]
 
@@ -133,12 +132,14 @@ class LandlordDashboardStatsView(APIView):
         # Monthly revenue: sum of successful rent payments in the current month for this landlord
         now = timezone.now()
         start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        
+        # Use created_at field instead of transaction_date
         monthly_revenue_agg = Payment.objects.filter(
             unit__property_obj__landlord=landlord,
             payment_type='rent',
             status='Success',
-            transaction_date__gte=start_of_month,
-            transaction_date__lte=now
+            created_at__gte=start_of_month,  # Changed from transaction_date
+            created_at__lte=now  # Changed from transaction_date
         ).aggregate(total=Sum('amount'))
         monthly_revenue = monthly_revenue_agg['total'] or 0
 

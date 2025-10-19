@@ -28,45 +28,51 @@ from .serializers import PaymentSerializer, SubscriptionPaymentSerializer
 
 logger = logging.getLogger(__name__)
 
-# Enhanced validation function
 def validate_mpesa_payment(phone_number, amount):
     """
     Validate payment parameters before initiating STK push
     """
-    # Validate phone number format
-    if not phone_number or not isinstance(phone_number, str):
-        return False, "Phone number is required"
-    
-    # Clean phone number
-    phone_number = phone_number.strip().replace(' ', '').replace('+', '')
-    
-    # Convert to 254 format if needed
-    if phone_number.startswith('0') and len(phone_number) == 10:
-        phone_number = '254' + phone_number[1:]
-    elif phone_number.startswith('7') and len(phone_number) == 9:
-        phone_number = '254' + phone_number
-    
-    # Validate final format
-    if not phone_number.startswith('254') or len(phone_number) != 12:
-        return False, "Phone number must be in format 254XXXXXXXXX"
-    
-    # Validate phone number contains only digits
-    if not phone_number.isdigit():
-        return False, "Phone number must contain only digits"
-    
-    # Validate amount
     try:
-        amount = float(amount)
-        if amount <= 0:
-            return False, "Amount must be greater than 0"
+        # Validate phone number format
+        if not phone_number or not isinstance(phone_number, str):
+            return False, "Phone number is required"
         
-        if amount > 150000:  # M-Pesa transaction limit
-            return False, "Amount exceeds M-Pesa transaction limit (KES 150,000)"
-    except (ValueError, TypeError):
-        return False, "Amount must be a valid number"
+        # Clean phone number
+        phone_number = phone_number.strip().replace(' ', '').replace('+', '')
+        
+        # Convert to 254 format if needed
+        if phone_number.startswith('0') and len(phone_number) == 10:
+            phone_number = '254' + phone_number[1:]
+        elif phone_number.startswith('7') and len(phone_number) == 9:
+            phone_number = '254' + phone_number
+        elif phone_number.startswith('254') and len(phone_number) == 12:
+            # Already in correct format
+            pass
+        else:
+            return False, "Phone number must be in format 254XXXXXXXXX"
+        
+        # Validate phone number contains only digits
+        if not phone_number.isdigit():
+            return False, "Phone number must contain only digits"
+        
+        # Validate amount
+        try:
+            amount = float(amount)
+            if amount <= 0:
+                return False, "Amount must be greater than 0"
+            
+            if amount > 150000:  # M-Pesa transaction limit
+                return False, "Amount exceeds M-Pesa transaction limit (KES 150,000)"
+            if amount < 1:  # Minimum amount
+                return False, "Amount must be at least KES 1"
+        except (ValueError, TypeError):
+            return False, "Amount must be a valid number"
+        
+        return True, phone_number  # Return cleaned phone number
     
-    return True, phone_number  # Return cleaned phone number
-
+    except Exception as e:
+        logger.error(f"Payment validation error: {str(e)}")
+        return False, "Payment validation failed"
 # ------------------------------
 # M-PESA STK PUSH FUNCTIONS
 # ------------------------------
@@ -81,6 +87,9 @@ def stk_push(request, unit_id):
         unit = get_object_or_404(Unit, id=unit_id)
         tenant = request.user
 
+        # Validate tenant owns the unit AND user is a tenant
+        if request.user.user_type != 'tenant':
+            return Response({"error": "Only tenants can make rent payments"}, status=status.HTTP_403_FORBIDDEN)
         # Validate tenant owns the unit
         if unit.tenant != tenant:
             return Response({"error": "You don't have permission to pay for this unit"}, status=status.HTTP_403_FORBIDDEN)
