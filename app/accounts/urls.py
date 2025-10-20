@@ -12,7 +12,7 @@ from .views import (UserDetailView, UserListView, UserCreateView, PasswordResetV
                     MeView, PasswordResetConfirmView, UnitTypeListCreateView, UnitTypeDetailView,
                     LandlordDashboardStatsView, TenantUpdateUnitView, AdjustRentView,
                     PropertyUnitsView, AssignTenantView, UpdateReminderPreferencesView,
-                    LandlordAvailableUnitsView, WelcomeView, LandlordsListView,
+                    LandlordAvailableUnitsView, WelcomeView, LandlordsListView,ValidateLandlordView,
                     PendingApplicationsView, EvictedTenantsView,TenantRegistrationStepView,
                     LandlordRegistrationStepView,CompleteTenantRegistrationView,CompleteLandlordRegistrationView,
 )
@@ -77,4 +77,6 @@ urlpatterns = [
     path('auth/landlord/step/<int:step>/', LandlordRegistrationStepView.as_view(), name='landlord-registration-step'),
     path('auth/tenant/complete/', CompleteTenantRegistrationView.as_view(), name='complete-tenant-registration'),
     path('auth/landlord/complete/', CompleteLandlordRegistrationView.as_view(), name='complete-landlord-registration'),
+    # In accounts/urls.py, add this path:
+    path('auth/validate-landlord/', ValidateLandlordView.as_view(), name='validate-landlord'),
 ]
