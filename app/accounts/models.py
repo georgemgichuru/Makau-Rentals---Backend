@@ -58,14 +58,11 @@ class CustomUserManager(BaseUserManager):
         )
 
 
-class CustomUser(AbstractBaseUser,PermissionsMixin):
+class CustomUser(AbstractBaseUser, PermissionsMixin):
     email = models.EmailField(unique=True)
     full_name = models.CharField(max_length=120, default='')
-    # Government ID number (National ID or Passport)
-    government_id = models.CharField(max_length=20, blank=True, null=True, help_text="Government ID number (e.g., National ID or Passport)")
-    # ID or passport image for verification
+    government_id = models.CharField(max_length=20, blank=True, null=True)
     id_document = models.ImageField(upload_to='id_documents/', null=True, blank=True)
-    # Human-facing landlord code used externally (different from DB id)
     landlord_code = models.CharField(max_length=50, unique=True, null=True, blank=True)
     date_joined = models.DateTimeField(auto_now_add=True)
     type = [('landlord', 'Landlord'), ('tenant', 'Tenant')]
@@ -73,19 +70,20 @@ class CustomUser(AbstractBaseUser,PermissionsMixin):
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
     is_superuser = models.BooleanField(default=False)
-    mpesa_till_number = models.CharField(max_length=20, blank=True, null=True, help_text="M-Pesa till number for direct payments (landlords only)")
-    phone_number = models.CharField(max_length=30, blank=True, null=True, help_text="User phone number in international format")
-    emergency_contact = models.CharField(max_length=30, blank=True, null=True, help_text="Emergency contact phone number")
+    mpesa_till_number = models.CharField(max_length=20, blank=True, null=True)
+    phone_number = models.CharField(max_length=30, blank=True, null=True)
+    emergency_contact = models.CharField(max_length=30, blank=True, null=True)
+    
+    # ADD THESE NEW FIELDS:
+    address = models.TextField(blank=True, null=True, help_text="Business or physical address")
+    website = models.URLField(blank=True, null=True, help_text="Business website URL")
+    
     reminder_mode = models.CharField(
         max_length=20,
         choices=[('days_before', 'Days Before Due Date'), ('fixed_day', 'Fixed Day of Month')],
-        default='days_before',
-        help_text="How the tenant wants to receive rent reminders"
+        default='days_before'
     )
-    reminder_value = models.IntegerField(
-        default=10,
-        help_text="For 'days_before': days before due date; For 'fixed_day': day of the month (1-31)"
-    )
+    reminder_value = models.IntegerField(default=10)
 
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS = ['full_name']

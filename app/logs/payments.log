@@ -8,6 +8,567 @@ INFO 2025-10-19 16:19:19,955 autoreload 12480 19084 Watching for file changes wi
 INFO 2025-10-19 16:21:10,765 autoreload 12480 19084 C:\Users\George Mwangi\Desktop\Makau Rentals\app\payments\views.py changed, reloading.
 INFO 2025-10-19 16:21:14,510 autoreload 16968 10144 Watching for file changes with StatReloader
 INFO 2025-10-19 16:25:06,923 autoreload 15908 8512 Watching for file changes with StatReloader
+<<<<<<< HEAD
 INFO 2025-10-24 05:36:11,433 autoreload 12920 7488 Watching for file changes with StatReloader
 WARNING 2025-10-24 05:37:54,745 log 12920 3236 Not Found: /favicon.ico
 INFO 2025-10-24 05:38:50,931 autoreload 3688 17244 Watching for file changes with StatReloader
+=======
+INFO 2025-10-19 18:26:19,844 autoreload 10924 3348 Watching for file changes with StatReloader
+WARNING 2025-10-19 18:28:35,256 log 10924 9172 Not Found: /api/auth/landlord/step/2/
+INFO 2025-10-19 19:42:00,584 autoreload 6700 17812 Watching for file changes with StatReloader
+ERROR 2025-10-19 20:14:40,506 log 6700 17740 Internal Server Error: /admin/login/
+Traceback (most recent call last):
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\site-packages\django\core\files\storage\handler.py", line 35, in __getitem__
+    return self._storages[alias]
+           ~~~~~~~~~~~~~~^^^^^^^
+KeyError: 'staticfiles'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\site-packages\django\core\files\storage\handler.py", line 52, in create_storage
+    storage_cls = import_string(backend)
+                  ^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\site-packages\django\utils\module_loading.py", line 30, in import_string
+    return cached_import(module_path, class_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\site-packages\django\utils\module_loading.py", line 15, in cached_import
+    module = import_module(module_path)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\importlib\__init__.py", line 90, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<frozen importlib._bootstrap>", line 1387, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1360, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1310, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 488, in _call_with_frames_removed
+  File "<frozen importlib._bootstrap>", line 1387, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1360, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1324, in _find_and_load_unlocked
+ModuleNotFoundError: No module named 'whitenoise'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\site-packages\django\core\handlers\base.py", line 220, in _get_response
+    response = response.render()
+               ^^^^^^^^^^^^^^^^^
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\site-packages\django\template\response.py", line 114, in render
+    self.content = self.rendered_content
+                   ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\site-packages\django\template\response.py", line 92, in rendered_content
+    return template.render(context, self._request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\site-packages\django\template\backends\django.py", line 61, in render
+    return self.template.render(context)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\site-packages\django\template\base.py", line 175, in render
+    return self._render(context)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\site-packages\django\template\base.py", line 167, in _render
+    return self.nodelist.render(context)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\site-packages\django\template\base.py", line 1005, in render
+    return SafeString("".join([node.render_annotated(context) for node in self]))
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\site-packages\django\template\base.py", line 966, in render_annotated
+    return self.render(context)
+           ^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\site-packages\django\template\loader_tags.py", line 157, in render
+    return compiled_parent._render(context)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\site-packages\django\template\base.py", line 167, in _render
+    return self.nodelist.render(context)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\site-packages\django\template\base.py", line 1005, in render
+    return SafeString("".join([node.render_annotated(context) for node in self]))
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\site-packages\django\template\base.py", line 966, in render_annotated
+    return self.render(context)
+           ^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\site-packages\django\template\loader_tags.py", line 157, in render
+    return compiled_parent._render(context)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\site-packages\django\template\base.py", line 167, in _render
+    return self.nodelist.render(context)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\site-packages\django\template\base.py", line 1005, in render
+    return SafeString("".join([node.render_annotated(context) for node in self]))
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\site-packages\django\template\base.py", line 966, in render_annotated
+    return self.render(context)
+           ^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\site-packages\django\template\loader_tags.py", line 63, in render
+    result = block.nodelist.render(context)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\site-packages\django\template\base.py", line 1005, in render
+    return SafeString("".join([node.render_annotated(context) for node in self]))
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\site-packages\django\template\base.py", line 966, in render_annotated
+    return self.render(context)
+           ^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\site-packages\django\templatetags\static.py", line 116, in render
+    url = self.url(context)
+          ^^^^^^^^^^^^^^^^^
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\site-packages\django\templatetags\static.py", line 113, in url
+    return self.handle_simple(path)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\site-packages\django\templatetags\static.py", line 129, in handle_simple
+    return staticfiles_storage.url(path)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\site-packages\django\utils\functional.py", line 266, in inner
+    self._setup()
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\site-packages\django\contrib\staticfiles\storage.py", line 537, in _setup
+    self._wrapped = storages[STATICFILES_STORAGE_ALIAS]
+                    ~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\site-packages\django\core\files\storage\handler.py", line 43, in __getitem__
+    storage = self.create_storage(params)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\site-packages\django\core\files\storage\handler.py", line 54, in create_storage
+    raise InvalidStorageError(f"Could not find backend {backend!r}: {e}") from e
+django.core.files.storage.handler.InvalidStorageError: Could not find backend 'whitenoise.storage.CompressedManifestStaticFilesStorage': No module named 'whitenoise'
+ERROR 2025-10-19 20:19:01,783 log 6700 16908 Internal Server Error: /api/accounts/auth/landlord/complete
+Traceback (most recent call last):
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\site-packages\django\utils\deprecation.py", line 136, in __call__
+    response = self.process_response(request, response)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\site-packages\django\middleware\common.py", line 108, in process_response
+    return self.response_redirect_class(self.get_full_path_with_slash(request))
+                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\site-packages\django\middleware\common.py", line 87, in get_full_path_with_slash
+    raise RuntimeError(
+RuntimeError: You called this URL via POST, but the URL doesn't end in a slash and you have APPEND_SLASH set. Django can't redirect to the slash URL while maintaining POST data. Change your form to point to 127.0.0.1:8000/api/accounts/auth/landlord/complete/ (note the trailing slash), or set APPEND_SLASH=False in your Django settings.
+WARNING 2025-10-20 04:22:09,925 log 6700 11716 Not Found: /api/accounts/auth/landlord/step//2/
+WARNING 2025-10-20 04:22:25,332 log 6700 11716 Not Found: /api/accounts/auth/landlord/step//2/
+WARNING 2025-10-20 04:23:51,716 log 6700 15924 Not Found: /api/accounts/auth/landlord/step//2/
+ERROR 2025-10-20 04:26:21,448 views 6700 15924 Error creating landlord user: CustomUser() got unexpected keyword arguments: 'address', 'website'
+ERROR 2025-10-20 04:26:21,455 log 6700 15924 Internal Server Error: /api/accounts/auth/landlord/complete/
+INFO 2025-10-20 04:31:01,772 autoreload 6700 17812 C:\Users\George Mwangi\Desktop\MAKAU RENTALS -COMBINED\Makau Rentals\app\accounts\models.py changed, reloading.
+INFO 2025-10-20 04:31:08,405 autoreload 5712 9532 Watching for file changes with StatReloader
+ERROR 2025-10-20 04:33:50,874 views 5712 3432 Error creating property: UNIQUE constraint failed: accounts_unit.unit_code
+ERROR 2025-10-20 04:33:50,887 views 5712 3432 Error creating landlord user: UNIQUE constraint failed: accounts_subscription.user_id
+ERROR 2025-10-20 04:33:50,892 log 5712 3432 Internal Server Error: /api/accounts/auth/landlord/complete/
+INFO 2025-10-20 05:02:37,119 autoreload 5712 9532 C:\Users\George Mwangi\Desktop\MAKAU RENTALS -COMBINED\Makau Rentals\app\accounts\views.py changed, reloading.
+INFO 2025-10-20 05:02:39,825 autoreload 15024 19124 Watching for file changes with StatReloader
+INFO 2025-10-20 05:03:32,570 autoreload 15024 19124 C:\Users\George Mwangi\Desktop\MAKAU RENTALS -COMBINED\Makau Rentals\app\accounts\views.py changed, reloading.
+INFO 2025-10-20 05:03:36,026 autoreload 8228 7348 Watching for file changes with StatReloader
+WARNING 2025-10-20 05:06:54,344 log 8228 9288 Not Found: /api/api/accounts/auth/login/
+WARNING 2025-10-20 05:09:17,974 log 8228 9288 Not Found: /api/accounts/auth/login/
+WARNING 2025-10-20 05:10:15,885 log 8228 9288 Bad Request: /api/accounts/token/
+WARNING 2025-10-20 05:16:01,387 log 8228 8992 Bad Request: /api/accounts/token/
+WARNING 2025-10-20 05:16:15,200 log 8228 8992 Bad Request: /api/accounts/token/
+WARNING 2025-10-20 05:19:40,246 log 8228 8992 Bad Request: /api/accounts/token/
+WARNING 2025-10-20 05:20:03,434 log 8228 8992 Bad Request: /api/accounts/token/
+WARNING 2025-10-20 05:23:09,552 log 8228 8992 Bad Request: /api/accounts/token/
+WARNING 2025-10-20 05:46:39,796 log 8228 8992 Not Found: /api/accounts/units/
+WARNING 2025-10-20 05:46:39,817 log 8228 15772 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 05:46:40,028 log 8228 7320 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 05:46:40,040 log 8228 8992 Not Found: /api/accounts/units/
+WARNING 2025-10-20 05:46:54,632 log 8228 7320 Not Found: /api/accounts/units/
+WARNING 2025-10-20 05:46:54,634 log 8228 7988 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 05:46:54,849 log 8228 3988 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 05:46:54,857 log 8228 7320 Not Found: /api/accounts/units/
+WARNING 2025-10-20 06:06:27,635 log 8228 12760 Not Found: /api/accounts/auth/tenant/stepvi/2/
+WARNING 2025-10-20 06:06:38,210 log 8228 12760 Not Found: /api/accounts/auth/tenant/stepvi/2/
+WARNING 2025-10-20 06:06:59,206 log 8228 12760 Not Found: /api/accounts/auth/tenant/stepvi/2/
+INFO 2025-10-20 06:17:13,997 autoreload 8228 7348 C:\Users\George Mwangi\Desktop\MAKAU RENTALS -COMBINED\Makau Rentals\app\accounts\views.py changed, reloading.
+INFO 2025-10-20 06:17:17,437 autoreload 84 11648 Watching for file changes with StatReloader
+INFO 2025-10-20 06:17:35,595 autoreload 84 11648 C:\Users\George Mwangi\Desktop\MAKAU RENTALS -COMBINED\Makau Rentals\app\accounts\urls.py changed, reloading.
+INFO 2025-10-20 06:17:37,889 autoreload 13596 15472 Watching for file changes with StatReloader
+INFO 2025-10-20 06:17:45,410 autoreload 13596 15472 C:\Users\George Mwangi\Desktop\MAKAU RENTALS -COMBINED\Makau Rentals\app\accounts\urls.py changed, reloading.
+INFO 2025-10-20 06:17:47,845 autoreload 10672 18596 Watching for file changes with StatReloader
+ERROR 2025-10-20 06:33:29,968 log 10672 12548 Internal Server Error: /api/accounts/auth/validate-landlord/
+Traceback (most recent call last):
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\site-packages\django\core\handlers\base.py", line 197, in _get_response
+    response = wrapped_callback(request, *callback_args, **callback_kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\site-packages\django\views\decorators\csrf.py", line 56, in wrapper_view
+    return view_func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\site-packages\django\views\generic\base.py", line 104, in view
+    return self.dispatch(request, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\site-packages\rest_framework\views.py", line 509, in dispatch
+    response = self.handle_exception(exc)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\site-packages\rest_framework\views.py", line 469, in handle_exception
+    self.raise_uncaught_exception(exc)
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\site-packages\rest_framework\views.py", line 480, in raise_uncaught_exception
+    raise exc
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\site-packages\rest_framework\views.py", line 506, in dispatch
+    response = handler(request, *args, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\George Mwangi\Desktop\MAKAU RENTALS -COMBINED\Makau Rentals\app\accounts\views.py", line 920, in post
+    for property_obj in properties:
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\site-packages\django\db\models\query.py", line 398, in __iter__
+    self._fetch_all()
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\site-packages\django\db\models\query.py", line 1883, in _fetch_all
+    self._prefetch_related_objects()
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\site-packages\django\db\models\query.py", line 1273, in _prefetch_related_objects
+    prefetch_related_objects(self._result_cache, *self._prefetch_related_lookups)
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\site-packages\django\db\models\query.py", line 2296, in prefetch_related_objects
+    raise AttributeError(
+AttributeError: Cannot find 'units' on Property object, 'units' is an invalid parameter to prefetch_related()
+INFO 2025-10-20 06:36:38,265 autoreload 10672 18596 C:\Users\George Mwangi\Desktop\MAKAU RENTALS -COMBINED\Makau Rentals\app\accounts\views.py changed, reloading.
+INFO 2025-10-20 06:36:41,043 autoreload 18728 15668 Watching for file changes with StatReloader
+ERROR 2025-10-20 06:36:44,534 log 18728 6008 Internal Server Error: /api/accounts/auth/validate-landlord/
+Traceback (most recent call last):
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\site-packages\django\core\handlers\base.py", line 197, in _get_response
+    response = wrapped_callback(request, *callback_args, **callback_kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\site-packages\django\views\decorators\csrf.py", line 56, in wrapper_view
+    return view_func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\site-packages\django\views\generic\base.py", line 104, in view
+    return self.dispatch(request, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\site-packages\rest_framework\views.py", line 509, in dispatch
+    response = self.handle_exception(exc)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\site-packages\rest_framework\views.py", line 469, in handle_exception
+    self.raise_uncaught_exception(exc)
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\site-packages\rest_framework\views.py", line 480, in raise_uncaught_exception
+    raise exc
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\site-packages\rest_framework\views.py", line 506, in dispatch
+    response = handler(request, *args, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\George Mwangi\Desktop\MAKAU RENTALS -COMBINED\Makau Rentals\app\accounts\views.py", line 923, in post
+    available_units = property_obj.unit_set.filter(
+                      ^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'Property' object has no attribute 'unit_set'. Did you mean: 'unit_list'?
+ERROR 2025-10-20 06:36:53,792 log 18728 6008 Internal Server Error: /api/accounts/auth/validate-landlord/
+Traceback (most recent call last):
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\site-packages\django\core\handlers\base.py", line 197, in _get_response
+    response = wrapped_callback(request, *callback_args, **callback_kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\site-packages\django\views\decorators\csrf.py", line 56, in wrapper_view
+    return view_func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\site-packages\django\views\generic\base.py", line 104, in view
+    return self.dispatch(request, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\site-packages\rest_framework\views.py", line 509, in dispatch
+    response = self.handle_exception(exc)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\site-packages\rest_framework\views.py", line 469, in handle_exception
+    self.raise_uncaught_exception(exc)
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\site-packages\rest_framework\views.py", line 480, in raise_uncaught_exception
+    raise exc
+  File "C:\Users\George Mwangi\AppData\Local\Programs\Python\Python312\Lib\site-packages\rest_framework\views.py", line 506, in dispatch
+    response = handler(request, *args, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\George Mwangi\Desktop\MAKAU RENTALS -COMBINED\Makau Rentals\app\accounts\views.py", line 923, in post
+    available_units = property_obj.unit_set.filter(
+                      ^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'Property' object has no attribute 'unit_set'. Did you mean: 'unit_list'?
+INFO 2025-10-20 06:38:08,344 autoreload 18728 15668 C:\Users\George Mwangi\Desktop\MAKAU RENTALS -COMBINED\Makau Rentals\app\accounts\views.py changed, reloading.
+INFO 2025-10-20 06:38:10,956 autoreload 15804 2516 Watching for file changes with StatReloader
+INFO 2025-10-20 06:38:37,808 autoreload 15804 2516 C:\Users\George Mwangi\Desktop\MAKAU RENTALS -COMBINED\Makau Rentals\app\accounts\views.py changed, reloading.
+INFO 2025-10-20 06:38:40,416 autoreload 1276 12560 Watching for file changes with StatReloader
+WARNING 2025-10-20 06:44:31,135 log 1276 15968 Bad Request: /api/accounts/auth/tenant/step/2/
+WARNING 2025-10-20 06:44:31,166 log 1276 15968 Not Found: /api/accounts/auth/validate-landlord/
+INFO 2025-10-20 06:45:50,486 autoreload 1276 12560 C:\Users\George Mwangi\Desktop\MAKAU RENTALS -COMBINED\Makau Rentals\app\accounts\admin.py changed, reloading.
+INFO 2025-10-20 06:45:53,011 autoreload 16212 11048 Watching for file changes with StatReloader
+WARNING 2025-10-20 06:46:44,689 log 16212 8852 Bad Request: /api/accounts/auth/tenant/step/2/
+WARNING 2025-10-20 06:46:44,723 log 16212 8852 Not Found: /api/accounts/auth/validate-landlord/
+WARNING 2025-10-20 06:47:16,683 log 16212 12548 Method Not Allowed: /api/accounts/auth/validate-landlord/
+INFO 2025-10-20 06:49:45,565 autoreload 16212 11048 C:\Users\George Mwangi\Desktop\MAKAU RENTALS -COMBINED\Makau Rentals\app\accounts\views.py changed, reloading.
+INFO 2025-10-20 06:49:48,138 autoreload 12164 3384 Watching for file changes with StatReloader
+WARNING 2025-10-20 07:00:28,054 log 12164 17944 Method Not Allowed: /api/accounts/auth/validate-landlord/
+WARNING 2025-10-20 07:28:36,122 log 12164 18048 Not Found: /favicon.ico
+WARNING 2025-10-20 11:27:41,982 log 12164 12224 Unauthorized: /api/accounts/me/
+WARNING 2025-10-20 11:27:42,478 log 12164 12224 Unauthorized: /api/accounts/me/
+WARNING 2025-10-20 11:55:52,744 log 12164 18236 Forbidden: /api/accounts/tenants/
+WARNING 2025-10-20 11:55:53,166 log 12164 2680 Forbidden: /api/accounts/properties/
+WARNING 2025-10-20 11:55:53,176 log 12164 18236 Forbidden: /api/accounts/tenants/
+WARNING 2025-10-20 11:55:53,270 log 12164 15828 Not Found: /api/accounts/units/
+WARNING 2025-10-20 11:55:53,283 log 12164 14596 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 11:55:53,301 log 12164 8340 Forbidden: /api/accounts/properties/
+WARNING 2025-10-20 11:55:53,332 log 12164 18844 Forbidden: /api/accounts/tenants/
+WARNING 2025-10-20 11:55:53,389 log 12164 8340 Forbidden: /api/accounts/properties/
+WARNING 2025-10-20 11:55:53,393 log 12164 14596 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 11:55:53,423 log 12164 18844 Forbidden: /api/accounts/tenants/
+WARNING 2025-10-20 11:55:53,468 log 12164 14596 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 11:55:53,472 log 12164 18844 Forbidden: /api/accounts/tenants/
+WARNING 2025-10-20 11:55:53,497 log 12164 18844 Forbidden: /api/accounts/tenants/
+WARNING 2025-10-20 11:55:53,506 log 12164 18236 Not Found: /api/accounts/units/
+WARNING 2025-10-20 11:55:53,525 log 12164 18844 Forbidden: /api/accounts/tenants/
+WARNING 2025-10-20 11:55:53,572 log 12164 14596 Not Found: /api/accounts/units/
+WARNING 2025-10-20 11:55:53,636 log 12164 18844 Forbidden: /api/accounts/tenants/
+WARNING 2025-10-20 11:55:53,701 log 12164 18844 Forbidden: /api/accounts/tenants/
+WARNING 2025-10-20 11:56:11,784 log 12164 8340 Forbidden: /api/accounts/properties/
+WARNING 2025-10-20 11:56:11,787 log 12164 2680 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 11:56:11,818 log 12164 18236 Not Found: /api/accounts/units/
+WARNING 2025-10-20 11:56:11,842 log 12164 18844 Forbidden: /api/accounts/tenants/
+WARNING 2025-10-20 11:56:12,080 log 12164 8340 Forbidden: /api/accounts/properties/
+WARNING 2025-10-20 11:56:12,144 log 12164 2680 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 11:56:12,255 log 12164 18236 Not Found: /api/accounts/units/
+WARNING 2025-10-20 11:56:12,290 log 12164 18844 Forbidden: /api/accounts/tenants/
+WARNING 2025-10-20 11:56:12,314 log 12164 15828 Forbidden: /api/accounts/properties/
+WARNING 2025-10-20 11:56:12,422 log 12164 2680 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 11:56:12,443 log 12164 18844 Forbidden: /api/accounts/tenants/
+WARNING 2025-10-20 11:56:12,466 log 12164 8340 Not Found: /api/accounts/units/
+WARNING 2025-10-20 11:56:12,486 log 12164 15828 Forbidden: /api/accounts/properties/
+WARNING 2025-10-20 11:56:12,557 log 12164 2680 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 11:56:12,598 log 12164 18844 Forbidden: /api/accounts/tenants/
+WARNING 2025-10-20 11:56:12,628 log 12164 8340 Not Found: /api/accounts/units/
+WARNING 2025-10-20 11:56:12,665 log 12164 2680 Forbidden: /api/accounts/tenants/
+WARNING 2025-10-20 11:56:12,763 log 12164 8340 Forbidden: /api/accounts/tenants/
+WARNING 2025-10-20 11:56:12,798 log 12164 8340 Forbidden: /api/accounts/tenants/
+WARNING 2025-10-20 11:56:12,831 log 12164 8340 Forbidden: /api/accounts/tenants/
+WARNING 2025-10-20 11:56:12,856 log 12164 2680 Forbidden: /api/accounts/tenants/
+WARNING 2025-10-20 11:56:12,876 log 12164 2680 Forbidden: /api/accounts/tenants/
+WARNING 2025-10-20 11:56:12,895 log 12164 2680 Forbidden: /api/accounts/tenants/
+WARNING 2025-10-20 11:56:12,918 log 12164 8340 Forbidden: /api/accounts/tenants/
+WARNING 2025-10-20 11:56:32,918 log 12164 8340 Forbidden: /api/accounts/tenants/
+WARNING 2025-10-20 11:56:32,961 log 12164 15828 Forbidden: /api/accounts/properties/
+WARNING 2025-10-20 11:56:32,998 log 12164 8340 Forbidden: /api/accounts/tenants/
+WARNING 2025-10-20 11:56:33,013 log 12164 18844 Not Found: /api/accounts/units/
+WARNING 2025-10-20 11:56:33,017 log 12164 2680 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 11:56:33,056 log 12164 18236 Forbidden: /api/accounts/properties/
+WARNING 2025-10-20 11:56:33,060 log 12164 8340 Forbidden: /api/accounts/tenants/
+WARNING 2025-10-20 11:56:33,118 log 12164 2680 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 11:56:33,158 log 12164 15828 Not Found: /api/accounts/units/
+WARNING 2025-10-20 11:56:33,160 log 12164 8340 Forbidden: /api/accounts/tenants/
+WARNING 2025-10-20 11:56:33,207 log 12164 8340 Forbidden: /api/accounts/tenants/
+WARNING 2025-10-20 11:56:33,244 log 12164 8340 Forbidden: /api/accounts/tenants/
+WARNING 2025-10-20 11:56:35,348 log 12164 8340 Forbidden: /api/accounts/tenants/
+WARNING 2025-10-20 11:56:35,387 log 12164 18844 Forbidden: /api/accounts/properties/
+WARNING 2025-10-20 11:56:35,422 log 12164 8340 Forbidden: /api/accounts/tenants/
+WARNING 2025-10-20 11:56:35,438 log 12164 2680 Not Found: /api/accounts/units/
+WARNING 2025-10-20 11:56:35,441 log 12164 15828 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 11:56:35,475 log 12164 18236 Forbidden: /api/accounts/properties/
+WARNING 2025-10-20 11:56:35,484 log 12164 8340 Forbidden: /api/accounts/tenants/
+WARNING 2025-10-20 11:56:35,557 log 12164 2680 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 11:56:35,574 log 12164 18844 Not Found: /api/accounts/units/
+WARNING 2025-10-20 11:56:35,606 log 12164 8340 Forbidden: /api/accounts/tenants/
+WARNING 2025-10-20 11:56:35,650 log 12164 18844 Forbidden: /api/accounts/tenants/
+WARNING 2025-10-20 11:56:35,686 log 12164 18844 Forbidden: /api/accounts/tenants/
+WARNING 2025-10-20 11:56:37,432 log 12164 18844 Forbidden: /api/accounts/tenants/
+WARNING 2025-10-20 11:56:37,468 log 12164 18236 Forbidden: /api/accounts/properties/
+WARNING 2025-10-20 11:56:37,521 log 12164 18844 Forbidden: /api/accounts/tenants/
+WARNING 2025-10-20 11:56:37,562 log 12164 2680 Not Found: /api/accounts/units/
+WARNING 2025-10-20 11:56:37,584 log 12164 8340 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 11:56:37,599 log 12164 15828 Forbidden: /api/accounts/properties/
+WARNING 2025-10-20 11:56:37,614 log 12164 18844 Forbidden: /api/accounts/tenants/
+WARNING 2025-10-20 11:56:37,661 log 12164 2680 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 11:56:37,687 log 12164 18236 Not Found: /api/accounts/units/
+WARNING 2025-10-20 11:56:37,690 log 12164 15828 Forbidden: /api/accounts/tenants/
+WARNING 2025-10-20 11:56:37,723 log 12164 15828 Forbidden: /api/accounts/tenants/
+WARNING 2025-10-20 11:56:37,755 log 12164 15828 Forbidden: /api/accounts/tenants/
+WARNING 2025-10-20 11:56:39,588 log 12164 15828 Forbidden: /api/accounts/tenants/
+WARNING 2025-10-20 11:56:39,618 log 12164 2680 Forbidden: /api/accounts/properties/
+WARNING 2025-10-20 11:56:39,643 log 12164 15828 Forbidden: /api/accounts/tenants/
+WARNING 2025-10-20 11:56:39,665 log 12164 18844 Not Found: /api/accounts/units/
+WARNING 2025-10-20 11:56:39,668 log 12164 18236 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 11:56:39,707 log 12164 15828 Forbidden: /api/accounts/tenants/
+WARNING 2025-10-20 11:56:39,710 log 12164 8340 Forbidden: /api/accounts/properties/
+WARNING 2025-10-20 11:56:39,774 log 12164 18236 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 11:56:39,798 log 12164 2680 Not Found: /api/accounts/units/
+WARNING 2025-10-20 11:56:39,802 log 12164 15828 Forbidden: /api/accounts/tenants/
+WARNING 2025-10-20 11:56:39,843 log 12164 15828 Forbidden: /api/accounts/tenants/
+WARNING 2025-10-20 11:56:39,878 log 12164 15828 Forbidden: /api/accounts/tenants/
+INFO 2025-10-20 12:24:29,723 autoreload 12164 3384 C:\Users\George Mwangi\Desktop\MAKAU RENTALS -COMBINED\Makau Rentals\app\accounts\admin.py changed, reloading.
+INFO 2025-10-20 12:24:38,775 autoreload 16488 5980 Watching for file changes with StatReloader
+INFO 2025-10-20 12:24:45,984 autoreload 16488 5980 C:\Users\George Mwangi\Desktop\MAKAU RENTALS -COMBINED\Makau Rentals\app\accounts\admin.py changed, reloading.
+INFO 2025-10-20 12:24:51,084 autoreload 14476 6128 Watching for file changes with StatReloader
+WARNING 2025-10-20 12:30:44,337 log 14476 17808 Unauthorized: /api/accounts/me/
+WARNING 2025-10-20 12:30:44,370 log 14476 17808 Unauthorized: /api/accounts/me/
+WARNING 2025-10-20 12:31:34,050 log 14476 17808 Bad Request: /api/accounts/token/
+WARNING 2025-10-20 12:32:24,547 log 14476 16432 Not Found: /api/accounts/units/
+WARNING 2025-10-20 12:32:24,612 log 14476 5572 Not Found: /api/accounts/units/
+WARNING 2025-10-20 12:32:25,103 log 14476 5572 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 12:32:25,132 log 14476 5572 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 12:32:37,057 log 14476 5768 Not Found: /api/accounts/units/
+WARNING 2025-10-20 12:32:37,373 log 14476 16432 Not Found: /api/accounts/units/
+WARNING 2025-10-20 12:32:38,205 log 14476 16432 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 12:32:38,237 log 14476 16432 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 12:32:46,730 log 14476 5768 Not Found: /api/accounts/units/
+WARNING 2025-10-20 12:32:46,828 log 14476 16432 Not Found: /api/accounts/units/
+WARNING 2025-10-20 12:32:47,428 log 14476 5768 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 12:32:47,452 log 14476 5768 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 12:33:43,764 log 14476 14688 Not Found: /api/accounts/units/
+WARNING 2025-10-20 12:33:44,081 log 14476 11632 Not Found: /api/accounts/units/
+WARNING 2025-10-20 12:33:44,979 log 14476 3904 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 12:33:45,054 log 14476 3904 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 12:34:11,423 log 14476 3904 Not Found: /api/accounts/units/
+WARNING 2025-10-20 12:34:11,480 log 14476 3904 Not Found: /api/accounts/units/
+WARNING 2025-10-20 12:34:12,142 log 14476 3904 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 12:34:12,175 log 14476 14688 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 12:34:32,985 log 14476 11632 Not Found: /api/accounts/units/
+WARNING 2025-10-20 12:34:33,402 log 14476 3904 Not Found: /api/accounts/units/
+WARNING 2025-10-20 12:34:33,765 log 14476 3904 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 12:34:33,997 log 14476 3904 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 12:41:47,779 log 14476 4932 Bad Request: /api/accounts/token/
+WARNING 2025-10-20 12:41:55,644 log 14476 4932 Not Found: /api/accounts/units/
+WARNING 2025-10-20 12:41:55,744 log 14476 14756 Not Found: /api/accounts/units/
+WARNING 2025-10-20 12:41:55,860 log 14476 4932 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 12:41:55,907 log 14476 4932 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 12:47:12,434 log 14476 18672 Not Found: /api/accounts/units/
+WARNING 2025-10-20 12:47:12,543 log 14476 1384 Not Found: /api/accounts/units/
+WARNING 2025-10-20 12:47:12,683 log 14476 11332 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 12:47:13,500 log 14476 1384 Forbidden: /api/accounts/landlords/
+INFO 2025-10-20 12:50:39,014 autoreload 14476 6128 C:\Users\George Mwangi\Desktop\MAKAU RENTALS -COMBINED\Makau Rentals\app\payments\admin.py changed, reloading.
+INFO 2025-10-20 12:50:43,515 autoreload 14488 3628 Watching for file changes with StatReloader
+WARNING 2025-10-20 14:20:19,916 log 14488 16200 Unauthorized: /api/accounts/me/
+WARNING 2025-10-20 14:20:20,027 log 14488 16200 Unauthorized: /api/accounts/me/
+WARNING 2025-10-20 14:20:47,232 log 14488 18916 Not Found: /api/accounts/units/
+WARNING 2025-10-20 14:20:47,332 log 14488 18916 Not Found: /api/accounts/units/
+WARNING 2025-10-20 14:20:47,348 log 14488 16200 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 14:20:47,448 log 14488 18916 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 14:26:12,750 log 14488 10932 Not Found: /api/accounts/units/
+WARNING 2025-10-20 14:26:12,801 log 14488 12776 Not Found: /api/accounts/units/
+WARNING 2025-10-20 14:26:12,933 log 14488 10932 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 14:26:12,997 log 14488 10932 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 14:26:28,071 log 14488 12776 Not Found: /api/accounts/units/
+WARNING 2025-10-20 14:26:28,264 log 14488 14992 Not Found: /api/accounts/units/
+WARNING 2025-10-20 14:26:28,324 log 14488 12776 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 14:26:28,388 log 14488 12776 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 14:48:09,048 log 14488 15556 Not Found: /api/accounts/units/
+WARNING 2025-10-20 14:48:09,133 log 14488 17336 Not Found: /api/accounts/units/
+WARNING 2025-10-20 14:48:09,155 log 14488 17336 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 14:48:09,238 log 14488 17336 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 14:56:28,764 log 14488 10380 Not Found: /api/accounts/units/
+WARNING 2025-10-20 14:56:29,207 log 14488 10380 Not Found: /api/accounts/units/
+WARNING 2025-10-20 14:56:29,294 log 14488 18260 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 14:56:29,487 log 14488 18260 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 14:56:55,070 log 14488 18260 Not Found: /api/accounts/units/
+WARNING 2025-10-20 14:56:55,465 log 14488 10380 Not Found: /api/accounts/units/
+WARNING 2025-10-20 14:56:55,815 log 14488 10380 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 14:56:56,121 log 14488 10380 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 14:57:23,574 log 14488 1948 Not Found: /api/accounts/units/
+WARNING 2025-10-20 14:57:24,008 log 14488 10380 Not Found: /api/accounts/units/
+WARNING 2025-10-20 14:57:24,653 log 14488 10380 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 14:57:24,912 log 14488 10380 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 14:57:29,587 log 14488 18260 Not Found: /api/accounts/units/
+WARNING 2025-10-20 14:57:30,301 log 14488 10380 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 14:57:30,322 log 14488 18260 Not Found: /api/accounts/units/
+WARNING 2025-10-20 14:57:30,688 log 14488 1948 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 14:57:35,468 log 14488 10380 Not Found: /api/accounts/units/
+WARNING 2025-10-20 14:57:35,901 log 14488 18260 Not Found: /api/accounts/units/
+WARNING 2025-10-20 14:57:36,112 log 14488 420 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 14:57:36,369 log 14488 420 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 15:27:06,498 log 14488 13688 Unauthorized: /api/accounts/tenants/
+WARNING 2025-10-20 15:27:06,774 log 14488 15200 Unauthorized: /api/accounts/me/
+WARNING 2025-10-20 15:27:06,831 log 14488 13688 Unauthorized: /api/accounts/tenants/
+WARNING 2025-10-20 15:27:06,838 log 14488 15200 Unauthorized: /api/accounts/me/
+WARNING 2025-10-20 15:27:07,140 log 14488 15116 Not Found: /api/accounts/units/
+WARNING 2025-10-20 15:27:07,318 log 14488 15200 Unauthorized: /api/accounts/properties/
+WARNING 2025-10-20 15:27:07,506 log 14488 15116 Not Found: /api/accounts/units/
+WARNING 2025-10-20 15:27:07,539 log 14488 15200 Unauthorized: /api/accounts/landlords/
+WARNING 2025-10-20 15:27:07,565 log 14488 15116 Unauthorized: /api/accounts/tenants/
+WARNING 2025-10-20 15:27:07,577 log 14488 15200 Unauthorized: /api/accounts/properties/
+WARNING 2025-10-20 15:27:07,703 log 14488 15116 Unauthorized: /api/accounts/tenants/
+WARNING 2025-10-20 15:27:07,718 log 14488 15200 Unauthorized: /api/accounts/landlords/
+WARNING 2025-10-20 15:27:07,762 log 14488 15200 Unauthorized: /api/accounts/tenants/
+WARNING 2025-10-20 15:27:07,787 log 14488 15200 Unauthorized: /api/accounts/tenants/
+WARNING 2025-10-20 15:27:15,682 log 14488 15116 Not Found: /api/accounts/units/
+WARNING 2025-10-20 15:27:15,714 log 14488 15116 Not Found: /api/accounts/units/
+WARNING 2025-10-20 15:27:15,838 log 14488 15200 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 15:27:15,848 log 14488 15200 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 15:27:23,620 log 14488 13688 Not Found: /api/accounts/units/
+WARNING 2025-10-20 15:27:24,006 log 14488 15200 Not Found: /api/accounts/units/
+WARNING 2025-10-20 15:27:24,435 log 14488 15200 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 15:27:24,680 log 14488 15200 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 15:54:13,157 log 14488 19208 Not Found: /api/accounts/units/
+WARNING 2025-10-20 15:54:13,240 log 14488 19208 Not Found: /api/accounts/units/
+WARNING 2025-10-20 15:54:13,249 log 14488 11616 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 15:54:13,327 log 14488 19208 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 15:58:31,944 log 14488 11616 Not Found: /api/accounts/units/
+WARNING 2025-10-20 15:58:31,991 log 14488 11616 Not Found: /api/accounts/units/
+WARNING 2025-10-20 15:58:32,029 log 14488 11616 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 15:58:32,145 log 14488 11616 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 15:59:02,607 log 14488 11616 Not Found: /api/accounts/units/
+WARNING 2025-10-20 15:59:02,663 log 14488 11616 Not Found: /api/accounts/units/
+WARNING 2025-10-20 15:59:02,673 log 14488 19208 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 15:59:02,734 log 14488 11616 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 15:59:26,453 log 14488 3172 Not Found: /api/accounts/units/
+WARNING 2025-10-20 15:59:27,132 log 14488 3172 Not Found: /api/accounts/units/
+WARNING 2025-10-20 15:59:27,436 log 14488 19208 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 15:59:27,466 log 14488 19208 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 15:59:30,512 log 14488 19208 Not Found: /api/accounts/units/
+WARNING 2025-10-20 15:59:30,733 log 14488 19208 Not Found: /api/accounts/units/
+WARNING 2025-10-20 15:59:30,874 log 14488 19208 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 15:59:31,030 log 14488 3172 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 16:00:28,000 log 14488 11616 Not Found: /api/accounts/units/
+WARNING 2025-10-20 16:00:28,097 log 14488 6412 Not Found: /api/accounts/units/
+WARNING 2025-10-20 16:00:28,102 log 14488 11616 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 16:00:28,139 log 14488 6412 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 16:00:49,693 log 14488 3172 Not Found: /api/accounts/units/
+WARNING 2025-10-20 16:00:50,023 log 14488 11616 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 16:00:50,046 log 14488 6412 Not Found: /api/accounts/units/
+WARNING 2025-10-20 16:00:50,119 log 14488 6412 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 16:01:02,841 log 14488 3172 Not Found: /api/accounts/units/
+WARNING 2025-10-20 16:01:03,221 log 14488 3172 Not Found: /api/accounts/units/
+WARNING 2025-10-20 16:01:03,234 log 14488 6412 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 16:01:03,390 log 14488 6412 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 16:07:38,269 log 14488 3172 Not Found: /api/accounts/units/
+WARNING 2025-10-20 16:07:39,022 log 14488 3172 Not Found: /api/accounts/units/
+WARNING 2025-10-20 16:07:39,352 log 14488 3172 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 16:07:39,400 log 14488 3172 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 16:08:01,525 log 14488 3172 Not Found: /api/accounts/units/
+WARNING 2025-10-20 16:08:01,587 log 14488 14960 Not Found: /api/accounts/units/
+WARNING 2025-10-20 16:08:01,841 log 14488 3172 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 16:08:02,049 log 14488 3172 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 16:27:49,254 log 14488 11716 Unauthorized: /api/accounts/me/
+WARNING 2025-10-20 16:27:49,263 log 14488 11716 Unauthorized: /api/accounts/me/
+WARNING 2025-10-20 16:30:58,392 log 14488 284 Not Found: /api/accounts/units/
+WARNING 2025-10-20 16:30:58,628 log 14488 10092 Not Found: /api/accounts/units/
+WARNING 2025-10-20 16:30:58,691 log 14488 10092 Not Found: /api/accounts/units/
+WARNING 2025-10-20 16:30:58,733 log 14488 10092 Not Found: /api/accounts/units/
+WARNING 2025-10-20 16:30:58,739 log 14488 16904 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 16:30:58,759 log 14488 16904 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 16:30:58,861 log 14488 10092 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 16:30:59,013 log 14488 16904 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 16:36:35,649 log 14488 5808 Not Found: /api/accounts/units/
+WARNING 2025-10-20 16:36:35,699 log 14488 11568 Not Found: /api/accounts/units/
+WARNING 2025-10-20 16:36:35,710 log 14488 5808 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 16:36:35,750 log 14488 11568 Not Found: /api/accounts/units/
+WARNING 2025-10-20 16:36:35,829 log 14488 11568 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 16:36:35,847 log 14488 5808 Not Found: /api/accounts/units/
+WARNING 2025-10-20 16:36:35,859 log 14488 11568 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 16:36:35,922 log 14488 5808 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 16:42:29,320 log 14488 10572 Not Found: /api/accounts/units/
+WARNING 2025-10-20 16:42:30,312 log 14488 10572 Not Found: /api/accounts/units/
+WARNING 2025-10-20 16:42:30,341 log 14488 9344 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 16:42:30,419 log 14488 10572 Not Found: /api/accounts/units/
+WARNING 2025-10-20 16:42:30,519 log 14488 9344 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 16:42:30,711 log 14488 10572 Not Found: /api/accounts/units/
+WARNING 2025-10-20 16:42:30,916 log 14488 9344 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 16:42:30,972 log 14488 10572 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 16:50:13,135 log 14488 3532 Not Found: /api/accounts/units/
+WARNING 2025-10-20 16:50:13,584 log 14488 3384 Not Found: /api/accounts/units/
+WARNING 2025-10-20 16:50:13,745 log 14488 3384 Not Found: /api/accounts/units/
+WARNING 2025-10-20 16:50:13,774 log 14488 6928 Not Found: /api/accounts/units/
+WARNING 2025-10-20 16:50:13,803 log 14488 6928 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 16:50:13,917 log 14488 6928 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 16:50:13,947 log 14488 6928 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 16:50:13,980 log 14488 6928 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 16:56:52,396 log 14488 15160 Not Found: /api/accounts/units/
+WARNING 2025-10-20 16:56:52,437 log 14488 15160 Not Found: /api/accounts/units/
+WARNING 2025-10-20 16:56:52,454 log 14488 15160 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 16:56:52,491 log 14488 15160 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 16:56:57,110 log 14488 15160 Not Found: /api/accounts/units/
+WARNING 2025-10-20 16:56:57,150 log 14488 15160 Not Found: /api/accounts/units/
+WARNING 2025-10-20 16:56:57,165 log 14488 15160 Forbidden: /api/accounts/landlords/
+WARNING 2025-10-20 16:56:57,195 log 14488 15160 Forbidden: /api/accounts/landlords/
+INFO 2025-10-20 17:38:00,386 autoreload 14488 3628 C:\Users\George Mwangi\Desktop\MAKAU RENTALS -COMBINED\Makau Rentals\app\accounts\views.py changed, reloading.
+INFO 2025-10-20 17:38:12,420 autoreload 16420 18200 Watching for file changes with StatReloader
+INFO 2025-10-20 17:38:24,141 autoreload 16420 18200 C:\Users\George Mwangi\Desktop\MAKAU RENTALS -COMBINED\Makau Rentals\app\accounts\views.py changed, reloading.
+INFO 2025-10-20 17:38:29,262 autoreload 19256 18620 Watching for file changes with StatReloader
+>>>>>>> 394b10546b58926e7a572ca6fd906654abfb21ad

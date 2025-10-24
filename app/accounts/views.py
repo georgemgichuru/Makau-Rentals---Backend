@@ -889,26 +889,185 @@ class EvictedTenantsView(APIView):
         ).distinct()
         serializer = UserSerializer(evicted_tenants, many=True)
         return Response(serializer.data)
+# Add this view to your views.py to validate and fetch landlord data
+
+class ValidateLandlordView(APIView):
+    """Endpoint to validate landlord ID and fetch their properties"""
     
-# views.py - Add these views
+    def post(self, request):
+        landlord_code = request.data.get('landlord_code')
+        
+        print(f"🔍 Validating landlord with code: {landlord_code}")  # DEBUG
+        
+        if not landlord_code:
+            return Response({
+                'error': 'Landlord code is required'
+            }, status=400)
+        
+        try:
+            # Find landlord by landlord_code
+            landlord = CustomUser.objects.get(
+                landlord_code=landlord_code,
+                user_type='landlord',
+                is_active=True
+            )
+            
+            print(f"✅ Landlord found: {landlord.full_name} (ID: {landlord.id})")  # DEBUG
+            
+            # Get properties for this landlord
+            properties = Property.objects.filter(landlord=landlord)
+            print(f"📊 Found {properties.count()} properties for landlord")  # DEBUG
+            
+            properties_data = []
+            for property_obj in properties:
+                print(f"🏠 Processing property: {property_obj.name} (ID: {property_obj.id})")  # DEBUG
+                
+                # Get available units for this property
+                try:
+                    # Try different related names
+                    available_units = None
+                    
+                    if hasattr(property_obj, 'units'):
+                        available_units = property_obj.units.filter(
+                            is_available=True,
+                            tenant__isnull=True
+                        )
+                        print(f"   Using 'units' related name, found {available_units.count()} available units")  # DEBUG
+                    elif hasattr(property_obj, 'unit_set'):
+                        available_units = property_obj.unit_set.filter(
+                            is_available=True,
+                            tenant__isnull=True
+                        )
+                        print(f"   Using 'unit_set' related name, found {available_units.count()} available units")  # DEBUG
+                    else:
+                        # Fallback: direct query
+                        available_units = Unit.objects.filter(
+                            property_obj=property_obj,
+                            is_available=True,
+                            tenant__isnull=True
+                        )
+                        print(f"   Using direct query, found {available_units.count()} available units")  # DEBUG
+                        
+                except Exception as e:
+                    print(f"   ❌ Error accessing units: {e}")  # DEBUG
+                    continue
+                
+                if available_units and available_units.exists():
+                    units_data = []
+                    for unit in available_units:
+                        unit_data = {
+                            'id': unit.id,
+                            'unit_number': unit.unit_number,
+                            'unit_code': unit.unit_code,
+                            'rent': float(unit.rent),
+                            'deposit': float(unit.deposit),
+                        }
+                        
+                        # Add room type info if available
+                        if hasattr(unit, 'unit_type') and unit.unit_type:
+                            unit_data['room_type'] = unit.unit_type.name
+                        else:
+                            unit_data['room_type'] = 'N/A'
+                            
+                        # Add bedroom/bathroom info
+                        if hasattr(unit, 'bedrooms'):
+                            unit_data['bedrooms'] = unit.bedrooms
+                        else:
+                            unit_data['bedrooms'] = 0
+                            
+                        if hasattr(unit, 'bathrooms'):
+                            unit_data['bathrooms'] = unit.bathrooms
+                        else:
+                            unit_data['bathrooms'] = 1
+                        
+                        units_data.append(unit_data)
+                        print(f"   ✅ Added unit: {unit.unit_number}")  # DEBUG
+                    
+                    properties_data.append({
+                        'id': property_obj.id,
+                        'name': property_obj.name,
+                        'address': f"{getattr(property_obj, 'city', '')}, {getattr(property_obj, 'state', '')}",
+                        'units': units_data
+                    })
+                    print(f"   🏢 Added property with {len(units_data)} units")  # DEBUG
+                else:
+                    print(f"   ⚠️  No available units for property {property_obj.name}")  # DEBUG
+            
+            print(f"📦 Final properties data: {len(properties_data)} properties with available units")  # DEBUG
+            
+            if not properties_data:
+                return Response({
+                    'error': 'This landlord has no available units at the moment'
+                }, status=404)
+            
+            return Response({
+                'landlord_id': landlord.id,
+                'landlord_name': landlord.full_name,
+                'landlord_email': landlord.email,
+                'landlord_phone': getattr(landlord, 'phone_number', ''),
+                'properties': properties_data
+            }, status=200)
+            
+        except CustomUser.DoesNotExist:
+            print(f"❌ Landlord not found with code: {landlord_code}")  # DEBUG
+            return Response({
+                'error': 'Landlord ID not found. Please check and try again.'
+            }, status=404)
+        except Exception as e:
+            print(f"💥 Unexpected error: {str(e)}")  # DEBUG
+            logger.error(f"Error in ValidateLandlordView: {str(e)}")
+            return Response({
+                'error': 'Internal server error while validating landlord'
+            }, status=500)
 
 
+# Update your TenantRegistrationStepView to handle Step 2 validation
 class TenantRegistrationStepView(APIView):
     def post(self, request, step):
-        data = request.data
-        session_id = data.get('session_id') or str(uuid.uuid4())
+        try:
+            data = request.data.copy()  # Make a copy to avoid mutating original
+            session_id = data.get('session_id') or str(uuid.uuid4())
+            
+            # STEP 2: Validate landlord ID before saving
+            if step == 2:
+                landlord_id = data.get('landlord_id')
+                if landlord_id:
+                    try:
+                        # Verify landlord exists and is active
+                        landlord = CustomUser.objects.get(
+                            landlord_code=landlord_id,
+                            user_type='landlord',
+                            is_active=True
+                        )
+                        
+                        # Add landlord info to cached data
+                        data['landlord_db_id'] = landlord.id
+                        data['verified'] = True
+                        
+                    except CustomUser.DoesNotExist:
+                        return Response({
+                            'error': 'Landlord ID not found. Please check and try again.',
+                            'status': 'failed'
+                        }, status=400)
+            
+            # Store step data in cache
+            cache_key = f"tenant_registration_{session_id}_step_{step}"
+            cache.set(cache_key, data, timeout=3600)  # 1 hour expiry
+            
+            return Response({
+                'session_id': session_id,  # Make sure this is returned
+                'step': step,
+                'status': 'saved',
+                'message': f'Step {step} data saved successfully'
+            })
+            
+        except Exception as e:
+            logger.error(f"Error in TenantRegistrationStepView: {str(e)}")
+            return Response({
+                'error': 'Internal server error',
+                'status': 'failed'
+            }, status=500)
         
-        # Store step data in cache (or database)
-        cache_key = f"tenant_registration_{session_id}_step_{step}"
-        cache.set(cache_key, data, timeout=3600)  # 1 hour expiry
-        
-        return Response({
-            'session_id': session_id,
-            'step': step,
-            'status': 'saved',
-            'message': f'Step {step} data saved successfully'
-        })
-
 class LandlordRegistrationStepView(APIView):
     def post(self, request, step):
         data = request.data
@@ -969,7 +1128,6 @@ class CompleteTenantRegistrationView(APIView):
                 'status': 'error',
                 'message': str(e)
             }, status=400)
-
 class CompleteLandlordRegistrationView(APIView):
     def post(self, request):
         """
@@ -987,20 +1145,18 @@ class CompleteLandlordRegistrationView(APIView):
 
             # Retrieve all step data from cache
             all_data = {}
-            for step in range(2, 5):  # Steps 2-4 for landlord
+            for step in range(2, 5):
                 cache_key = f"landlord_registration_{session_id}_step_{step}"
                 step_data = cache.get(cache_key)
                 if step_data:
-                    # Remove step field if present
                     step_data.pop('step', None)
                     all_data.update(step_data)
 
-            # Merge with final data from current request
             all_data.update(data)
             
             # Validate required fields
             required_fields = ['full_name', 'email', 'phone_number', 'national_id', 
-                             'mpesa_till_number', 'address', 'password']
+                             'mpesa_till_number', 'password']
             
             missing_fields = [field for field in required_fields if not all_data.get(field)]
             if missing_fields:
@@ -1018,17 +1174,23 @@ class CompleteLandlordRegistrationView(APIView):
 
             # Create the landlord user
             try:
-                landlord = CustomUser.objects.create_user(
-                    email=all_data['email'],
-                    full_name=all_data['full_name'],
-                    user_type='landlord',
-                    password=all_data['password'],
-                    phone_number=all_data['phone_number'],
-                    government_id=all_data['national_id'],
-                    mpesa_till_number=all_data['mpesa_till_number'],
-                    address=all_data.get('address', ''),
-                    website=all_data.get('website', '')
-                )
+                user_data = {
+                    'email': all_data['email'],
+                    'full_name': all_data['full_name'],
+                    'user_type': 'landlord',
+                    'password': all_data['password'],
+                    'phone_number': all_data['phone_number'],
+                    'government_id': all_data['national_id'],
+                    'mpesa_till_number': all_data['mpesa_till_number'],
+                }
+                
+                # Add optional fields if they exist
+                if 'address' in all_data:
+                    user_data['address'] = all_data['address']
+                if 'website' in all_data:
+                    user_data['website'] = all_data['website']
+
+                landlord = CustomUser.objects.create_user(**user_data)
 
                 # Create properties and units if provided
                 properties_data = all_data.get('properties', [])
@@ -1039,8 +1201,8 @@ class CompleteLandlordRegistrationView(APIView):
                         # Create property
                         property_obj = Property.objects.create(
                             landlord=landlord,
-                            name=property_data.get('name', ''),
-                            city='Nairobi',  # You might want to extract this from address
+                            name=property_data.get('name', f'Property-{uuid.uuid4().hex[:6].upper()}'),
+                            city='Nairobi',
                             state='Nairobi',
                             unit_count=len(property_data.get('units', []))
                         )
@@ -1049,27 +1211,33 @@ class CompleteLandlordRegistrationView(APIView):
                         units_data = property_data.get('units', [])
                         created_units = []
                         
-                        for unit_data in units_data:
+                        for i, unit_data in enumerate(units_data, 1):
                             # Create unit type if it doesn't exist
+                            room_type = unit_data.get('room_type', 'studio')
                             unit_type, created = UnitType.objects.get_or_create(
                                 landlord=landlord,
-                                name=unit_data.get('room_type', 'studio'),
+                                name=room_type,
                                 defaults={
                                     'deposit': Decimal('0.00'),
-                                    'rent': Decimal(unit_data.get('rent', '0')),
+                                    'rent': Decimal(unit_data.get('monthlyRent', '0')),
                                     'number_of_units': 0
                                 }
                             )
                             
+                            # Generate unique unit code
+                            unit_number = unit_data.get('unitNumber', f'Unit-{i}')
+                            unit_code = f"U-{property_obj.id}-{unit_number}-{uuid.uuid4().hex[:8]}"
+                            
                             # Create the unit
                             unit = Unit.objects.create(
                                 property_obj=property_obj,
-                                unit_number=unit_data.get('unit_number', ''),
-                                bedrooms=self.get_bedroom_count(unit_data.get('room_type', 'studio')),
-                                bathrooms=1,  # Default
+                                unit_code=unit_code,  # Use the unique generated code
+                                unit_number=unit_number,
+                                bedrooms=self.get_bedroom_count(room_type),
+                                bathrooms=1,
                                 unit_type=unit_type,
-                                rent=Decimal(unit_data.get('rent', '0')),
-                                deposit=Decimal(unit_data.get('rent', '0')),  # Deposit = 1 month rent
+                                rent=Decimal(unit_data.get('monthlyRent', '0')),
+                                deposit=Decimal(unit_data.get('monthlyRent', '0')),  # Deposit = 1 month rent
                                 is_available=True
                             )
                             created_units.append(unit.id)
@@ -1084,12 +1252,19 @@ class CompleteLandlordRegistrationView(APIView):
                         logger.error(f"Error creating property: {str(prop_error)}")
                         continue
 
-                # Create subscription for landlord (free trial)
-                subscription = Subscription.objects.create(
-                    user=landlord,
-                    plan="free",
-                    expiry_date=timezone.now() + timedelta(days=60)
-                )
+                # FIX 2: Check if subscription already exists before creating
+                try:
+                    subscription = Subscription.objects.get(user=landlord)
+                    # Subscription already exists (was created by CustomUserManager)
+                    logger.info(f"Subscription already exists for user {landlord.id}")
+                except Subscription.DoesNotExist:
+                    # Create subscription for landlord (free trial)
+                    subscription = Subscription.objects.create(
+                        user=landlord,
+                        plan="free",
+                        expiry_date=timezone.now() + timedelta(days=60)
+                    )
+                    logger.info(f"Created new subscription for user {landlord.id}")
 
                 # Clean up cache
                 for step in range(2, 5):
@@ -1111,7 +1286,7 @@ class CompleteLandlordRegistrationView(APIView):
                     'message': 'Landlord registration completed successfully'
                 }
 
-                # Send welcome email (you can implement this)
+                # Send welcome email
                 self.send_welcome_email(landlord)
 
                 return Response(response_data, status=status.HTTP_201_CREATED)
@@ -1124,6 +1299,9 @@ class CompleteLandlordRegistrationView(APIView):
                 
             except Exception as e:
                 logger.error(f"Error creating landlord user: {str(e)}")
+                # If user creation fails but user was created, delete it
+                if 'landlord' in locals():
+                    landlord.delete()
                 return Response({
                     'status': 'error',
                     'message': 'Failed to create landlord account'
@@ -1153,11 +1331,11 @@ class CompleteLandlordRegistrationView(APIView):
         Send welcome email to landlord
         """
         try:
-            subject = "Welcome to TenantHub - Your Landlord Account is Ready!"
+            subject = "Welcome to Makao Rentals - Your Landlord Account is Ready!"
             message = f"""
             Hello {landlord.full_name},
 
-            Welcome to TenantHub! Your landlord account has been successfully created.
+            Welcome to  Makao Rentals! Your landlord account has been successfully created.
 
             Account Details:
             - Landlord Code: {landlord.landlord_code}
@@ -1173,20 +1351,10 @@ class CompleteLandlordRegistrationView(APIView):
             Login to your dashboard to get started.
 
             Best regards,
-            TenantHub Team
+            Makao Rentals Team
             """
 
-            # For now, just log the email. Integrate with your email service later.
             logger.info(f"Welcome email prepared for {landlord.email}: {subject}")
-            
-            # Uncomment to actually send email when you have email setup:
-            # send_mail(
-            #     subject=subject,
-            #     message=message,
-            #     from_email=settings.DEFAULT_FROM_EMAIL,
-            #     recipient_list=[landlord.email],
-            #     fail_silently=False,
-            # )
             
         except Exception as e:
             logger.error(f"Failed to send welcome email: {str(e)}")
