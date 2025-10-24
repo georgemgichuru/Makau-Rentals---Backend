@@ -1,7 +1,7 @@
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework import status
-from accounts.serializers import (
+from .serializers import (
     PropertySerializer,
     UnitSerializer,
     UnitNumberSerializer,
@@ -14,10 +14,7 @@ from accounts.serializers import (
 from rest_framework.permissions import IsAuthenticated
 from django.core.cache import cache
 from .models import Property, Unit, CustomUser, Subscription, UnitType
-from payments.models import Payment
 from .permissions import IsLandlord, IsTenant, IsSuperuser, HasActiveSubscription
-from communication.models import Report
-from communication.serializers import ReportSerializer
 from django.core.exceptions import ValidationError
 
 import logging
@@ -134,6 +131,7 @@ class LandlordDashboardStatsView(APIView):
         start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
         
         # Use created_at field instead of transaction_date
+        from payments.models import Payment
         monthly_revenue_agg = Payment.objects.filter(
             unit__property_obj__landlord=landlord,
             payment_type='rent',
