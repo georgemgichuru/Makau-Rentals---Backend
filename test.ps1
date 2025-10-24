@@ -20,7 +20,7 @@ $LandlordData = @{
     full_name = "Test Landlord $RandomSuffix"
     password = "TestPassword123!"
     user_type = "landlord"
-    phone_number = "254708374149"  # M-Pesa test number
+    phone_number = "254722714334"  # M-Pesa test number
     government_id = "A12345678X"
     mpesa_till_number = "123456"
 }
@@ -30,9 +30,9 @@ $TenantData = @{
     full_name = "Test Tenant $RandomSuffix"
     password = "TestPassword123!"
     user_type = "tenant"
-    phone_number = "254708374149"  # M-Pesa test number
+    phone_number = "254722714334"  # M-Pesa test number
     government_id = "B98765432Y"
-    emergency_contact = "254708374149"
+    emergency_contact = "254722714334"
 }
 
 $PropertyData = @{
@@ -719,7 +719,7 @@ try {
     Write-Host "Base URL: $BaseURL" -ForegroundColor Gray
     Write-Host "Test ID: $RandomSuffix" -ForegroundColor Gray
     Write-Host "Test emails: landlord$RandomSuffix$TestEmailDomain, tenant$RandomSuffix$TestEmailDomain" -ForegroundColor Gray
-    Write-Host "M-Pesa test number: 254708374149" -ForegroundColor Gray
+    Write-Host "M-Pesa test number: 254722714334" -ForegroundColor Gray
     Write-Host "Max callback wait time: $MaxWaitSeconds seconds" -ForegroundColor Gray
     Write-Host "`nIMPORTANT: You must complete M-Pesa payments on your phone when prompted!" -ForegroundColor Yellow
     
